@@ -1,0 +1,39 @@
+[package]
+name = "bash-gates"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Robust bash command permission gates for Claude Code"
+license = "MIT"
+
+[lib]
+name = "bash_gates"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bash-gates"
+path = "src/main.rs"
+
+[dependencies]
+# Parsing
+tree-sitter = "0.25"
+tree-sitter-bash = "0.23"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Patterns
+regex = "1"
+
+[dev-dependencies]
+proptest = "1"  # Property-based/fuzz testing
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.bench]
+lto = true
