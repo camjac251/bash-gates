@@ -1,0 +1,21 @@
+min_version: 1.11.0
+
+pre-commit:
+  parallel: true
+  commands:
+    fmt-check:
+      run: cargo fmt -- --check
+      glob: "*.rs"
+    clippy:
+      run: cargo clippy --all-targets -- -D warnings
+      glob: "*.rs"
+
+pre-push:
+  parallel: false
+  commands:
+    test:
+      run: cargo test
+    clippy:
+      run: cargo clippy --all-targets -- -D warnings
+    build:
+      run: cargo build --release
