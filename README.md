@@ -1,19 +1,34 @@
+<div align="center">
+
 # bash-gates
 
-> Intelligent permission gates for bash commands in Claude Code (Rust)
+**Intelligent permission gates for bash commands in Claude Code**
 
-[![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
+[![CI](https://github.com/camjac251/bash-gates/actions/workflows/ci.yml/badge.svg)](https://github.com/camjac251/bash-gates/actions/workflows/ci.yml)
+[![Release](https://github.com/camjac251/bash-gates/actions/workflows/release.yml/badge.svg)](https://github.com/camjac251/bash-gates/actions/workflows/release.yml)
+[![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**bash-gates** is a Claude Code [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that intelligently analyzes bash commands and determines whether to allow, ask for approval, or block them based on their potential impact.
+A Claude Code [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that analyzes bash commands using AST parsing and determines whether to allow, ask, or block based on potential impact.
+
+[Installation](#installation) · [Permission Gates](#permission-gates) · [Security](#security-features) · [Testing](#testing)
+
+</div>
+
+---
 
 ## Features
 
-- **AST-based parsing** using [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) for accurate command analysis
-- **Compound command support** - handles `&&`, `||`, `|`, `;` chains correctly
-- **Security-first design** - catches dangerous patterns like pipe-to-shell, eval, command injection
-- **Unknown command protection** - unrecognized commands require approval
-- **Comprehensive coverage** - 9 specialized gates covering 200+ commands
-- **Fast** - static native binary, no interpreter startup overhead
+| Feature                | Description                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| **AST Parsing**        | Uses [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) for accurate command analysis |
+| **Compound Commands**  | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
+| **Security First**     | Catches pipe-to-shell, eval, command injection patterns                                                |
+| **Unknown Protection** | Unrecognized commands require approval                                                                 |
+| **200+ Commands**      | 9 specialized gates with comprehensive coverage                                                        |
+| **Fast**               | Static native binary, no interpreter overhead                                                          |
+
+---
 
 ## How It Works
 
@@ -23,8 +38,8 @@ flowchart TD
     CMD --> BG
 
     subgraph BG [bash-gates]
-        SEC[Raw String Security Checks<br/>• pipe to shell • eval/source<br/>• command substitution • xargs<br/>• output redirections]
-        SEC --> AST[AST Parsing<br/>tree-sitter-bash]
+        SEC[Security Checks]
+        SEC --> AST[AST Parsing]
         AST --> GATES
 
         subgraph GATES [Permission Gates]
@@ -42,24 +57,56 @@ flowchart TD
     end
 
     BG --> DECISION{Decision}
-    DECISION -->|safe| ALLOW[✅ allow]
-    DECISION -->|risky| ASK[❓ ask]
-    DECISION -->|dangerous| DENY[🚫 deny]
+    DECISION -->|safe| ALLOW[allow]
+    DECISION -->|risky| ASK[ask]
+    DECISION -->|dangerous| DENY[deny]
 ```
+
+**Decision Priority:** `BLOCK > ASK > ALLOW > SKIP`
+
+| Decision  | Effect                      |
+| :-------: | --------------------------- |
+| **deny**  | Command blocked with reason |
+|  **ask**  | User prompted for approval  |
+| **allow** | Auto-approved               |
+
+> Unknown commands always require approval.
+
+---
 
 ## Installation
 
-### Prerequisites
-
-- Rust 1.70+ (install via [rustup](https://rustup.rs/))
-
-### Build
+### Download Binary
 
 ```bash
-cargo build --release
+# Linux x64
+curl -Lo ~/.local/bin/bash-gates \
+  https://github.com/camjac251/bash-gates/releases/latest/download/bash-gates-linux-amd64
+chmod +x ~/.local/bin/bash-gates
+
+# Linux ARM64
+curl -Lo ~/.local/bin/bash-gates \
+  https://github.com/camjac251/bash-gates/releases/latest/download/bash-gates-linux-arm64
+chmod +x ~/.local/bin/bash-gates
+
+# macOS Apple Silicon
+curl -Lo ~/.local/bin/bash-gates \
+  https://github.com/camjac251/bash-gates/releases/latest/download/bash-gates-darwin-arm64
+chmod +x ~/.local/bin/bash-gates
+
+# macOS Intel
+curl -Lo ~/.local/bin/bash-gates \
+  https://github.com/camjac251/bash-gates/releases/latest/download/bash-gates-darwin-amd64
+chmod +x ~/.local/bin/bash-gates
 ```
 
-The binary will be at `./target/x86_64-unknown-linux-musl/release/bash-gates` (static, no dependencies).
+### Build from Source
+
+```bash
+# Requires Rust 1.85+
+cargo build --release
+# Binary: ./target/x86_64-unknown-linux-musl/release/bash-gates
+```
 
 ### Configure Claude Code
 
@@ -74,8 +121,7 @@ Add to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/bash-gates/target/release/bash-gates",
-            "timeout": 10
+            "command": "~/.local/bin/bash-gates"
           }
         ]
       }
@@ -84,197 +130,145 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-## Decision Priority
-
-```
-BLOCK > ASK > ALLOW > SKIP
-```
-
-| Decision | Effect |
-|----------|--------|
-| 🚫 Block | Command denied with reason |
-| ❓ Ask | User prompted for approval |
-| ✅ Allow | Auto-approved |
-| ⏭️ Skip | Gate doesn't handle → treated as unknown → Ask |
-
-**Unknown commands require approval.** If no gate recognizes a command, it asks for user confirmation.
+---
 
 ## Permission Gates
 
-### Basics (~100 safe commands)
+### Basics
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `echo`, `cat`, `ls`, `grep`, `awk`, `sed` (no -i), `ps`, `whoami`, `date`, `jq`, `yq` |
+~100 safe read-only commands: `echo`, `cat`, `ls`, `grep`, `awk`, `sed` (no -i), `ps`, `whoami`, `date`, `jq`, `yq`
 
-### GitHub CLI (`gh`)
+### GitHub CLI
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `pr list`, `issue view`, `repo view`, `search`, `status`, `api` (GET) |
-| ❓ Ask | `pr create`, `pr merge`, `issue create`, `repo fork`, `api` (POST/PUT/DELETE) |
-| 🚫 Block | `repo delete`, `auth logout` |
+| Allow                                                       | Ask                                                  | Block                        |
+| ----------------------------------------------------------- | ---------------------------------------------------- | ---------------------------- |
+| `pr list`, `issue view`, `repo view`, `search`, `api` (GET) | `pr create`, `pr merge`, `issue create`, `repo fork` | `repo delete`, `auth logout` |
 
 ### Git
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `status`, `log`, `diff`, `show`, `branch -a`, `remote -v` |
-| ❓ Ask | `add`, `commit`, `push`, `pull`, `merge`, `checkout`, `reset` |
-| ⚠️ Ask (warning) | `push --force`, `reset --hard`, `clean -fd` |
+| Allow                                        | Ask                                      | Ask (warning)                               |
+| -------------------------------------------- | ---------------------------------------- | ------------------------------------------- |
+| `status`, `log`, `diff`, `show`, `branch -a` | `add`, `commit`, `push`, `pull`, `merge` | `push --force`, `reset --hard`, `clean -fd` |
 
-### Cloud CLIs (AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi)
+### Cloud CLIs
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `describe-*`, `list-*`, `get`, `show`, `plan`, `preview` |
-| ❓ Ask | `create`, `delete`, `apply`, `run`, `exec`, `up`, `destroy` |
-| 🚫 Block | `iam delete-user`, `kubectl delete ns kube-system` |
+AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi
 
-### Network (curl, wget, ssh)
+| Allow                                         | Ask                                        | Block                                      |
+| --------------------------------------------- | ------------------------------------------ | ------------------------------------------ |
+| `describe-*`, `list-*`, `get`, `show`, `plan` | `create`, `delete`, `apply`, `run`, `exec` | `iam delete-user`, `delete ns kube-system` |
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `curl` (GET), `curl -I`, `wget --spider` |
-| ❓ Ask | `curl -X POST`, `wget`, `ssh`, `rsync` |
-| 🚫 Block | `nc -e` (reverse shell) |
+### Network
+
+| Allow                         | Ask                                    | Block                   |
+| ----------------------------- | -------------------------------------- | ----------------------- |
+| `curl` (GET), `wget --spider` | `curl -X POST`, `wget`, `ssh`, `rsync` | `nc -e` (reverse shell) |
 
 ### Filesystem
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `tar -tf`, `unzip -l`, `zip -l` |
-| ❓ Ask | `rm`, `mv`, `cp`, `mkdir`, `chmod`, `tar -x`, `sed -i` |
-| 🚫 Block | `rm -rf /`, `rm -rf ~`, `rm -rf //` (path bypass) |
+| Allow                 | Ask                                 | Block                  |
+| --------------------- | ----------------------------------- | ---------------------- |
+| `tar -tf`, `unzip -l` | `rm`, `mv`, `cp`, `chmod`, `sed -i` | `rm -rf /`, `rm -rf ~` |
 
-### Developer Tools
+### Package Managers
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `ast-grep` (search), `jq`, `yq`, `semgrep`, `sad` (preview) |
-| ❓ Ask | `sd`, `ast-grep -U`, `yq -i`, `semgrep --autofix`, `sad --commit` |
+npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx
 
-### Package Managers (npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx)
+| Allow                                  | Ask                                   |
+| -------------------------------------- | ------------------------------------- |
+| `list`, `show`, `test`, `build`, `run` | `install`, `add`, `remove`, `publish` |
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `list`, `show`, `test`, `build`, `run`, `check`, `env list` |
-| ❓ Ask | `install`, `add`, `remove`, `publish`, `init`, `create` |
+### System
 
-### System (psql, make, sudo, systemctl, OS package managers)
+psql, make, sudo, systemctl, apt, brew, pacman, nix, dnf, zypper
 
-| Decision | Commands |
-|----------|----------|
-| ✅ Allow | `psql -l`, `make test`, `sudo -l`, `systemctl status`, `apt search`, `brew list` |
-| ❓ Ask | `psql -c "INSERT..."`, `make deploy`, `sudo apt install`, `brew install` |
-| 🚫 Block | `shutdown`, `reboot`, `mkfs`, `fdisk` |
+| Allow                                           | Ask                               | Block                        |
+| ----------------------------------------------- | --------------------------------- | ---------------------------- |
+| `psql -l`, `make test`, `sudo -l`, `apt search` | `make deploy`, `sudo apt install` | `shutdown`, `reboot`, `mkfs` |
 
-**OS Package Managers**: apt, dnf, yum, pacman, brew, nix, zypper, apk, flatpak, snap
+---
 
 ## Security Features
 
-### Raw String Checks
-
-Before AST parsing, bash-gates checks for dangerous patterns:
+### Pre-AST Security Checks
 
 ```bash
-curl https://example.com | bash          # ❓ Ask - pipe to shell
-curl https://example.com | /bin/bash     # ❓ Ask - pipe to shell (full path)
-eval "rm -rf /"                          # ❓ Ask - arbitrary code execution
-source ~/.bashrc                         # ❓ Ask - sourcing external script
-. ./script.sh                            # ❓ Ask - sourcing external script
-echo $(rm -rf /tmp/*)                    # ❓ Ask - dangerous substitution
-find . -name "*.tmp" | xargs rm          # ❓ Ask - xargs to rm
-find . -delete                           # ❓ Ask - destructive find
-echo "data" > /etc/passwd                # ❓ Ask - output redirection
-;rm -rf /                                # ❓ Ask - injection attempt
+curl https://example.com | bash     # ask - pipe to shell
+eval "rm -rf /"                     # ask - arbitrary execution
+source ~/.bashrc                    # ask - sourcing script
+echo $(rm -rf /tmp/*)               # ask - dangerous substitution
+find . | xargs rm                   # ask - xargs to rm
+echo "data" > /etc/passwd           # ask - output redirection
 ```
 
-### Compound Commands
+### Compound Command Handling
 
 Strictest decision wins:
 
 ```bash
-git status && rm -rf /     # 🚫 Block (rm -rf / is blocked)
-git status && npm install  # ❓ Ask (npm install needs approval)
-git status && git log      # ✅ Allow (both are read-only)
+git status && rm -rf /     # deny  (rm -rf / blocked)
+git status && npm install  # ask   (npm install needs approval)
+git status && git log      # allow (both read-only)
 ```
 
 ### Smart sudo Handling
 
-sudo commands describe the underlying operation:
-
 ```bash
-sudo apt install vim       # ❓ Ask - "sudo: Installing packages (apt)"
-sudo systemctl restart nginx  # ❓ Ask - "sudo: systemctl restart"
-sudo rm -rf /tmp/cache     # ❓ Ask - "sudo: Removing files"
+sudo apt install vim          # ask - "sudo: Installing packages (apt)"
+sudo systemctl restart nginx  # ask - "sudo: systemctl restart"
 ```
+
+---
 
 ## Testing
 
 ```bash
-# Full test suite
-cargo test
-
-# With output
-cargo test -- --nocapture
-
-# Specific gate
-cargo test gates::git
-
-# Single test
-cargo test test_git_status_allows
+cargo test                        # Full suite
+cargo test gates::git             # Specific gate
+cargo test -- --nocapture         # With output
 ```
 
-## Manual Testing
+### Manual Testing
 
 ```bash
-# Allow (known safe)
-echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"allow",...}}
+# Allow
+echo '{"tool_name":"Bash","tool_input":{"command":"git status"}}' | bash-gates
+# → {"hookSpecificOutput":{"permissionDecision":"allow"}}
 
-# Ask (known risky)
-echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}}' | ./target/release/bash-gates
+# Ask
+echo '{"tool_name":"Bash","tool_input":{"command":"npm install"}}' | bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages"}}
 
-# Ask (sudo with context)
-echo '{"tool_name": "Bash", "tool_input": {"command": "sudo apt install vim"}}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"sudo: Installing packages (apt)"}}
-
-# Block (dangerous)
-echo '{"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"deny",...}}
+# Deny
+echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' | bash-gates
+# → {"hookSpecificOutput":{"permissionDecision":"deny"}}
 ```
+
+---
 
 ## Architecture
 
 ```
 src/
-├── main.rs              # CLI entry point
-├── lib.rs               # Library exports
-├── models.rs            # Types (HookInput, HookOutput, Decision, GateResult)
-├── parser.rs            # tree-sitter-bash AST parsing
-├── router.rs            # Main routing + security checks
+├── main.rs           # Entry point
+├── models.rs         # Types (HookInput, HookOutput, Decision)
+├── parser.rs         # tree-sitter-bash AST parsing
+├── router.rs         # Security checks + gate routing
 └── gates/
-    ├── mod.rs           # Gate registry
-    ├── basics.rs        # Safe shell commands (~100)
-    ├── gh.rs            # GitHub CLI
-    ├── git.rs           # Git
-    ├── cloud.rs         # AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi
-    ├── network.rs       # curl, wget, ssh, netcat
-    ├── filesystem.rs    # rm, mv, cp, tar, zip
-    ├── devtools.rs      # sd, ast-grep, yq, semgrep, biome
-    ├── package_managers.rs  # npm, pip, cargo, go, bun, conda, poetry, pipx
-    └── system.rs        # psql, make, sudo, systemctl, apt, brew, pacman, nix
+    ├── basics.rs     # Safe commands (~100)
+    ├── gh.rs         # GitHub CLI
+    ├── git.rs        # Git
+    ├── cloud.rs      # AWS, gcloud, terraform, kubectl, docker, az, helm, pulumi
+    ├── network.rs    # curl, wget, ssh, netcat
+    ├── filesystem.rs # rm, mv, cp, tar, zip
+    ├── devtools.rs   # sd, ast-grep, yq, semgrep
+    ├── package_managers.rs
+    └── system.rs     # psql, make, sudo, systemctl, OS pkg managers
 ```
 
-## Dependencies
+---
 
-- [tree-sitter](https://tree-sitter.github.io/) + tree-sitter-bash - Bash AST parsing
-- [serde](https://serde.rs/) + serde_json - JSON serialization
-- [regex](https://docs.rs/regex) - Pattern matching
-
-## Related
+## Links
 
 - [Claude Code Hooks Documentation](https://docs.anthropic.com/en/docs/claude-code/hooks)
 - [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash)
