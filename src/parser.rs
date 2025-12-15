@@ -494,6 +494,17 @@ mod tests {
         use super::*;
         use proptest::prelude::*;
 
+        // Shell keywords that tree-sitter parses as statements, not commands
+        const SHELL_KEYWORDS: &[&str] = &[
+            "if", "then", "else", "elif", "fi", "case", "esac", "for", "while", "until", "do",
+            "done", "in", "function", "select", "time", "coproc",
+        ];
+
+        #[allow(clippy::ptr_arg)]
+        fn is_not_shell_keyword(s: &String) -> bool {
+            !SHELL_KEYWORDS.contains(&s.as_str())
+        }
+
         proptest! {
             #![proptest_config(ProptestConfig::with_cases(500))]
 
@@ -505,7 +516,7 @@ mod tests {
 
             #[test]
             fn valid_commands_parse_correctly(
-                program in "[a-z]{1,10}",
+                program in "[a-z]{1,10}".prop_filter("not a shell keyword", is_not_shell_keyword),
                 args in prop::collection::vec("[a-zA-Z0-9_\\-]{1,20}", 0..10)
             ) {
                 let cmd = if args.is_empty() {
