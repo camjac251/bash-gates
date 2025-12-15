@@ -524,7 +524,7 @@ mod tests {
                 count in 1usize..20
             ) {
                 let cmd = format!("echo a {} echo b",
-                    std::iter::repeat(op).take(count).collect::<Vec<_>>().join(" echo x "));
+                    std::iter::repeat_n(op, count).collect::<Vec<_>>().join(" echo x "));
                 let _ = extract_commands(&cmd);
             }
 
@@ -554,10 +554,10 @@ mod tests {
                 let cmd = (0..count)
                     .map(|i| format!("cmd{i} arg{i}"))
                     .collect::<Vec<_>>()
-                    .join(&sep);
+                    .join(sep);
                 let cmds = extract_commands(&cmd);
                 // Should parse without crashing
-                prop_assert!(cmds.len() >= 1);
+                prop_assert!(!cmds.is_empty());
             }
 
             #[test]
