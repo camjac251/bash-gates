@@ -9,7 +9,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A Claude Code [PreToolUse hook](https://docs.anthropic.com/en/docs/claude-code/hooks) that analyzes bash commands using AST parsing and determines whether to allow, ask, or block based on potential impact.
+A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse) that analyzes bash commands using AST parsing and determines whether to allow, ask, or block based on potential impact.
 
 [Installation](#installation) · [Permission Gates](#permission-gates) · [Security](#security-features) · [Testing](#testing)
 
@@ -270,5 +270,5 @@ src/
 
 ## Links
 
-- [Claude Code Hooks Documentation](https://docs.anthropic.com/en/docs/claude-code/hooks)
+- [Claude Code Hooks Documentation](https://code.claude.com/docs/en/hooks)
 - [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash)
