@@ -238,8 +238,11 @@ static CARGO_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     .collect()
 });
 
-static CARGO_SAFE_LOCAL: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| ["build", "run", "test", "bench", "fmt", "clean"].into_iter().collect());
+static CARGO_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    ["build", "run", "test", "bench", "fmt", "clean"]
+        .into_iter()
+        .collect()
+});
 
 static CARGO_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
     [
@@ -264,13 +267,18 @@ static CARGO_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
 // =============================================================================
 
 static GO_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["list", "doc", "env", "version", "vet", "help", "-h", "--help"]
+    [
+        "list", "doc", "env", "version", "vet", "help", "-h", "--help",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static GO_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    ["build", "run", "test", "fmt", "clean"]
         .into_iter()
         .collect()
 });
-
-static GO_SAFE_LOCAL: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| ["build", "run", "test", "fmt", "clean"].into_iter().collect());
 
 static GO_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
     [
@@ -284,15 +292,21 @@ static GO_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
     .collect()
 });
 
-static GO_MOD_SAFE: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| ["graph", "verify", "why", "tidy", "download"].into_iter().collect());
+static GO_MOD_SAFE: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    ["graph", "verify", "why", "tidy", "download"]
+        .into_iter()
+        .collect()
+});
 
 // =============================================================================
 // BUN
 // =============================================================================
 
-static BUN_READ: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| ["pm", "-v", "--version", "-h", "--help"].into_iter().collect());
+static BUN_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    ["pm", "-v", "--version", "-h", "--help"]
+        .into_iter()
+        .collect()
+});
 
 static BUN_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
@@ -376,8 +390,11 @@ static POETRY_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
 // PIPX
 // =============================================================================
 
-static PIPX_READ: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| ["list", "environment", "--version", "--help"].into_iter().collect());
+static PIPX_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    ["list", "environment", "--version", "--help"]
+        .into_iter()
+        .collect()
+});
 
 static PIPX_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
     [
