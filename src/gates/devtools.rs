@@ -301,7 +301,14 @@ mod tests {
     fn test_watchexec_asks() {
         let result = check_devtools(&cmd("watchexec", &["-e", "rs", "cargo", "test"]));
         assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().to_lowercase().contains("commands"));
+        assert!(
+            result
+                .reason
+                .as_ref()
+                .unwrap()
+                .to_lowercase()
+                .contains("commands")
+        );
     }
 
     // === biome ===

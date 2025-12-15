@@ -445,7 +445,12 @@ mod tests {
         // Edge case: just operators, no commands
         let cmds = extract_commands("&& || ;");
         // Should handle gracefully, might be empty
-        assert!(cmds.is_empty() || cmds.iter().all(|c| c.program.is_empty() || c.program == "&&" || c.program == "||"));
+        assert!(
+            cmds.is_empty()
+                || cmds
+                    .iter()
+                    .all(|c| c.program.is_empty() || c.program == "&&" || c.program == "||")
+        );
     }
 
     #[test]

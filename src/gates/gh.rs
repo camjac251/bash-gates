@@ -1,8 +1,8 @@
 //! GitHub CLI (gh) permission gate.
 
 use crate::models::{CommandInfo, GateResult};
-use std::sync::LazyLock;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 /// Commands that are always blocked
 static BLOCKED_COMMANDS: LazyLock<HashMap<(&str, &str), &str>> = LazyLock::new(|| {
@@ -207,7 +207,11 @@ pub fn check_gh(cmd: &CommandInfo) -> GateResult {
     }
 
     // Build command tuple for lookup
-    let cmd_key: Vec<&str> = args.iter().take(2).map(std::string::String::as_str).collect();
+    let cmd_key: Vec<&str> = args
+        .iter()
+        .take(2)
+        .map(std::string::String::as_str)
+        .collect();
 
     // Check blocked commands
     if cmd_key.len() >= 2 {
@@ -364,7 +368,10 @@ mod tests {
     #[test]
     fn test_blocked_commands() {
         let blocked_cmds = [
-            (&["repo", "delete", "owner/repo"][..], "Deleting repositories"),
+            (
+                &["repo", "delete", "owner/repo"][..],
+                "Deleting repositories",
+            ),
             (&["auth", "logout"], "Logging out"),
         ];
 

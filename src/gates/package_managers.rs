@@ -1,8 +1,8 @@
 //! Package manager permission gates (npm, pnpm, yarn, pip, uv, cargo, go, conda).
 
 use crate::models::{CommandInfo, GateResult};
-use std::sync::LazyLock;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 /// Check package manager commands.
 pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
@@ -26,9 +26,34 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
 
 static NPM_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
-        "list", "ls", "ll", "la", "view", "show", "info", "search", "help", "config", "get",
-        "prefix", "root", "bin", "whoami", "token", "team", "outdated", "doctor", "explain", "why",
-        "fund", "audit", "query", "-v", "--version", "-h", "--help",
+        "list",
+        "ls",
+        "ll",
+        "la",
+        "view",
+        "show",
+        "info",
+        "search",
+        "help",
+        "config",
+        "get",
+        "prefix",
+        "root",
+        "bin",
+        "whoami",
+        "token",
+        "team",
+        "outdated",
+        "doctor",
+        "explain",
+        "why",
+        "fund",
+        "audit",
+        "query",
+        "-v",
+        "--version",
+        "-h",
+        "--help",
     ]
     .into_iter()
     .collect()
@@ -116,12 +141,32 @@ fn check_pnpm(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = ["list", "ls", "ll", "why", "outdated", "audit", "-v", "--version", "-h", "--help"]
-        .into_iter()
-        .collect();
+    let read_cmds: HashSet<&str> = [
+        "list",
+        "ls",
+        "ll",
+        "why",
+        "outdated",
+        "audit",
+        "-v",
+        "--version",
+        "-h",
+        "--help",
+    ]
+    .into_iter()
+    .collect();
 
     let safe_local: HashSet<&str> = [
-        "run", "start", "test", "build", "dev", "lint", "check", "typecheck", "format", "tsc",
+        "run",
+        "start",
+        "test",
+        "build",
+        "dev",
+        "lint",
+        "check",
+        "typecheck",
+        "format",
+        "tsc",
         "exec",
     ]
     .into_iter()
@@ -171,12 +216,32 @@ fn check_yarn(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = ["list", "info", "why", "outdated", "audit", "config", "-v", "--version", "-h", "--help"]
-        .into_iter()
-        .collect();
+    let read_cmds: HashSet<&str> = [
+        "list",
+        "info",
+        "why",
+        "outdated",
+        "audit",
+        "config",
+        "-v",
+        "--version",
+        "-h",
+        "--help",
+    ]
+    .into_iter()
+    .collect();
 
     let safe_local: HashSet<&str> = [
-        "run", "start", "test", "build", "dev", "lint", "check", "typecheck", "format", "exec",
+        "run",
+        "start",
+        "test",
+        "build",
+        "dev",
+        "lint",
+        "check",
+        "typecheck",
+        "format",
+        "exec",
     ]
     .into_iter()
     .collect();
@@ -222,8 +287,19 @@ fn check_pip(cmd: &CommandInfo) -> GateResult {
     let subcmd = args[0].as_str();
 
     let read_cmds: HashSet<&str> = [
-        "list", "show", "freeze", "check", "search", "index", "config", "cache", "debug", "-V",
-        "--version", "-h", "--help",
+        "list",
+        "show",
+        "freeze",
+        "check",
+        "search",
+        "index",
+        "config",
+        "cache",
+        "debug",
+        "-V",
+        "--version",
+        "-h",
+        "--help",
     ]
     .into_iter()
     .collect();
@@ -376,9 +452,11 @@ fn check_go(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = ["list", "doc", "env", "version", "vet", "help", "-h", "--help"]
-        .into_iter()
-        .collect();
+    let read_cmds: HashSet<&str> = [
+        "list", "doc", "env", "version", "vet", "help", "-h", "--help",
+    ]
+    .into_iter()
+    .collect();
 
     let safe_local: HashSet<&str> = ["build", "run", "test", "fmt", "clean"]
         .into_iter()
@@ -432,7 +510,15 @@ fn check_bun(cmd: &CommandInfo) -> GateResult {
         .collect();
 
     let safe_local: HashSet<&str> = [
-        "run", "test", "build", "dev", "start", "lint", "check", "typecheck", "format",
+        "run",
+        "test",
+        "build",
+        "dev",
+        "start",
+        "lint",
+        "check",
+        "typecheck",
+        "format",
     ]
     .into_iter()
     .collect();
@@ -470,8 +556,19 @@ fn check_bun(cmd: &CommandInfo) -> GateResult {
 /// Conda/Mamba read-only commands
 static CONDA_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
-        "info", "list", "search", "config", "env", "package", "--version", "-V",
-        "--help", "-h", "doctor", "notices", "compare",
+        "info",
+        "list",
+        "search",
+        "config",
+        "env",
+        "package",
+        "--version",
+        "-V",
+        "--help",
+        "-h",
+        "doctor",
+        "notices",
+        "compare",
     ]
     .into_iter()
     .collect()
@@ -541,15 +638,22 @@ fn check_poetry(cmd: &CommandInfo) -> GateResult {
     let subcmd = args[0].as_str();
 
     let read_cmds: HashSet<&str> = [
-        "show", "search", "check", "config", "env", "version", "about",
-        "--version", "-V", "--help", "-h",
+        "show",
+        "search",
+        "check",
+        "config",
+        "env",
+        "version",
+        "about",
+        "--version",
+        "-V",
+        "--help",
+        "-h",
     ]
     .into_iter()
     .collect();
 
-    let safe_local: HashSet<&str> = ["run", "shell", "build", "lock"]
-        .into_iter()
-        .collect();
+    let safe_local: HashSet<&str> = ["run", "shell", "build", "lock"].into_iter().collect();
 
     let write_cmds: HashMap<&str, &str> = [
         ("install", "Installing dependencies"),
@@ -589,11 +693,9 @@ fn check_pipx(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = [
-        "list", "environment", "--version", "--help",
-    ]
-    .into_iter()
-    .collect();
+    let read_cmds: HashSet<&str> = ["list", "environment", "--version", "--help"]
+        .into_iter()
+        .collect();
 
     let write_cmds: HashMap<&str, &str> = [
         ("install", "Installing application"),
@@ -680,7 +782,10 @@ mod tests {
             for (args, expected) in risky_cmds {
                 let result = check_package_managers(&cmd("npm", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -720,7 +825,10 @@ mod tests {
             for (args, expected) in risky_cmds {
                 let result = check_package_managers(&cmd("pnpm", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -788,7 +896,10 @@ mod tests {
             for (args, expected) in risky_cmds {
                 let result = check_package_managers(&cmd("pip", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -827,7 +938,10 @@ mod tests {
             for (args, expected) in risky_cmds {
                 let result = check_package_managers(&cmd("uv", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -867,7 +981,10 @@ mod tests {
             for (args, expected) in risky_cmds {
                 let result = check_package_managers(&cmd("cargo", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -907,7 +1024,10 @@ mod tests {
             for (args, expected) in risky_cmds {
                 let result = check_package_managers(&cmd("go", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -943,7 +1063,10 @@ mod tests {
             for (args, expected) in risky_cmds {
                 let result = check_package_managers(&cmd("bun", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }

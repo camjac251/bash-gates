@@ -193,7 +193,14 @@ mod tests {
             for args in ["/", "/*", "~", "~/"] {
                 let result = check_filesystem(&cmd("rm", &["-rf", args]));
                 assert_eq!(result.decision, Decision::Block, "Failed for: {args}");
-                assert!(result.reason.as_ref().unwrap().to_lowercase().contains("catastrophic"));
+                assert!(
+                    result
+                        .reason
+                        .as_ref()
+                        .unwrap()
+                        .to_lowercase()
+                        .contains("catastrophic")
+                );
             }
         }
 
@@ -212,14 +219,22 @@ mod tests {
         #[test]
         fn test_path_bypass_trailing_slash_blocks() {
             let result = check_filesystem(&cmd("rm", &["-rf", "//./"]));
-            assert_eq!(result.decision, Decision::Block, "//./  should normalize to /");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "//./  should normalize to /"
+            );
         }
 
         #[test]
         fn test_path_traversal_blocks() {
             for path in ["/home/..", "/tmp/../..", "/var/log/../../.."] {
                 let result = check_filesystem(&cmd("rm", &["-rf", path]));
-                assert_eq!(result.decision, Decision::Block, "Path traversal {path} should block");
+                assert_eq!(
+                    result.decision,
+                    Decision::Block,
+                    "Path traversal {path} should block"
+                );
             }
         }
 
@@ -274,7 +289,13 @@ mod tests {
     fn test_mkdir_asks() {
         let result = check_filesystem(&cmd("mkdir", &["new_dir"]));
         assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().contains("Creating directory"));
+        assert!(
+            result
+                .reason
+                .as_ref()
+                .unwrap()
+                .contains("Creating directory")
+        );
     }
 
     #[test]
@@ -287,7 +308,14 @@ mod tests {
     fn test_ln_asks() {
         let result = check_filesystem(&cmd("ln", &["-s", "target", "link"]));
         assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().to_lowercase().contains("link"));
+        assert!(
+            result
+                .reason
+                .as_ref()
+                .unwrap()
+                .to_lowercase()
+                .contains("link")
+        );
     }
 
     // === Permission commands ===
@@ -297,7 +325,14 @@ mod tests {
         for program in ["chmod", "chown", "chgrp"] {
             let result = check_filesystem(&cmd(program, &["755", "file.txt"]));
             assert_eq!(result.decision, Decision::Ask, "Failed for: {program}");
-            assert!(result.reason.as_ref().unwrap().to_lowercase().contains("permission"));
+            assert!(
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains("permission")
+            );
         }
     }
 

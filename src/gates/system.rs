@@ -1,8 +1,8 @@
 //! System command permission gates (database, process, build, sudo, OS packages).
 
 use crate::models::{CommandInfo, GateResult};
-use std::sync::LazyLock;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 /// Check system-level commands.
 pub fn check_system(cmd: &CommandInfo) -> GateResult {
@@ -167,9 +167,10 @@ fn check_make(cmd: &CommandInfo) -> GateResult {
     let args = &cmd.args;
 
     // Dry run is safe
-    if args.iter().any(|a| {
-        a == "-n" || a == "--dry-run" || a == "--just-print" || a == "--recon"
-    }) {
+    if args
+        .iter()
+        .any(|a| a == "-n" || a == "--dry-run" || a == "--just-print" || a == "--recon")
+    {
         return GateResult::allow();
     }
 
@@ -185,8 +186,19 @@ fn check_make(cmd: &CommandInfo) -> GateResult {
 
     // Common safe targets
     let safe_targets: HashSet<&str> = [
-        "test", "tests", "check", "lint", "build", "all", "clean", "format", "fmt", "typecheck",
-        "dev", "run", "help",
+        "test",
+        "tests",
+        "check",
+        "lint",
+        "build",
+        "all",
+        "clean",
+        "format",
+        "fmt",
+        "typecheck",
+        "dev",
+        "run",
+        "help",
     ]
     .into_iter()
     .collect();
@@ -206,7 +218,9 @@ fn check_make(cmd: &CommandInfo) -> GateResult {
 
 /// Sudo flags that take a value (skip flag + value to find command)
 static SUDO_FLAGS_WITH_VALUE: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["-u", "-g", "-p", "-r", "-t", "-C", "-D", "-h", "-U"].into_iter().collect()
+    ["-u", "-g", "-p", "-r", "-t", "-C", "-D", "-h", "-U"]
+        .into_iter()
+        .collect()
 });
 
 /// Extract the underlying command from sudo args
@@ -222,7 +236,10 @@ fn extract_sudo_command(args: &[String]) -> Option<(&str, &[String])> {
         }
 
         // Combined form like -u=root
-        if SUDO_FLAGS_WITH_VALUE.iter().any(|f| arg.starts_with(&format!("{f}="))) {
+        if SUDO_FLAGS_WITH_VALUE
+            .iter()
+            .any(|f| arg.starts_with(&format!("{f}=")))
+        {
             i += 1;
             continue;
         }
@@ -248,7 +265,9 @@ fn describe_sudo_command(program: &str, args: &[String]) -> String {
                 "install" => "Installing packages (apt)".to_string(),
                 "remove" | "purge" => "Removing packages (apt)".to_string(),
                 "update" => "Updating package lists (apt)".to_string(),
-                "upgrade" | "dist-upgrade" | "full-upgrade" => "Upgrading packages (apt)".to_string(),
+                "upgrade" | "dist-upgrade" | "full-upgrade" => {
+                    "Upgrading packages (apt)".to_string()
+                }
                 "autoremove" => "Removing unused packages (apt)".to_string(),
                 _ => format!("apt {action}"),
             }
@@ -264,10 +283,15 @@ fn describe_sudo_command(program: &str, args: &[String]) -> String {
         }
         "pacman" => {
             let action = args.first().map(String::as_str).unwrap_or("");
-            if action.contains('S') { "Installing/syncing packages (pacman)".to_string() }
-            else if action.contains('R') { "Removing packages (pacman)".to_string() }
-            else if action.contains('U') { "Upgrading packages (pacman)".to_string() }
-            else { format!("pacman {action}") }
+            if action.contains('S') {
+                "Installing/syncing packages (pacman)".to_string()
+            } else if action.contains('R') {
+                "Removing packages (pacman)".to_string()
+            } else if action.contains('U') {
+                "Upgrading packages (pacman)".to_string()
+            } else {
+                format!("pacman {action}")
+            }
         }
         "systemctl" => {
             let action = args.first().map(String::as_str).unwrap_or("operation");
@@ -322,9 +346,27 @@ fn check_sudo(cmd: &CommandInfo) -> GateResult {
 /// APT read-only commands
 static APT_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
-        "list", "search", "show", "showpkg", "depends", "rdepends", "policy",
-        "madison", "pkgnames", "dotty", "xvcg", "stats", "dump", "dumpavail",
-        "showsrc", "changelog", "download", "--version", "-v", "--help", "-h",
+        "list",
+        "search",
+        "show",
+        "showpkg",
+        "depends",
+        "rdepends",
+        "policy",
+        "madison",
+        "pkgnames",
+        "dotty",
+        "xvcg",
+        "stats",
+        "dump",
+        "dumpavail",
+        "showsrc",
+        "changelog",
+        "download",
+        "--version",
+        "-v",
+        "--help",
+        "-h",
     ]
     .into_iter()
     .collect()
@@ -381,9 +423,23 @@ fn check_apt(cmd: &CommandInfo) -> GateResult {
 /// DNF/YUM read-only commands
 static DNF_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
-        "list", "info", "search", "provides", "whatprovides", "repolist",
-        "repoinfo", "repoquery", "deplist", "check", "check-update",
-        "history", "alias", "--version", "-v", "--help", "-h",
+        "list",
+        "info",
+        "search",
+        "provides",
+        "whatprovides",
+        "repolist",
+        "repoinfo",
+        "repoquery",
+        "deplist",
+        "check",
+        "check-update",
+        "history",
+        "alias",
+        "--version",
+        "-v",
+        "--help",
+        "-h",
     ]
     .into_iter()
     .collect()
@@ -491,9 +547,27 @@ fn check_pacman(cmd: &CommandInfo) -> GateResult {
 /// Homebrew read-only commands
 static BREW_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
-        "list", "ls", "search", "info", "home", "homepage", "deps", "uses",
-        "leaves", "outdated", "config", "doctor", "commands", "desc",
-        "--version", "-v", "--help", "-h", "cat", "formula", "cask",
+        "list",
+        "ls",
+        "search",
+        "info",
+        "home",
+        "homepage",
+        "deps",
+        "uses",
+        "leaves",
+        "outdated",
+        "config",
+        "doctor",
+        "commands",
+        "desc",
+        "--version",
+        "-v",
+        "--help",
+        "-h",
+        "cat",
+        "formula",
+        "cask",
     ]
     .into_iter()
     .collect()
@@ -552,9 +626,26 @@ fn check_zypper(cmd: &CommandInfo) -> GateResult {
     let subcmd = args[0].as_str();
 
     let read_cmds: HashSet<&str> = [
-        "search", "se", "info", "if", "list-updates", "lu", "packages", "pa",
-        "patterns", "pt", "products", "pd", "repos", "lr", "services", "ls",
-        "--version", "-V", "--help", "-h",
+        "search",
+        "se",
+        "info",
+        "if",
+        "list-updates",
+        "lu",
+        "packages",
+        "pa",
+        "patterns",
+        "pt",
+        "products",
+        "pd",
+        "repos",
+        "lr",
+        "services",
+        "ls",
+        "--version",
+        "-V",
+        "--help",
+        "-h",
     ]
     .into_iter()
     .collect();
@@ -601,8 +692,17 @@ fn check_apk(cmd: &CommandInfo) -> GateResult {
     let subcmd = args[0].as_str();
 
     let read_cmds: HashSet<&str> = [
-        "info", "list", "search", "dot", "policy", "stats", "audit",
-        "--version", "-V", "--help", "-h",
+        "info",
+        "list",
+        "search",
+        "dot",
+        "policy",
+        "stats",
+        "audit",
+        "--version",
+        "-V",
+        "--help",
+        "-h",
     ]
     .into_iter()
     .collect();
@@ -668,8 +768,18 @@ fn check_nix(cmd: &CommandInfo) -> GateResult {
 
     // Modern nix command
     let read_cmds: HashSet<&str> = [
-        "search", "show", "eval", "repl", "flake", "path-info", "derivation",
-        "store", "log", "why-depends", "--version", "--help",
+        "search",
+        "show",
+        "eval",
+        "repl",
+        "flake",
+        "path-info",
+        "derivation",
+        "store",
+        "log",
+        "why-depends",
+        "--version",
+        "--help",
     ]
     .into_iter()
     .collect();
@@ -709,8 +819,14 @@ fn check_flatpak_snap(cmd: &CommandInfo) -> GateResult {
     let subcmd = args[0].as_str();
 
     let read_cmds: HashSet<&str> = [
-        "list", "info", "search", "remote-ls", "remotes", "history",
-        "--version", "--help",
+        "list",
+        "info",
+        "search",
+        "remote-ls",
+        "remotes",
+        "history",
+        "--version",
+        "--help",
     ]
     .into_iter()
     .collect();
@@ -983,7 +1099,10 @@ mod tests {
             for program in ["kill", "pkill", "killall"] {
                 let result = check_system(&cmd(program, &["1234"]));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {program}");
-                assert!(result.reason.as_ref().unwrap().contains("Terminating"), "Failed for: {program}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains("Terminating"),
+                    "Failed for: {program}"
+                );
             }
         }
     }
@@ -1014,7 +1133,10 @@ mod tests {
             for target in ["deploy", "install", "release", "publish"] {
                 let result = check_system(&cmd("make", &[target]));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {target}");
-                assert!(result.reason.as_ref().unwrap().contains(target), "Failed for: {target}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(target),
+                    "Failed for: {target}"
+                );
             }
         }
     }
@@ -1037,14 +1159,29 @@ mod tests {
             let result = check_system(&cmd("sudo", &["apt", "install", "vim"]));
             assert_eq!(result.decision, Decision::Ask);
             // Should describe the underlying command
-            assert!(result.reason.as_ref().unwrap().contains("Installing packages"));
+            assert!(
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .contains("Installing packages")
+            );
         }
 
         #[test]
         fn test_sudo_with_flags_describes_command() {
-            let result = check_system(&cmd("sudo", &["-u", "root", "systemctl", "restart", "nginx"]));
+            let result = check_system(&cmd(
+                "sudo",
+                &["-u", "root", "systemctl", "restart", "nginx"],
+            ));
             assert_eq!(result.decision, Decision::Ask);
-            assert!(result.reason.as_ref().unwrap().contains("systemctl restart"));
+            assert!(
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .contains("systemctl restart")
+            );
         }
 
         #[test]
@@ -1058,7 +1195,13 @@ mod tests {
         fn test_doas_works_like_sudo() {
             let result = check_system(&cmd("doas", &["apt", "install", "vim"]));
             assert_eq!(result.decision, Decision::Ask);
-            assert!(result.reason.as_ref().unwrap().contains("Installing packages"));
+            assert!(
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .contains("Installing packages")
+            );
         }
     }
 
@@ -1095,7 +1238,10 @@ mod tests {
             for (subcmd, expected) in write_cmds {
                 let result = check_system(&cmd("systemctl", &[subcmd, "nginx"]));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {subcmd}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {subcmd}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {subcmd}"
+                );
             }
         }
     }
@@ -1194,7 +1340,14 @@ mod tests {
         fn test_dd_asks() {
             let result = check_system(&cmd("dd", &["if=/dev/zero", "of=test.img"]));
             assert_eq!(result.decision, Decision::Ask);
-            assert!(result.reason.as_ref().unwrap().to_lowercase().contains("disk"));
+            assert!(
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains("disk")
+            );
         }
     }
 
@@ -1232,7 +1385,10 @@ mod tests {
             ] {
                 let result = check_system(&cmd("apt", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -1262,7 +1418,10 @@ mod tests {
             ] {
                 let result = check_system(&cmd("brew", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }

@@ -1,8 +1,8 @@
 //! Git command permission gate.
 
 use crate::models::{CommandInfo, GateResult};
-use std::sync::LazyLock;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 /// Git global options that take a value (must skip arg + value)
 static GIT_GLOBAL_OPTS_WITH_VALUE: LazyLock<HashSet<&str>> = LazyLock::new(|| {
@@ -193,7 +193,10 @@ static GIT_HIGH_RISK: &[(&[&str], &str)] = &[
         "Force push (safer: --force-with-lease)",
     ),
     (&["push", "-f"], "Force push (safer: --force-with-lease)"),
-    (&["reset", "--hard"], "Hard reset (can lose uncommitted work)"),
+    (
+        &["reset", "--hard"],
+        "Hard reset (can lose uncommitted work)",
+    ),
     (
         &["clean", "-fd"],
         "Clean (deletes untracked files permanently)",
@@ -294,9 +297,7 @@ pub fn check_git(cmd: &CommandInfo) -> GateResult {
     for (pattern, reason) in GIT_HIGH_RISK {
         if matches_pattern(&effective_args, pattern) {
             // Special case: --force-with-lease should NOT trigger the --force warning
-            if pattern.contains(&"--force")
-                && args.iter().any(|a| a == "--force-with-lease")
-            {
+            if pattern.contains(&"--force") && args.iter().any(|a| a == "--force-with-lease") {
                 continue;
             }
             return GateResult::ask(format!("git: {reason}"));
@@ -394,12 +395,18 @@ fn check_git_branch(args: &[&str]) -> GateResult {
     }
 
     // Delete flags
-    if args.iter().any(|a| *a == "-d" || *a == "-D" || *a == "--delete") {
+    if args
+        .iter()
+        .any(|a| *a == "-d" || *a == "-D" || *a == "--delete")
+    {
         return GateResult::ask("git: Deleting branch");
     }
 
     // Move/rename
-    if args.iter().any(|a| *a == "-m" || *a == "-M" || *a == "--move") {
+    if args
+        .iter()
+        .any(|a| *a == "-m" || *a == "-M" || *a == "--move")
+    {
         return GateResult::ask("git: Renaming branch");
     }
 
@@ -491,7 +498,12 @@ mod tests {
             let result = check_git(&cmd(args));
             assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
             assert!(
-                result.reason.as_ref().unwrap().to_lowercase().contains(&expected_in_reason.to_lowercase()),
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains(&expected_in_reason.to_lowercase()),
                 "Expected '{}' in reason for {:?}, got: {:?}",
                 expected_in_reason,
                 args,
@@ -549,7 +561,11 @@ mod tests {
                 reason
             );
             // Should still ask for push (it's a write operation)
-            assert!(reason.contains("Pushing"), "Should mention pushing for {:?}", args);
+            assert!(
+                reason.contains("Pushing"),
+                "Should mention pushing for {:?}",
+                args
+            );
         }
     }
 
@@ -635,19 +651,30 @@ mod tests {
             (&["-C", "/path", "push", "origin", "main"], "Pushing"),
             (&["-C", "/path", "add", "file.txt"], "Staging"),
             (&["-C", "/path", "checkout", "branch"], "Checking out"),
-            (&["--git-dir=/path/.git", "commit", "-m", "msg"], "Committing"),
+            (
+                &["--git-dir=/path/.git", "commit", "-m", "msg"],
+                "Committing",
+            ),
             (&["--git-dir", "/path/.git", "push"], "Pushing"),
             (&["-C", "/path", "push", "--force"], "Force push"),
             (&["-C", "/path", "reset", "--hard"], "Hard reset"),
             (&["-C", "/home/user/project", "add", "."], "stages all"),
-            (&["-C", "/home/user/project", "branch", "-d", "old"], "Deleting branch"),
+            (
+                &["-C", "/home/user/project", "branch", "-d", "old"],
+                "Deleting branch",
+            ),
         ];
 
         for (args, expected_in_reason) in global_write {
             let result = check_git(&cmd(args));
             assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
             assert!(
-                result.reason.as_ref().unwrap().to_lowercase().contains(&expected_in_reason.to_lowercase()),
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .to_lowercase()
+                    .contains(&expected_in_reason.to_lowercase()),
                 "Expected '{}' in reason for {:?}, got: {:?}",
                 expected_in_reason,
                 args,

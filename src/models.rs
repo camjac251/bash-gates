@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 /// Permission decision types with priority: Block > Ask > Allow > Skip
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Decision {
-    Skip = 0,   // Gate doesn't handle this command
-    Allow = 1,  // Explicitly allowed
-    Ask = 2,    // Requires user approval
-    Block = 3,  // Blocked
+    Skip = 0,  // Gate doesn't handle this command
+    Allow = 1, // Explicitly allowed
+    Ask = 2,   // Requires user approval
+    Block = 3, // Blocked
 }
 
 impl Decision {

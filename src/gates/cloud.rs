@@ -1,8 +1,8 @@
 //! Cloud CLI permission gates (AWS, gcloud, az, terraform, kubectl, docker, podman).
 
 use crate::models::{CommandInfo, GateResult};
-use std::sync::LazyLock;
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 /// Route to appropriate cloud provider gate.
 pub fn check_cloud(cmd: &CommandInfo) -> GateResult {
@@ -328,7 +328,10 @@ fn check_az(cmd: &CommandInfo) -> GateResult {
     }
 
     // Write operations
-    if matches!(second, Some("create" | "delete" | "update" | "start" | "stop" | "restart")) {
+    if matches!(
+        second,
+        Some("create" | "delete" | "update" | "start" | "stop" | "restart")
+    ) {
         return GateResult::ask(format!("az: {} {}", first, second.unwrap_or("")));
     }
 
@@ -434,7 +437,10 @@ static KUBECTL_BLOCKED: &[(&[&str], &str)] = &[
         &["delete", "namespace", "kube-system"],
         "Cannot delete kube-system",
     ),
-    (&["delete", "ns", "kube-system"], "Cannot delete kube-system"),
+    (
+        &["delete", "ns", "kube-system"],
+        "Cannot delete kube-system",
+    ),
 ];
 
 static KUBECTL_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
@@ -484,17 +490,14 @@ fn check_kubectl(cmd: &CommandInfo) -> GateResult {
     if subcommand == "config" && args.len() >= 2 {
         match args[1].as_str() {
             "view" | "get-contexts" | "current-context" | "get-clusters" => {
-                return GateResult::allow()
+                return GateResult::allow();
             }
             sub => return GateResult::ask(format!("kubectl: config {sub}")),
         }
     }
 
     // auth commands
-    if subcommand == "auth"
-        && args.len() >= 2
-        && (args[1] == "can-i" || args[1] == "whoami")
-    {
+    if subcommand == "auth" && args.len() >= 2 && (args[1] == "can-i" || args[1] == "whoami") {
         return GateResult::allow();
     }
 
@@ -513,8 +516,20 @@ fn check_kubectl(cmd: &CommandInfo) -> GateResult {
 
 static DOCKER_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
-        "ps", "images", "inspect", "logs", "stats", "top", "port", "version", "info", "history",
-        "-v", "--version", "-h", "--help",
+        "ps",
+        "images",
+        "inspect",
+        "logs",
+        "stats",
+        "top",
+        "port",
+        "version",
+        "info",
+        "history",
+        "-v",
+        "--version",
+        "-h",
+        "--help",
     ]
     .into_iter()
     .collect()
@@ -577,8 +592,22 @@ fn check_docker(cmd: &CommandInfo) -> GateResult {
 /// Podman read-only commands (similar to docker)
 static PODMAN_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
-        "ps", "images", "inspect", "logs", "stats", "top", "port", "version", "info", "history",
-        "search", "healthcheck", "-v", "--version", "-h", "--help",
+        "ps",
+        "images",
+        "inspect",
+        "logs",
+        "stats",
+        "top",
+        "port",
+        "version",
+        "info",
+        "history",
+        "search",
+        "healthcheck",
+        "-v",
+        "--version",
+        "-h",
+        "--help",
     ]
     .into_iter()
     .collect()
@@ -660,9 +689,11 @@ fn check_podman(cmd: &CommandInfo) -> GateResult {
 // === DOCKER COMPOSE ===
 
 static COMPOSE_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["ps", "logs", "config", "images", "ls", "version", "-h", "--help"]
-        .into_iter()
-        .collect()
+    [
+        "ps", "logs", "config", "images", "ls", "version", "-h", "--help",
+    ]
+    .into_iter()
+    .collect()
 });
 
 static COMPOSE_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
@@ -856,30 +887,48 @@ mod tests {
                 (&["s3", "mv", "s3://bucket/a", "s3://bucket/b"], "S3 move"),
                 (&["s3", "rm", "s3://bucket/file"], "S3 delete"),
                 (&["s3", "sync", ".", "s3://bucket/"], "S3 sync"),
-                (&["ec2", "run-instances", "--image-id", "ami-123"], "EC2 run"),
-                (&["ec2", "terminate-instances", "--instance-ids", "i-123"], "EC2 terminate"),
-                (&["lambda", "invoke", "--function-name", "test", "out.json"], "Lambda invoke"),
+                (
+                    &["ec2", "run-instances", "--image-id", "ami-123"],
+                    "EC2 run",
+                ),
+                (
+                    &["ec2", "terminate-instances", "--instance-ids", "i-123"],
+                    "EC2 terminate",
+                ),
+                (
+                    &["lambda", "invoke", "--function-name", "test", "out.json"],
+                    "Lambda invoke",
+                ),
                 (&["iam", "create-user", "--user-name", "test"], "IAM create"),
             ];
 
             for (args, expected) in write_cmds {
                 let result = check_cloud(&cmd("aws", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
 
         #[test]
         fn test_blocked_commands() {
             let blocked = [
-                (&["iam", "delete-user", "--user-name", "admin"][..], "IAM users"),
+                (
+                    &["iam", "delete-user", "--user-name", "admin"][..],
+                    "IAM users",
+                ),
                 (&["organizations", "delete-organization"], "Organization"),
             ];
 
             for (args, expected) in blocked {
                 let result = check_cloud(&cmd("aws", args));
                 assert_eq!(result.decision, Decision::Block, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -925,7 +974,10 @@ mod tests {
             for (args, expected) in write_cmds {
                 let result = check_cloud(&cmd("terraform", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -971,7 +1023,10 @@ mod tests {
             for (args, expected) in write_cmds {
                 let result = check_cloud(&cmd("kubectl", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
 
@@ -1030,7 +1085,10 @@ mod tests {
             for (args, expected) in write_cmds {
                 let result = check_cloud(&cmd("docker", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }
@@ -1061,16 +1119,25 @@ mod tests {
         #[test]
         fn test_write_commands_ask() {
             let write_cmds = [
-                (&["compute", "instances", "create", "vm1"][..], "Compute create"),
+                (
+                    &["compute", "instances", "create", "vm1"][..],
+                    "Compute create",
+                ),
                 (&["compute", "instances", "delete", "vm1"], "Compute delete"),
-                (&["container", "clusters", "create", "cluster1"], "GKE create"),
+                (
+                    &["container", "clusters", "create", "cluster1"],
+                    "GKE create",
+                ),
                 (&["functions", "deploy", "func1"], "Functions deploy"),
             ];
 
             for (args, expected) in write_cmds {
                 let result = check_cloud(&cmd("gcloud", args));
                 assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(result.reason.as_ref().unwrap().contains(expected), "Failed for: {args:?}");
+                assert!(
+                    result.reason.as_ref().unwrap().contains(expected),
+                    "Failed for: {args:?}"
+                );
             }
         }
     }

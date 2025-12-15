@@ -269,7 +269,9 @@ mod tests {
         result
             .hook_specific_output
             .as_ref()
-            .map_or(result.decision.as_deref().unwrap_or("unknown"), |o| o.permission_decision.as_str())
+            .map_or(result.decision.as_deref().unwrap_or("unknown"), |o| {
+                o.permission_decision.as_str()
+            })
     }
 
     fn get_reason(result: &HookOutput) -> &str {
@@ -359,7 +361,10 @@ mod tests {
             ] {
                 let result = check_command(cmd);
                 assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
-                assert!(get_reason(&result).contains("redirection"), "Failed for: {cmd}");
+                assert!(
+                    get_reason(&result).contains("redirection"),
+                    "Failed for: {cmd}"
+                );
             }
         }
 
@@ -373,7 +378,10 @@ mod tests {
             ] {
                 let result = check_command(cmd);
                 assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
-                assert!(get_reason(&result).to_lowercase().contains("eval"), "Failed for: {cmd}");
+                assert!(
+                    get_reason(&result).to_lowercase().contains("eval"),
+                    "Failed for: {cmd}"
+                );
             }
         }
 
@@ -387,7 +395,10 @@ mod tests {
             ] {
                 let result = check_command(cmd);
                 assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
-                assert!(get_reason(&result).to_lowercase().contains("sourc"), "Failed for: {cmd}");
+                assert!(
+                    get_reason(&result).to_lowercase().contains("sourc"),
+                    "Failed for: {cmd}"
+                );
             }
         }
 
@@ -442,8 +453,14 @@ mod tests {
         // Complex multi-command chains (user's real-world cases)
         #[test]
         fn test_git_add_commit_push_chain() {
-            let result = check_command("git add -A && git commit --amend --no-edit && git push --force-with-lease");
-            assert_eq!(get_decision(&result), "ask", "Should ask for git add/commit/push chain");
+            let result = check_command(
+                "git add -A && git commit --amend --no-edit && git push --force-with-lease",
+            );
+            assert_eq!(
+                get_decision(&result),
+                "ask",
+                "Should ask for git add/commit/push chain"
+            );
             let reason = get_reason(&result);
             assert!(reason.contains("git"), "Reason should mention git");
         }
@@ -494,7 +511,10 @@ mod tests {
             assert_eq!(get_decision(&result), "ask");
             let reason = get_reason(&result);
             // Should mention multiple operations
-            assert!(reason.contains("rm") || reason.contains("npm"), "Should mention operations");
+            assert!(
+                reason.contains("rm") || reason.contains("npm"),
+                "Should mention operations"
+            );
         }
 
         // Pipeline with write at end
@@ -523,7 +543,11 @@ mod tests {
         #[test]
         fn test_echo_safe() {
             let result = check_command("echo 'rm -rf /' && pwd");
-            assert_eq!(get_decision(&result), "allow", "echo of dangerous text is safe");
+            assert_eq!(
+                get_decision(&result),
+                "allow",
+                "echo of dangerous text is safe"
+            );
         }
     }
 
@@ -565,7 +589,11 @@ mod tests {
         #[test]
         fn test_unknown_command_asks() {
             let result = check_command("someunknowncommand --flag");
-            assert_eq!(get_decision(&result), "ask", "Unknown commands should ask for approval");
+            assert_eq!(
+                get_decision(&result),
+                "ask",
+                "Unknown commands should ask for approval"
+            );
         }
     }
 
