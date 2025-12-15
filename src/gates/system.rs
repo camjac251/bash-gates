@@ -959,18 +959,8 @@ fn check_crontab(cmd: &CommandInfo) -> GateResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gates::test_utils::cmd;
     use crate::models::Decision;
-
-    fn cmd(program: &str, args: &[&str]) -> CommandInfo {
-        CommandInfo {
-            raw: format!("{} {}", program, args.join(" ")),
-            program: program.to_string(),
-            args: args.iter().map(std::string::ToString::to_string).collect(),
-            is_subshell: false,
-            is_pipeline: false,
-            pipeline_position: 0,
-        }
-    }
 
     // === Database Tests ===
 

@@ -280,17 +280,11 @@ fn check_gh_api(api_args: &[String]) -> GateResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gates::test_utils::cmd as make_cmd;
     use crate::models::Decision;
 
     fn cmd(args: &[&str]) -> CommandInfo {
-        CommandInfo {
-            raw: format!("gh {}", args.join(" ")),
-            program: "gh".to_string(),
-            args: args.iter().map(std::string::ToString::to_string).collect(),
-            is_subshell: false,
-            is_pipeline: false,
-            pipeline_position: 0,
-        }
+        make_cmd("gh", args)
     }
 
     // === Read Commands ===

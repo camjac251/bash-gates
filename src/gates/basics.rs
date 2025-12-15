@@ -210,15 +210,8 @@ pub fn check_basics(cmd: &CommandInfo) -> GateResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gates::test_utils::cmd;
     use crate::models::Decision;
-
-    fn cmd(program: &str, args: &[&str]) -> CommandInfo {
-        CommandInfo {
-            program: program.to_string(),
-            args: args.iter().map(std::string::ToString::to_string).collect(),
-            ..Default::default()
-        }
-    }
 
     #[test]
     fn test_safe_commands_allow() {

@@ -10,6 +10,9 @@ mod network;
 mod package_managers;
 mod system;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use basics::check_basics;
 pub use cloud::check_cloud;
 pub use devtools::check_devtools;

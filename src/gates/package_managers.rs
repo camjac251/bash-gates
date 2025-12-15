@@ -22,6 +22,380 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
     }
 }
 
+// =============================================================================
+// PNPM
+// =============================================================================
+
+static PNPM_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    [
+        "list",
+        "ls",
+        "ll",
+        "why",
+        "outdated",
+        "audit",
+        "-v",
+        "--version",
+        "-h",
+        "--help",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static PNPM_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    [
+        "run",
+        "start",
+        "test",
+        "build",
+        "dev",
+        "lint",
+        "check",
+        "typecheck",
+        "format",
+        "tsc",
+        "exec",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static PNPM_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("install", "Installing packages"),
+        ("i", "Installing packages"),
+        ("add", "Adding packages"),
+        ("remove", "Removing packages"),
+        ("rm", "Removing packages"),
+        ("uninstall", "Removing packages"),
+        ("update", "Updating packages"),
+        ("up", "Updating packages"),
+        ("link", "Linking package"),
+        ("unlink", "Unlinking package"),
+        ("publish", "Publishing package"),
+        ("init", "Initializing package"),
+        ("create", "Creating package"),
+        ("dlx", "Executing package"),
+        ("prune", "Pruning packages"),
+        ("store", "Store operation"),
+        ("patch", "Patching package"),
+    ]
+    .into_iter()
+    .collect()
+});
+
+// =============================================================================
+// YARN
+// =============================================================================
+
+static YARN_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    [
+        "list",
+        "info",
+        "why",
+        "outdated",
+        "audit",
+        "config",
+        "-v",
+        "--version",
+        "-h",
+        "--help",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static YARN_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    [
+        "run",
+        "start",
+        "test",
+        "build",
+        "dev",
+        "lint",
+        "check",
+        "typecheck",
+        "format",
+        "exec",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static YARN_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("install", "Installing packages"),
+        ("add", "Adding packages"),
+        ("remove", "Removing packages"),
+        ("upgrade", "Upgrading packages"),
+        ("upgrade-interactive", "Upgrading packages"),
+        ("link", "Linking package"),
+        ("unlink", "Unlinking package"),
+        ("publish", "Publishing package"),
+        ("init", "Initializing package"),
+        ("create", "Creating package"),
+        ("dlx", "Executing package"),
+        ("cache", "Cache operation"),
+        ("global", "Global operation"),
+        ("set", "Setting config"),
+    ]
+    .into_iter()
+    .collect()
+});
+
+// =============================================================================
+// PIP
+// =============================================================================
+
+static PIP_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    [
+        "list",
+        "show",
+        "freeze",
+        "check",
+        "search",
+        "index",
+        "config",
+        "cache",
+        "debug",
+        "-V",
+        "--version",
+        "-h",
+        "--help",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static PIP_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("install", "Installing packages"),
+        ("uninstall", "Uninstalling packages"),
+        ("download", "Downloading packages"),
+        ("wheel", "Building wheel"),
+    ]
+    .into_iter()
+    .collect()
+});
+
+// =============================================================================
+// UV
+// =============================================================================
+
+static UV_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    ["version", "help", "tree", "--version", "-V", "-h", "--help"]
+        .into_iter()
+        .collect()
+});
+
+static UV_SAFE_LOCAL: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| ["run", "sync", "lock", "venv"].into_iter().collect());
+
+static UV_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("add", "Adding dependency"),
+        ("remove", "Removing dependency"),
+        ("tool", "Tool operation"),
+        ("python", "Python operation"),
+        ("cache", "Cache operation"),
+        ("init", "Initializing project"),
+        ("build", "Building package"),
+        ("publish", "Publishing package"),
+    ]
+    .into_iter()
+    .collect()
+});
+
+static UV_PIP_SAFE: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| ["list", "show", "freeze", "check"].into_iter().collect());
+
+// =============================================================================
+// CARGO
+// =============================================================================
+
+static CARGO_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    [
+        "check",
+        "clippy",
+        "doc",
+        "tree",
+        "metadata",
+        "pkgid",
+        "verify-project",
+        "search",
+        "info",
+        "locate-project",
+        "read-manifest",
+        "version",
+        "-V",
+        "--version",
+        "-h",
+        "--help",
+        "help",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static CARGO_SAFE_LOCAL: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| ["build", "run", "test", "bench", "fmt", "clean"].into_iter().collect());
+
+static CARGO_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("install", "Installing"),
+        ("uninstall", "Uninstalling"),
+        ("new", "Creating project"),
+        ("init", "Initializing project"),
+        ("add", "Adding dependency"),
+        ("remove", "Removing dependency"),
+        ("update", "Updating dependencies"),
+        ("publish", "Publishing crate"),
+        ("yank", "Yanking version"),
+        ("fix", "Auto-fixing code"),
+        ("generate-lockfile", "Generating lockfile"),
+    ]
+    .into_iter()
+    .collect()
+});
+
+// =============================================================================
+// GO
+// =============================================================================
+
+static GO_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    ["list", "doc", "env", "version", "vet", "help", "-h", "--help"]
+        .into_iter()
+        .collect()
+});
+
+static GO_SAFE_LOCAL: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| ["build", "run", "test", "fmt", "clean"].into_iter().collect());
+
+static GO_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("install", "Installing"),
+        ("get", "Getting packages"),
+        ("generate", "Generating code"),
+        ("fix", "Fixing code"),
+        ("work", "Workspace operation"),
+    ]
+    .into_iter()
+    .collect()
+});
+
+static GO_MOD_SAFE: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| ["graph", "verify", "why", "tidy", "download"].into_iter().collect());
+
+// =============================================================================
+// BUN
+// =============================================================================
+
+static BUN_READ: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| ["pm", "-v", "--version", "-h", "--help"].into_iter().collect());
+
+static BUN_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    [
+        "run",
+        "test",
+        "build",
+        "dev",
+        "start",
+        "lint",
+        "check",
+        "typecheck",
+        "format",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static BUN_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("install", "Installing packages"),
+        ("i", "Installing packages"),
+        ("add", "Adding packages"),
+        ("remove", "Removing packages"),
+        ("rm", "Removing packages"),
+        ("update", "Updating packages"),
+        ("link", "Linking package"),
+        ("unlink", "Unlinking package"),
+        ("x", "Executing package"),
+        ("init", "Initializing project"),
+        ("create", "Creating project"),
+        ("publish", "Publishing"),
+    ]
+    .into_iter()
+    .collect()
+});
+
+// =============================================================================
+// POETRY
+// =============================================================================
+
+static POETRY_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+    [
+        "show",
+        "search",
+        "check",
+        "config",
+        "env",
+        "version",
+        "about",
+        "--version",
+        "-V",
+        "--help",
+        "-h",
+    ]
+    .into_iter()
+    .collect()
+});
+
+static POETRY_SAFE_LOCAL: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| ["run", "shell", "build", "lock"].into_iter().collect());
+
+static POETRY_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("install", "Installing dependencies"),
+        ("add", "Adding dependency"),
+        ("remove", "Removing dependency"),
+        ("update", "Updating dependencies"),
+        ("init", "Initializing project"),
+        ("new", "Creating project"),
+        ("publish", "Publishing package"),
+        ("cache", "Cache operation"),
+        ("export", "Exporting dependencies"),
+        ("self", "Self operation"),
+        ("source", "Source operation"),
+    ]
+    .into_iter()
+    .collect()
+});
+
+// =============================================================================
+// PIPX
+// =============================================================================
+
+static PIPX_READ: LazyLock<HashSet<&str>> =
+    LazyLock::new(|| ["list", "environment", "--version", "--help"].into_iter().collect());
+
+static PIPX_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
+    [
+        ("install", "Installing application"),
+        ("uninstall", "Uninstalling application"),
+        ("upgrade", "Upgrading application"),
+        ("upgrade-all", "Upgrading all applications"),
+        ("reinstall", "Reinstalling application"),
+        ("reinstall-all", "Reinstalling all"),
+        ("inject", "Injecting package"),
+        ("uninject", "Uninjecting package"),
+        ("ensurepath", "Modifying PATH"),
+        ("run", "Running application"),
+    ]
+    .into_iter()
+    .collect()
+});
+
 // === NPM ===
 
 static NPM_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
@@ -141,64 +515,11 @@ fn check_pnpm(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = [
-        "list",
-        "ls",
-        "ll",
-        "why",
-        "outdated",
-        "audit",
-        "-v",
-        "--version",
-        "-h",
-        "--help",
-    ]
-    .into_iter()
-    .collect();
-
-    let safe_local: HashSet<&str> = [
-        "run",
-        "start",
-        "test",
-        "build",
-        "dev",
-        "lint",
-        "check",
-        "typecheck",
-        "format",
-        "tsc",
-        "exec",
-    ]
-    .into_iter()
-    .collect();
-
-    let risky_cmds: HashMap<&str, &str> = [
-        ("install", "Installing packages"),
-        ("i", "Installing packages"),
-        ("add", "Adding packages"),
-        ("remove", "Removing packages"),
-        ("rm", "Removing packages"),
-        ("uninstall", "Removing packages"),
-        ("update", "Updating packages"),
-        ("up", "Updating packages"),
-        ("link", "Linking package"),
-        ("unlink", "Unlinking package"),
-        ("publish", "Publishing package"),
-        ("init", "Initializing package"),
-        ("create", "Creating package"),
-        ("dlx", "Executing package"),
-        ("prune", "Pruning packages"),
-        ("store", "Store operation"),
-        ("patch", "Patching package"),
-    ]
-    .into_iter()
-    .collect();
-
-    if read_cmds.contains(subcmd) || safe_local.contains(subcmd) {
+    if PNPM_READ.contains(subcmd) || PNPM_SAFE_LOCAL.contains(subcmd) {
         return GateResult::allow();
     }
 
-    if let Some(reason) = risky_cmds.get(subcmd) {
+    if let Some(reason) = PNPM_RISKY.get(subcmd) {
         return GateResult::ask(format!("pnpm: {reason}"));
     }
 
@@ -216,60 +537,11 @@ fn check_yarn(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = [
-        "list",
-        "info",
-        "why",
-        "outdated",
-        "audit",
-        "config",
-        "-v",
-        "--version",
-        "-h",
-        "--help",
-    ]
-    .into_iter()
-    .collect();
-
-    let safe_local: HashSet<&str> = [
-        "run",
-        "start",
-        "test",
-        "build",
-        "dev",
-        "lint",
-        "check",
-        "typecheck",
-        "format",
-        "exec",
-    ]
-    .into_iter()
-    .collect();
-
-    let risky_cmds: HashMap<&str, &str> = [
-        ("install", "Installing packages"),
-        ("add", "Adding packages"),
-        ("remove", "Removing packages"),
-        ("upgrade", "Upgrading packages"),
-        ("upgrade-interactive", "Upgrading packages"),
-        ("link", "Linking package"),
-        ("unlink", "Unlinking package"),
-        ("publish", "Publishing package"),
-        ("init", "Initializing package"),
-        ("create", "Creating package"),
-        ("dlx", "Executing package"),
-        ("cache", "Cache operation"),
-        ("global", "Global operation"),
-        ("set", "Setting config"),
-    ]
-    .into_iter()
-    .collect();
-
-    if read_cmds.contains(subcmd) || safe_local.contains(subcmd) {
+    if YARN_READ.contains(subcmd) || YARN_SAFE_LOCAL.contains(subcmd) {
         return GateResult::allow();
     }
 
-    if let Some(reason) = risky_cmds.get(subcmd) {
+    if let Some(reason) = YARN_RISKY.get(subcmd) {
         return GateResult::ask(format!("yarn: {reason}"));
     }
 
@@ -286,43 +558,16 @@ fn check_pip(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = [
-        "list",
-        "show",
-        "freeze",
-        "check",
-        "search",
-        "index",
-        "config",
-        "cache",
-        "debug",
-        "-V",
-        "--version",
-        "-h",
-        "--help",
-    ]
-    .into_iter()
-    .collect();
-
-    let write_cmds: HashMap<&str, &str> = [
-        ("install", "Installing packages"),
-        ("uninstall", "Uninstalling packages"),
-        ("download", "Downloading packages"),
-        ("wheel", "Building wheel"),
-    ]
-    .into_iter()
-    .collect();
-
     // pip install with --dry-run is safe
     if subcmd == "install" && args.iter().any(|a| a == "--dry-run" || a == "-n") {
         return GateResult::allow();
     }
 
-    if read_cmds.contains(subcmd) {
+    if PIP_READ.contains(subcmd) {
         return GateResult::allow();
     }
 
-    if let Some(reason) = write_cmds.get(subcmd) {
+    if let Some(reason) = PIP_WRITE.get(subcmd) {
         return GateResult::ask(format!("pip: {reason}"));
     }
 
@@ -339,40 +584,20 @@ fn check_uv(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = ["version", "help", "tree", "--version", "-V", "-h", "--help"]
-        .into_iter()
-        .collect();
-
-    let safe_local: HashSet<&str> = ["run", "sync", "lock", "venv"].into_iter().collect();
-
-    let risky_cmds: HashMap<&str, &str> = [
-        ("add", "Adding dependency"),
-        ("remove", "Removing dependency"),
-        ("tool", "Tool operation"),
-        ("python", "Python operation"),
-        ("cache", "Cache operation"),
-        ("init", "Initializing project"),
-        ("build", "Building package"),
-        ("publish", "Publishing package"),
-    ]
-    .into_iter()
-    .collect();
-
-    if read_cmds.contains(subcmd) || safe_local.contains(subcmd) {
+    if UV_READ.contains(subcmd) || UV_SAFE_LOCAL.contains(subcmd) {
         return GateResult::allow();
     }
 
     // uv pip subcommands
     if subcmd == "pip" && args.len() > 1 {
         let pip_subcmd = args[1].as_str();
-        let safe_pip: HashSet<&str> = ["list", "show", "freeze", "check"].into_iter().collect();
-        if safe_pip.contains(pip_subcmd) {
+        if UV_PIP_SAFE.contains(pip_subcmd) {
             return GateResult::allow();
         }
         return GateResult::ask(format!("uv pip: {pip_subcmd}"));
     }
 
-    if let Some(reason) = risky_cmds.get(subcmd) {
+    if let Some(reason) = UV_RISKY.get(subcmd) {
         return GateResult::ask(format!("uv: {reason}"));
     }
 
@@ -389,53 +614,11 @@ fn check_cargo(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = [
-        "check",
-        "clippy",
-        "doc",
-        "tree",
-        "metadata",
-        "pkgid",
-        "verify-project",
-        "search",
-        "info",
-        "locate-project",
-        "read-manifest",
-        "version",
-        "-V",
-        "--version",
-        "-h",
-        "--help",
-        "help",
-    ]
-    .into_iter()
-    .collect();
-
-    let safe_local: HashSet<&str> = ["build", "run", "test", "bench", "fmt", "clean"]
-        .into_iter()
-        .collect();
-
-    let risky_cmds: HashMap<&str, &str> = [
-        ("install", "Installing"),
-        ("uninstall", "Uninstalling"),
-        ("new", "Creating project"),
-        ("init", "Initializing project"),
-        ("add", "Adding dependency"),
-        ("remove", "Removing dependency"),
-        ("update", "Updating dependencies"),
-        ("publish", "Publishing crate"),
-        ("yank", "Yanking version"),
-        ("fix", "Auto-fixing code"),
-        ("generate-lockfile", "Generating lockfile"),
-    ]
-    .into_iter()
-    .collect();
-
-    if read_cmds.contains(subcmd) || safe_local.contains(subcmd) {
+    if CARGO_READ.contains(subcmd) || CARGO_SAFE_LOCAL.contains(subcmd) {
         return GateResult::allow();
     }
 
-    if let Some(reason) = risky_cmds.get(subcmd) {
+    if let Some(reason) = CARGO_RISKY.get(subcmd) {
         return GateResult::ask(format!("cargo: {reason}"));
     }
 
@@ -452,43 +635,20 @@ fn check_go(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = [
-        "list", "doc", "env", "version", "vet", "help", "-h", "--help",
-    ]
-    .into_iter()
-    .collect();
-
-    let safe_local: HashSet<&str> = ["build", "run", "test", "fmt", "clean"]
-        .into_iter()
-        .collect();
-
-    let risky_cmds: HashMap<&str, &str> = [
-        ("install", "Installing"),
-        ("get", "Getting packages"),
-        ("generate", "Generating code"),
-        ("fix", "Fixing code"),
-        ("work", "Workspace operation"),
-    ]
-    .into_iter()
-    .collect();
-
-    if read_cmds.contains(subcmd) || safe_local.contains(subcmd) {
+    if GO_READ.contains(subcmd) || GO_SAFE_LOCAL.contains(subcmd) {
         return GateResult::allow();
     }
 
     // go mod subcommands
     if subcmd == "mod" && args.len() > 1 {
         let mod_subcmd = args[1].as_str();
-        let safe_mod: HashSet<&str> = ["graph", "verify", "why", "tidy", "download"]
-            .into_iter()
-            .collect();
-        if safe_mod.contains(mod_subcmd) {
+        if GO_MOD_SAFE.contains(mod_subcmd) {
             return GateResult::allow();
         }
         return GateResult::ask(format!("go mod: {mod_subcmd}"));
     }
 
-    if let Some(reason) = risky_cmds.get(subcmd) {
+    if let Some(reason) = GO_RISKY.get(subcmd) {
         return GateResult::ask(format!("go: {reason}"));
     }
 
@@ -505,46 +665,11 @@ fn check_bun(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = ["pm", "-v", "--version", "-h", "--help"]
-        .into_iter()
-        .collect();
-
-    let safe_local: HashSet<&str> = [
-        "run",
-        "test",
-        "build",
-        "dev",
-        "start",
-        "lint",
-        "check",
-        "typecheck",
-        "format",
-    ]
-    .into_iter()
-    .collect();
-
-    let risky_cmds: HashMap<&str, &str> = [
-        ("install", "Installing packages"),
-        ("i", "Installing packages"),
-        ("add", "Adding packages"),
-        ("remove", "Removing packages"),
-        ("rm", "Removing packages"),
-        ("update", "Updating packages"),
-        ("link", "Linking package"),
-        ("unlink", "Unlinking package"),
-        ("x", "Executing package"),
-        ("init", "Initializing project"),
-        ("create", "Creating project"),
-        ("publish", "Publishing"),
-    ]
-    .into_iter()
-    .collect();
-
-    if read_cmds.contains(subcmd) || safe_local.contains(subcmd) {
+    if BUN_READ.contains(subcmd) || BUN_SAFE_LOCAL.contains(subcmd) {
         return GateResult::allow();
     }
 
-    if let Some(reason) = risky_cmds.get(subcmd) {
+    if let Some(reason) = BUN_RISKY.get(subcmd) {
         return GateResult::ask(format!("bun: {reason}"));
     }
 
@@ -637,45 +762,11 @@ fn check_poetry(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = [
-        "show",
-        "search",
-        "check",
-        "config",
-        "env",
-        "version",
-        "about",
-        "--version",
-        "-V",
-        "--help",
-        "-h",
-    ]
-    .into_iter()
-    .collect();
-
-    let safe_local: HashSet<&str> = ["run", "shell", "build", "lock"].into_iter().collect();
-
-    let write_cmds: HashMap<&str, &str> = [
-        ("install", "Installing dependencies"),
-        ("add", "Adding dependency"),
-        ("remove", "Removing dependency"),
-        ("update", "Updating dependencies"),
-        ("init", "Initializing project"),
-        ("new", "Creating project"),
-        ("publish", "Publishing package"),
-        ("cache", "Cache operation"),
-        ("export", "Exporting dependencies"),
-        ("self", "Self operation"),
-        ("source", "Source operation"),
-    ]
-    .into_iter()
-    .collect();
-
-    if read_cmds.contains(subcmd) || safe_local.contains(subcmd) {
+    if POETRY_READ.contains(subcmd) || POETRY_SAFE_LOCAL.contains(subcmd) {
         return GateResult::allow();
     }
 
-    if let Some(reason) = write_cmds.get(subcmd) {
+    if let Some(reason) = POETRY_WRITE.get(subcmd) {
         return GateResult::ask(format!("poetry: {reason}"));
     }
 
@@ -693,30 +784,11 @@ fn check_pipx(cmd: &CommandInfo) -> GateResult {
 
     let subcmd = args[0].as_str();
 
-    let read_cmds: HashSet<&str> = ["list", "environment", "--version", "--help"]
-        .into_iter()
-        .collect();
-
-    let write_cmds: HashMap<&str, &str> = [
-        ("install", "Installing application"),
-        ("uninstall", "Uninstalling application"),
-        ("upgrade", "Upgrading application"),
-        ("upgrade-all", "Upgrading all applications"),
-        ("reinstall", "Reinstalling application"),
-        ("reinstall-all", "Reinstalling all"),
-        ("inject", "Injecting package"),
-        ("uninject", "Uninjecting package"),
-        ("ensurepath", "Modifying PATH"),
-        ("run", "Running application"),
-    ]
-    .into_iter()
-    .collect();
-
-    if read_cmds.contains(subcmd) {
+    if PIPX_READ.contains(subcmd) {
         return GateResult::allow();
     }
 
-    if let Some(reason) = write_cmds.get(subcmd) {
+    if let Some(reason) = PIPX_WRITE.get(subcmd) {
         return GateResult::ask(format!("pipx: {reason}"));
     }
 
@@ -726,18 +798,8 @@ fn check_pipx(cmd: &CommandInfo) -> GateResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gates::test_utils::cmd;
     use crate::models::Decision;
-
-    fn cmd(program: &str, args: &[&str]) -> CommandInfo {
-        CommandInfo {
-            raw: format!("{} {}", program, args.join(" ")),
-            program: program.to_string(),
-            args: args.iter().map(std::string::ToString::to_string).collect(),
-            is_subshell: false,
-            is_pipeline: false,
-            pipeline_position: 0,
-        }
-    }
 
     // === npm ===
 
