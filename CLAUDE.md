@@ -45,6 +45,7 @@ src/
 ├── models.rs        # Serde models (HookInput, HookOutput, Decision)
 ├── parser.rs        # tree-sitter-bash AST parsing → Vec<CommandInfo>
 ├── router.rs        # Raw string security checks + gate routing
+├── settings.rs      # settings.json parsing and pattern matching
 └── gates/           # 9 specialized permission gates
     ├── mod.rs           # Gate registry
     ├── basics.rs        # Safe shell commands (echo, cat, ls, grep, etc.)
@@ -60,12 +61,60 @@ src/
 
 ## How It Works
 
-1. **Input**: JSON from Claude Code's PreToolUse hook
-2. **Security checks**: Raw string patterns (pipe-to-shell, xargs, redirections)
-3. **Parse**: tree-sitter-bash extracts individual commands from compound statements
-4. **Check**: Each command runs through all gates
-5. **Decide**: Strictest decision wins (block > ask > allow > skip)
-6. **Output**: JSON with `permissionDecision` (allow/ask/deny)
+1. **Input**: JSON from Claude Code's PreToolUse hook (includes `cwd`)
+2. **Settings check**: Load `~/.claude/settings.json` + `.claude/settings.json`, check if command matches deny/ask rules
+3. **Security checks**: Raw string patterns (pipe-to-shell, xargs, redirections)
+4. **Parse**: tree-sitter-bash extracts individual commands from compound statements
+5. **Check**: Each command runs through all gates
+6. **Decide**: Strictest decision wins (block > ask > allow > skip)
+7. **Output**: JSON with `permissionDecision` (allow/ask/deny)
+
+## Settings.json Integration (settings.rs)
+
+bash-gates respects your Claude Code permission rules by checking `settings.json` **before** running gate analysis:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Decision Flow                             │
+├─────────────────────────────────────────────────────────────┤
+│  1. Load settings.json (user + project)                     │
+│  2. Check command against settings.json rules               │
+│     ├─ matches deny  → return ask (defer to CC, respects deny) │
+│     ├─ matches ask   → return ask (defer to CC, respects ask)  │
+│     └─ matches allow / no match → proceed to gate analysis  │
+│  3. Run bash-gates analysis                                 │
+│     ├─ dangerous    → deny                                  │
+│     ├─ safe         → allow                                 │
+│     └─ unknown      → ask                                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Pattern Matching
+
+Settings.json uses these pattern formats:
+
+| Pattern | Type | Example | Matches |
+|---------|------|---------|---------|
+| `Bash(cmd:*)` | Word-boundary prefix | `Bash(git:*)` | `git`, `git status`, `git push` |
+| `Bash(cmd*)` | Glob prefix | `Bash(cat /dev/zero*)` | `cat /dev/zero`, `cat /dev/zero \| head` |
+| `Bash(cmd)` | Exact | `Bash(pwd)` | Only `pwd` |
+
+### Why This Matters
+
+PreToolUse hooks have **more power** than settings.json:
+- Hook returning `allow` → bypasses settings.json entirely
+- Hook returning `deny` → bypasses settings.json entirely
+- Hook returning `ask` → defers to settings.json
+
+Without settings.json integration, bash-gates could accidentally bypass your explicit deny rules. For example:
+- You have `Bash(cat /dev/zero*)` in deny
+- bash-gates thinks `cat` is safe → returns `allow`
+- Your deny rule is bypassed!
+
+With settings.json integration:
+- bash-gates sees your deny rule first
+- Returns `ask` to defer to Claude Code
+- Claude Code applies your deny rule → blocked
 
 ## Decision Priority
 
@@ -311,6 +360,10 @@ echo '{"tool_name": "Bash", "tool_input": {"command": "mamba install numpy"}}' |
 # Block (dangerous)
 echo '{"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}' | ./target/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"deny",...}}
+
+# Ask (respects settings.json deny rule) - if you have Bash(cat /dev/zero*) in deny
+echo '{"tool_name": "Bash", "tool_input": {"command": "cat /dev/zero"}, "cwd": "/home/user"}' | ./target/release/bash-gates
+# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"Matched settings.json deny rule"}}
 ```
 
 ## Compound Commands
@@ -345,6 +398,7 @@ For `&&`, `||`, `|`, `;` chains, **strictest decision wins**:
 - `tree-sitter` + `tree-sitter-bash` - Bash AST parsing
 - `serde` + `serde_json` - JSON serialization
 - `regex` - Pattern matching
+- `dirs` - Home directory detection for settings.json
 
 ## Claude Code Integration
 

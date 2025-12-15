@@ -19,14 +19,15 @@ A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse
 
 ## Features
 
-| Feature                | Description                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| **AST Parsing**        | Uses [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) for accurate command analysis |
-| **Compound Commands**  | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
-| **Security First**     | Catches pipe-to-shell, eval, command injection patterns                                                |
-| **Unknown Protection** | Unrecognized commands require approval                                                                 |
-| **200+ Commands**      | 9 specialized gates with comprehensive coverage                                                        |
-| **Fast**               | Static native binary, no interpreter overhead                                                          |
+| Feature                   | Description                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Settings Integration**  | Respects your `settings.json` allow/deny/ask rules - won't bypass your explicit permissions            |
+| **AST Parsing**           | Uses [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) for accurate command analysis |
+| **Compound Commands**     | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
+| **Security First**        | Catches pipe-to-shell, eval, command injection patterns                                                |
+| **Unknown Protection**    | Unrecognized commands require approval                                                                 |
+| **200+ Commands**         | 9 specialized gates with comprehensive coverage                                                        |
+| **Fast**                  | Static native binary, no interpreter overhead                                                          |
 
 ---
 
@@ -38,7 +39,9 @@ flowchart TD
     CMD --> BG
 
     subgraph BG [bash-gates]
-        SEC[Security Checks]
+        SETTINGS[Check settings.json]
+        SETTINGS -->|deny/ask rule| DEFER[Defer to Claude Code]
+        SETTINGS -->|allow/no rule| SEC[Security Checks]
         SEC --> AST[AST Parsing]
         AST --> GATES
 
@@ -71,6 +74,20 @@ flowchart TD
 | **allow** | Auto-approved               |
 
 > Unknown commands always require approval.
+
+### Settings.json Integration
+
+bash-gates reads your Claude Code settings from `~/.claude/settings.json` and `.claude/settings.json` (project) to respect your explicit permission rules:
+
+| settings.json | bash-gates | Result |
+|---------------|------------|--------|
+| `deny` rule   | (any)      | Defers to Claude Code (respects your deny) |
+| `ask` rule    | (any)      | Defers to Claude Code (respects your ask) |
+| `allow` rule  | dangerous  | **deny** (bash-gates still blocks dangerous) |
+| `allow`/none  | safe       | **allow** |
+| none          | unknown    | **ask** |
+
+This ensures bash-gates won't accidentally bypass your explicit deny rules while still providing security against dangerous commands.
 
 ---
 
@@ -254,6 +271,7 @@ src/
 ├── models.rs         # Types (HookInput, HookOutput, Decision)
 ├── parser.rs         # tree-sitter-bash AST parsing
 ├── router.rs         # Security checks + gate routing
+├── settings.rs       # settings.json parsing and pattern matching
 └── gates/
     ├── basics.rs     # Safe commands (~100)
     ├── gh.rs         # GitHub CLI

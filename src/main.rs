@@ -18,7 +18,7 @@
 //!   }
 
 use bash_gates::models::{HookInput, HookOutput};
-use bash_gates::router::check_command;
+use bash_gates::router::check_command_with_settings;
 use std::io::{self, Read};
 
 fn main() {
@@ -58,8 +58,8 @@ fn main() {
         return;
     }
 
-    // Check command and output result
-    let output = check_command(&command);
+    // Check command with settings.json awareness
+    let output = check_command_with_settings(&command, &hook_input.cwd);
     match serde_json::to_string(&output) {
         Ok(json) => println!("{json}"),
         Err(e) => {
@@ -81,6 +81,7 @@ fn print_approve() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bash_gates::check_command;
 
     #[test]
     fn test_hook_input_parsing() {

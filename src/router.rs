@@ -3,6 +3,7 @@
 use crate::gates::GATES;
 use crate::models::{Decision, GateResult, HookOutput};
 use crate::parser::extract_commands;
+use crate::settings::{Settings, SettingsDecision};
 use regex::Regex;
 
 /// Check a bash command string and return the appropriate hook output.
@@ -92,6 +93,41 @@ pub fn check_command(command_string: &str) -> HookOutput {
 
     // All checks passed - explicitly allow
     HookOutput::allow(Some("Read-only operation"))
+}
+
+/// Check a bash command with settings.json awareness.
+///
+/// Loads settings from user (~/.claude/settings.json) and project (.claude/settings.json),
+/// then checks the command against those rules first before running gate analysis.
+///
+/// This ensures bash-gates respects user's explicit deny/ask rules and won't
+/// accidentally bypass them with an allow decision.
+pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutput {
+    if command_string.trim().is_empty() {
+        return HookOutput::approve();
+    }
+
+    // Load settings.json (user + project)
+    let settings = Settings::load(cwd);
+
+    // Check settings.json first - respect user's explicit rules
+    match settings.check_command(command_string) {
+        SettingsDecision::Deny => {
+            // User explicitly denied - defer to Claude Code (return ask, CC will deny)
+            return HookOutput::ask("Matched settings.json deny rule");
+        }
+        SettingsDecision::Ask => {
+            // User wants to be asked - defer to Claude Code
+            return HookOutput::ask("Matched settings.json ask rule");
+        }
+        SettingsDecision::Allow | SettingsDecision::NoMatch => {
+            // User allows or has no opinion - proceed with bash-gates analysis
+            // Safe to return allow because we've already checked deny rules
+        }
+    }
+
+    // Run normal bash-gates analysis
+    check_command(command_string)
 }
 
 /// Check raw string patterns before parsing.

@@ -23,6 +23,7 @@ pub mod gates;
 pub mod models;
 pub mod parser;
 pub mod router;
+pub mod settings;
 
 pub use models::{CommandInfo, Decision, GateResult};
-pub use router::check_command;
+pub use router::{check_command, check_command_with_settings};
