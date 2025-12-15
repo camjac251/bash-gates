@@ -2,9 +2,6 @@
 /target/
 **/*.rs.bk
 
-# Cargo
-Cargo.lock
-
 # IDE
 .idea/
 .vscode/
