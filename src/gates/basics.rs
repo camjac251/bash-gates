@@ -199,6 +199,19 @@ pub fn check_basics(cmd: &CommandInfo) -> GateResult {
         return GateResult::allow();
     }
 
+    // xargs with safe target command
+    if program == "xargs" {
+        // Find the target command (first non-flag argument)
+        let target = cmd.args.iter().find(|a| !a.starts_with('-'));
+        if let Some(target_cmd) = target {
+            if SAFE_COMMANDS.contains(&target_cmd.as_str()) {
+                return GateResult::allow();
+            }
+        }
+        // No target or unknown target - skip to let router handle
+        return GateResult::skip();
+    }
+
     // Check if in safe list
     if SAFE_COMMANDS.contains(&program) {
         return GateResult::allow();
@@ -236,6 +249,46 @@ mod tests {
     #[test]
     fn test_unknown_command_skips() {
         let result = check_basics(&cmd("mamba", &["env", "create"]));
+        assert_eq!(result.decision, Decision::Skip);
+    }
+
+    #[test]
+    fn test_xargs_with_safe_command_allows() {
+        // xargs followed by safe commands should allow
+        for (target, args) in [
+            ("bat", &["bat"][..]),
+            ("rg", &["rg", "pattern"][..]),
+            ("cat", &["cat"][..]),
+            ("grep", &["-0", "grep", "TODO"][..]), // flags before target
+        ] {
+            let result = check_basics(&cmd("xargs", args));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "xargs {} should allow",
+                target
+            );
+        }
+    }
+
+    #[test]
+    fn test_xargs_with_unsafe_command_skips() {
+        // xargs followed by unknown/dangerous commands should skip
+        for args in [&["rm", "-f"][..], &["mv"][..], &["unknown_cmd"][..]] {
+            let result = check_basics(&cmd("xargs", args));
+            assert_eq!(
+                result.decision,
+                Decision::Skip,
+                "xargs {:?} should skip",
+                args
+            );
+        }
+    }
+
+    #[test]
+    fn test_xargs_no_target_skips() {
+        // xargs with only flags (no target command) should skip
+        let result = check_basics(&cmd("xargs", &["-0", "-n", "1"]));
         assert_eq!(result.decision, Decision::Skip);
     }
 }

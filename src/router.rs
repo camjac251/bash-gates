@@ -132,39 +132,35 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
 
 /// Check raw string patterns before parsing.
 fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
-    // Dangerous pipe patterns (including full paths)
-    let pipe_patterns = [
-        ("| bash", "Piping to bash"),
-        ("|bash", "Piping to bash"),
-        ("| /bin/bash", "Piping to bash"),
-        ("|/bin/bash", "Piping to bash"),
-        ("| /usr/bin/bash", "Piping to bash"),
-        ("|/usr/bin/bash", "Piping to bash"),
-        ("| sh", "Piping to sh"),
-        ("|sh", "Piping to sh"),
-        ("| /bin/sh", "Piping to sh"),
-        ("|/bin/sh", "Piping to sh"),
-        ("| /usr/bin/sh", "Piping to sh"),
-        ("|/usr/bin/sh", "Piping to sh"),
-        ("| zsh", "Piping to zsh"),
-        ("|zsh", "Piping to zsh"),
-        ("| /bin/zsh", "Piping to zsh"),
-        ("|/bin/zsh", "Piping to zsh"),
-        ("| sudo", "Piping to sudo"),
-        ("|sudo", "Piping to sudo"),
-        ("| /usr/bin/sudo", "Piping to sudo"),
-        ("|/usr/bin/sudo", "Piping to sudo"),
-        ("| python", "Piping to python"),
-        ("|python", "Piping to python"),
-        ("| perl", "Piping to perl"),
-        ("|perl", "Piping to perl"),
-        ("| ruby", "Piping to ruby"),
-        ("|ruby", "Piping to ruby"),
+    // Dangerous pipe patterns - use regex with word boundaries to avoid false positives
+    // like "|shell=True" matching "|sh"
+    let pipe_patterns: &[(&str, &str)] = &[
+        // Shell interpreters (word boundary prevents matching "shell", "bash_script", etc.)
+        (r"\|\s*bash\b", "Piping to bash"),
+        (r"\|\s*/bin/bash\b", "Piping to bash"),
+        (r"\|\s*/usr/bin/bash\b", "Piping to bash"),
+        (r"\|\s*sh\b", "Piping to sh"),
+        (r"\|\s*/bin/sh\b", "Piping to sh"),
+        (r"\|\s*/usr/bin/sh\b", "Piping to sh"),
+        (r"\|\s*zsh\b", "Piping to zsh"),
+        (r"\|\s*/bin/zsh\b", "Piping to zsh"),
+        (r"\|\s*/usr/bin/zsh\b", "Piping to zsh"),
+        // Privilege escalation
+        (r"\|\s*sudo\b", "Piping to sudo"),
+        (r"\|\s*/usr/bin/sudo\b", "Piping to sudo"),
+        (r"\|\s*doas\b", "Piping to doas"),
+        // Script interpreters
+        (r"\|\s*python[0-9.]*\b", "Piping to python"),
+        (r"\|\s*perl\b", "Piping to perl"),
+        (r"\|\s*ruby\b", "Piping to ruby"),
+        (r"\|\s*node\b", "Piping to node"),
     ];
 
     for (pattern, reason) in pipe_patterns {
-        if command_string.contains(pattern) {
-            return Some(HookOutput::ask(reason));
+        if let Ok(re) = Regex::new(pattern) {
+            if re.is_match(command_string) {
+                return Some(HookOutput::ask(reason));
+            }
         }
     }
 
@@ -447,6 +443,32 @@ mod tests {
             ] {
                 let result = check_command(cmd);
                 assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
+            }
+        }
+
+        #[test]
+        fn test_pipe_pattern_no_false_positives() {
+            // These should NOT trigger pipe-to-shell detection
+            for cmd in [
+                // |shell inside regex pattern (not actual pipe to sh)
+                r#"rg "eval|exec|shell=True" src/"#,
+                r#"rg "|shell=True|pickle" src/"#,
+                // Words containing sh/bash
+                r#"echo "bashrc" | cat"#,
+                "cat ~/.bash_profile",
+                "grep shell_exec file.php",
+            ] {
+                let result = check_command(cmd);
+                assert_ne!(
+                    get_reason(&result),
+                    "Piping to sh",
+                    "False positive for: {cmd}"
+                );
+                assert_ne!(
+                    get_reason(&result),
+                    "Piping to bash",
+                    "False positive for: {cmd}"
+                );
             }
         }
     }
