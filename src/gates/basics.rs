@@ -120,6 +120,7 @@ const SAFE_COMMANDS: &[&str] = &[
     "fx", // JSON/YAML viewers
     "hexdump",
     "xxd",
+    "base64",
     "od",
     "hexyl",
     "strings",
@@ -228,7 +229,9 @@ mod tests {
 
     #[test]
     fn test_safe_commands_allow() {
-        for program in ["echo", "cat", "ls", "grep", "ps", "whoami", "date"] {
+        for program in [
+            "echo", "cat", "ls", "grep", "ps", "whoami", "date", "base64", "xxd",
+        ] {
             let result = check_basics(&cmd(program, &[]));
             assert_eq!(result.decision, Decision::Allow, "Failed for: {program}");
         }
