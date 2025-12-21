@@ -579,8 +579,8 @@ mod tests {
         #[test]
         fn test_pipeline_with_write() {
             let result = check_command("cat file.txt | grep pattern | tee output.txt");
-            // tee writes to file, but may not be in our gates - this tests awareness
-            assert_eq!(get_decision(&result), "allow"); // tee not covered, that's ok
+            // tee writes to file, so it should ask for permission
+            assert_eq!(get_decision(&result), "ask");
         }
 
         // Block wins over ask

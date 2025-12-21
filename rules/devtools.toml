@@ -1,0 +1,227 @@
+# Developer Tools Permission Gate
+#
+# Handles developer tools that can modify files:
+# - sd: Stream editor (always asks)
+# - sad: Search and replace with preview
+# - ast-grep: AST-based code search/rewrite
+# - yq: YAML processor
+# - jq: JSON processor (always safe)
+# - semgrep: Code analysis with optional autofix
+# - comby: Structural search/replace
+# - grit: Code migrations
+# - watchexec: File watcher
+# - biome: JavaScript linter/formatter
+# - prettier: Code formatter
+# - eslint: JavaScript linter
+# - ruff: Python linter/formatter
+# - black: Python formatter
+# - isort: Python import sorter
+#
+# Pattern: Most tools are safe in read mode, risky with write flags
+
+[meta]
+name = "devtools"
+description = "Developer tools permission gate"
+priority = 25
+
+# =============================================================================
+# SD (always asks - in-place editor)
+# =============================================================================
+
+[[programs]]
+name = "sd"
+unknown_action = "ask"
+
+# sd is always a write operation
+[[programs.ask]]
+reason = "In-place text replacement"
+
+# =============================================================================
+# SAD (preview mode safe, --commit asks)
+# =============================================================================
+
+[[programs]]
+name = "sad"
+unknown_action = "allow"  # Default is preview mode
+
+[[programs.ask]]
+reason = "Applying replacements"
+if_flags_any = ["--commit"]
+
+# =============================================================================
+# AST-GREP (search safe, -U/--update-all asks)
+# =============================================================================
+
+[[programs]]
+name = "ast-grep"
+unknown_action = "allow"  # Default is search mode
+
+[[programs.ask]]
+reason = "Rewriting code"
+if_flags_any = ["-U", "--update-all"]
+
+# =============================================================================
+# YQ (read safe, -i/--inplace asks)
+# =============================================================================
+
+[[programs]]
+name = "yq"
+unknown_action = "allow"  # Default is read mode
+
+[[programs.ask]]
+reason = "In-place YAML edit"
+if_flags_any = ["-i", "--inplace"]
+
+# =============================================================================
+# JQ (always safe - read-only)
+# =============================================================================
+
+[[programs]]
+name = "jq"
+unknown_action = "allow"
+
+# =============================================================================
+# SEMGREP (scan safe, --autofix/--fix asks)
+# =============================================================================
+
+[[programs]]
+name = "semgrep"
+unknown_action = "allow"  # Default is scan mode
+
+[[programs.ask]]
+reason = "Auto-fixing code"
+if_flags_any = ["--autofix", "--fix"]
+
+# =============================================================================
+# COMBY (match safe, -in-place/-i asks)
+# =============================================================================
+
+[[programs]]
+name = "comby"
+unknown_action = "allow"  # Default is match mode
+
+[[programs.ask]]
+reason = "In-place replacement"
+if_flags_any = ["-in-place", "-i"]
+
+# =============================================================================
+# GRIT (check safe, apply asks)
+# =============================================================================
+
+[[programs]]
+name = "grit"
+unknown_action = "allow"
+
+[[programs.ask]]
+subcommand = "apply"
+reason = "Applying migrations"
+
+# =============================================================================
+# WATCHEXEC (always asks - runs commands)
+# =============================================================================
+
+[[programs]]
+name = "watchexec"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Runs commands on file changes"
+
+# =============================================================================
+# BIOME (check safe, --write asks)
+# =============================================================================
+
+[[programs]]
+name = "biome"
+unknown_action = "allow"
+
+# check --write asks
+[[programs.ask]]
+subcommand = "check"
+reason = "Writing fixes"
+if_flags_any = ["--write"]
+
+# format --write asks
+[[programs.ask]]
+subcommand = "format"
+reason = "Formatting files"
+if_flags_any = ["--write"]
+
+# lint is read-only
+[[programs.allow]]
+subcommand = "lint"
+
+# =============================================================================
+# PRETTIER (check safe, --write/-w asks)
+# =============================================================================
+
+[[programs]]
+name = "prettier"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Writing formatted files"
+if_flags_any = ["--write", "-w"]
+
+# =============================================================================
+# ESLINT (lint safe, --fix asks)
+# =============================================================================
+
+[[programs]]
+name = "eslint"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Auto-fixing"
+if_flags_any = ["--fix"]
+
+# =============================================================================
+# RUFF (check safe, check --fix asks, format without --check asks)
+# =============================================================================
+
+[[programs]]
+name = "ruff"
+unknown_action = "allow"
+
+# check --fix asks
+[[programs.ask]]
+subcommand = "check"
+reason = "Auto-fixing"
+if_flags_any = ["--fix"]
+
+# format without --check/--diff
+# Note: Custom handler needed for precise logic
+[[custom_handlers]]
+program = "ruff"
+handler = "check_ruff"
+description = "ruff format asks unless --check or --diff present"
+
+# =============================================================================
+# BLACK (--check/--diff safe, otherwise asks)
+# =============================================================================
+
+[[programs]]
+name = "black"
+unknown_action = "ask"
+
+# --check and --diff are safe (read-only verification)
+[[programs.allow]]
+if_flags_any = ["--check", "--diff"]
+
+[[programs.ask]]
+reason = "Formatting files"
+
+# =============================================================================
+# ISORT (--check/--check-only/--diff safe, otherwise asks)
+# =============================================================================
+
+[[programs]]
+name = "isort"
+unknown_action = "ask"
+
+# --check, --check-only, and --diff are safe (read-only verification)
+[[programs.allow]]
+if_flags_any = ["--check", "--check-only", "--diff"]
+
+[[programs.ask]]
+reason = "Sorting imports"

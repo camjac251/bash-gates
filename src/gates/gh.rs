@@ -1,6 +1,38 @@
 //! GitHub CLI (gh) permission gate.
+//!
+//! Uses generated declarative rules for command matching.
 
+use crate::generated::rules::check_gh_declarative;
 use crate::models::{CommandInfo, GateResult};
+
+/// Check a gh command for permission requirements.
+///
+/// Delegates to generated declarative rules which handle:
+/// - Read-only commands (allow)
+/// - Write commands (ask with description)
+/// - Blocked commands (deny)
+/// - API method detection for `gh api`
+pub fn check_gh(cmd: &CommandInfo) -> GateResult {
+    if cmd.program != "gh" {
+        return GateResult::skip();
+    }
+
+    // Use declarative rules - they handle all gh cases
+    check_gh_declarative(cmd).unwrap_or_else(|| {
+        // Fallback for any unhandled case (shouldn't happen)
+        let cmd_desc = if cmd.args.len() >= 2 {
+            format!("{} {}", cmd.args[0], cmd.args[1])
+        } else if !cmd.args.is_empty() {
+            cmd.args[0].clone()
+        } else {
+            "unknown".to_string()
+        };
+        GateResult::ask(format!("gh: {cmd_desc}"))
+    })
+}
+
+// === Exports for toml_export (backwards compatibility) ===
+
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
@@ -17,7 +49,6 @@ static BLOCKED_COMMANDS: LazyLock<HashMap<(&str, &str), &str>> = LazyLock::new(|
 /// Read-only commands (auto-allow)
 static READ_COMMANDS: LazyLock<HashSet<Vec<&str>>> = LazyLock::new(|| {
     [
-        // Issue/PR viewing
         vec!["issue", "view"],
         vec!["issue", "list"],
         vec!["issue", "status"],
@@ -27,59 +58,43 @@ static READ_COMMANDS: LazyLock<HashSet<Vec<&str>>> = LazyLock::new(|| {
         vec!["pr", "diff"],
         vec!["pr", "checks"],
         vec!["pr", "develop"],
-        // Repo info
         vec!["repo", "view"],
         vec!["repo", "list"],
         vec!["repo", "clone"],
-        // Search
         vec!["search", "issues"],
         vec!["search", "prs"],
         vec!["search", "repos"],
         vec!["search", "commits"],
         vec!["search", "code"],
-        // Status/auth info
         vec!["status"],
         vec!["auth", "status"],
         vec!["auth", "token"],
-        // Config reading
         vec!["config", "get"],
         vec!["config", "list"],
-        // Run/workflow viewing
         vec!["run", "list"],
         vec!["run", "view"],
         vec!["run", "download"],
         vec!["workflow", "list"],
         vec!["workflow", "view"],
-        // Release/gist viewing
         vec!["release", "list"],
         vec!["release", "view"],
         vec!["release", "download"],
         vec!["gist", "list"],
         vec!["gist", "view"],
         vec!["gist", "clone"],
-        // Labels/milestones
         vec!["label", "list"],
-        // Codespace
         vec!["codespace", "list"],
         vec!["cs", "list"],
-        // Keys
         vec!["ssh-key", "list"],
         vec!["gpg-key", "list"],
-        // Extensions
         vec!["extension", "list"],
-        // Browse (opens browser)
         vec!["browse"],
-        // Alias
         vec!["alias", "list"],
-        // Cache
         vec!["cache", "list"],
-        // Variables/secrets listing (doesn't show values)
         vec!["variable", "list"],
         vec!["secret", "list"],
-        // Ruleset
         vec!["ruleset", "list"],
         vec!["ruleset", "view"],
-        // Project viewing
         vec!["project", "list"],
         vec!["project", "view"],
     ]
@@ -90,7 +105,6 @@ static READ_COMMANDS: LazyLock<HashSet<Vec<&str>>> = LazyLock::new(|| {
 /// Write commands (ask permission)
 static WRITE_COMMANDS: LazyLock<HashMap<Vec<&str>, &str>> = LazyLock::new(|| {
     [
-        // Issue/PR mutations
         (vec!["issue", "create"], "Creating issue"),
         (vec!["issue", "close"], "Closing issue"),
         (vec!["issue", "reopen"], "Reopening issue"),
@@ -111,7 +125,6 @@ static WRITE_COMMANDS: LazyLock<HashMap<Vec<&str>, &str>> = LazyLock::new(|| {
         (vec!["pr", "ready"], "Marking PR ready"),
         (vec!["pr", "review"], "Submitting review"),
         (vec!["pr", "checkout"], "Checking out PR"),
-        // Repo mutations
         (vec!["repo", "create"], "Creating repository"),
         (vec!["repo", "rename"], "Renaming repository"),
         (vec!["repo", "edit"], "Editing repository"),
@@ -120,23 +133,19 @@ static WRITE_COMMANDS: LazyLock<HashMap<Vec<&str>, &str>> = LazyLock::new(|| {
         (vec!["repo", "unarchive"], "Unarchiving repository"),
         (vec!["repo", "sync"], "Syncing repository"),
         (vec!["repo", "set-default"], "Setting default repo"),
-        // Release mutations
         (vec!["release", "create"], "Creating release"),
         (vec!["release", "delete"], "Deleting release"),
         (vec!["release", "edit"], "Editing release"),
         (vec!["release", "upload"], "Uploading asset"),
         (vec!["release", "delete-asset"], "Deleting asset"),
-        // Gist mutations
         (vec!["gist", "create"], "Creating gist"),
         (vec!["gist", "delete"], "Deleting gist"),
         (vec!["gist", "edit"], "Editing gist"),
         (vec!["gist", "rename"], "Renaming gist"),
-        // Label mutations
         (vec!["label", "create"], "Creating label"),
         (vec!["label", "delete"], "Deleting label"),
         (vec!["label", "edit"], "Editing label"),
         (vec!["label", "clone"], "Cloning labels"),
-        // Workflow mutations
         (vec!["workflow", "run"], "Running workflow"),
         (vec!["workflow", "enable"], "Enabling workflow"),
         (vec!["workflow", "disable"], "Disabling workflow"),
@@ -144,7 +153,6 @@ static WRITE_COMMANDS: LazyLock<HashMap<Vec<&str>, &str>> = LazyLock::new(|| {
         (vec!["run", "rerun"], "Rerunning"),
         (vec!["run", "delete"], "Deleting run"),
         (vec!["run", "watch"], "Watching run"),
-        // Codespace mutations
         (vec!["codespace", "create"], "Creating codespace"),
         (vec!["codespace", "delete"], "Deleting codespace"),
         (vec!["codespace", "edit"], "Editing codespace"),
@@ -152,30 +160,23 @@ static WRITE_COMMANDS: LazyLock<HashMap<Vec<&str>, &str>> = LazyLock::new(|| {
         (vec!["codespace", "rebuild"], "Rebuilding codespace"),
         (vec!["cs", "create"], "Creating codespace"),
         (vec!["cs", "delete"], "Deleting codespace"),
-        // Key mutations
         (vec!["ssh-key", "add"], "Adding SSH key"),
         (vec!["ssh-key", "delete"], "Deleting SSH key"),
         (vec!["gpg-key", "add"], "Adding GPG key"),
         (vec!["gpg-key", "delete"], "Deleting GPG key"),
-        // Config mutations
         (vec!["config", "set"], "Setting config"),
         (vec!["config", "clear-cache"], "Clearing cache"),
-        // Secret/variable mutations
         (vec!["secret", "set"], "Setting secret"),
         (vec!["secret", "delete"], "Deleting secret"),
         (vec!["variable", "set"], "Setting variable"),
         (vec!["variable", "delete"], "Deleting variable"),
-        // Cache mutations
         (vec!["cache", "delete"], "Deleting cache"),
-        // Extension mutations
         (vec!["extension", "install"], "Installing extension"),
         (vec!["extension", "upgrade"], "Upgrading extension"),
         (vec!["extension", "remove"], "Removing extension"),
-        // Alias mutations
         (vec!["alias", "set"], "Setting alias"),
         (vec!["alias", "delete"], "Deleting alias"),
         (vec!["alias", "import"], "Importing aliases"),
-        // Project mutations
         (vec!["project", "create"], "Creating project"),
         (vec!["project", "delete"], "Deleting project"),
         (vec!["project", "edit"], "Editing project"),
@@ -193,88 +194,21 @@ static WRITE_COMMANDS: LazyLock<HashMap<Vec<&str>, &str>> = LazyLock::new(|| {
     .collect()
 });
 
-/// Check a gh command for permission requirements.
-pub fn check_gh(cmd: &CommandInfo) -> GateResult {
-    if cmd.program != "gh" {
-        return GateResult::skip();
-    }
-
-    let args = &cmd.args;
-
-    // Handle `gh api` specially
-    if !args.is_empty() && args[0] == "api" {
-        return check_gh_api(&args[1..]);
-    }
-
-    // Build command tuple for lookup
-    let cmd_key: Vec<&str> = args
-        .iter()
-        .take(2)
-        .map(std::string::String::as_str)
-        .collect();
-
-    // Check blocked commands
-    if cmd_key.len() >= 2 {
-        if let Some(reason) = BLOCKED_COMMANDS.get(&(cmd_key[0], cmd_key[1])) {
-            return GateResult::block(*reason);
-        }
-    }
-
-    // Check read commands (1 or 2 parts)
-    for read_cmd in READ_COMMANDS.iter() {
-        let check_len = read_cmd.len().min(cmd_key.len());
-        if check_len > 0 && cmd_key[..check_len] == read_cmd[..] {
-            return GateResult::allow();
-        }
-    }
-
-    // Check write commands (1 or 2 parts)
-    for (write_cmd, reason) in WRITE_COMMANDS.iter() {
-        let check_len = write_cmd.len().min(cmd_key.len());
-        if check_len > 0 && cmd_key[..check_len] == write_cmd[..] {
-            return GateResult::ask(format!("gh: {reason}"));
-        }
-    }
-
-    // Unknown gh command - ask to be safe
-    let cmd_desc = if cmd_key.len() >= 2 {
-        format!("{} {}", cmd_key[0], cmd_key[1])
-    } else if !cmd_key.is_empty() {
-        cmd_key[0].to_string()
-    } else {
-        "unknown".to_string()
-    };
-    GateResult::ask(format!("gh: Unknown command '{cmd_desc}'"))
+/// Get blocked gh commands as (subcommands, reason)
+pub fn blocked_commands() -> impl Iterator<Item = ((&'static str, &'static str), &'static str)> {
+    BLOCKED_COMMANDS.iter().map(|(k, v)| (*k, *v))
 }
 
-/// Check gh api command for HTTP method.
-fn check_gh_api(api_args: &[String]) -> GateResult {
-    let mut method = "GET";
+/// Get read-only gh command prefixes (e.g., "pr list", "issue view")
+pub fn read_command_prefixes() -> impl Iterator<Item = String> {
+    READ_COMMANDS.iter().map(|parts| parts.join(" "))
+}
 
-    let mut i = 0;
-    while i < api_args.len() {
-        let arg = &api_args[i];
-        if arg == "-X" || arg == "--method" {
-            if i + 1 < api_args.len() {
-                method = &api_args[i + 1];
-            }
-            break;
-        } else if let Some(m) = arg.strip_prefix("-X") {
-            method = m;
-            break;
-        } else if let Some(m) = arg.strip_prefix("--method=") {
-            method = m;
-            break;
-        }
-        i += 1;
-    }
-
-    let method_upper = method.to_uppercase();
-    if method_upper == "GET" {
-        GateResult::allow()
-    } else {
-        GateResult::ask(format!("gh api: {method_upper} request"))
-    }
+/// Get write gh command prefixes with descriptions
+pub fn write_command_prefixes() -> impl Iterator<Item = (String, &'static str)> {
+    WRITE_COMMANDS
+        .iter()
+        .map(|(parts, desc)| (parts.join(" "), *desc))
 }
 
 #[cfg(test)]

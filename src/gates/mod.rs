@@ -1,14 +1,19 @@
 //! Permission gates for different command categories.
+//!
+//! Gates use a hybrid approach:
+//! 1. Try declarative rules first (from generated code)
+//! 2. Fall back to custom handlers for complex logic
 
-mod basics;
-mod cloud;
-mod devtools;
-mod filesystem;
-mod gh;
-mod git;
-mod network;
-mod package_managers;
-mod system;
+pub mod basics;
+pub mod cloud;
+pub mod devtools;
+pub mod filesystem;
+pub mod gh;
+pub mod git;
+pub mod helpers;
+pub mod network;
+pub mod package_managers;
+pub mod system;
 
 #[cfg(test)]
 pub mod test_utils;

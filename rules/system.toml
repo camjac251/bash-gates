@@ -1,0 +1,1789 @@
+# System Command Permission Gate
+#
+# Handles system-level commands:
+# - Database CLIs: psql, mysql, sqlite3, mongosh, redis-cli
+# - Process management: kill, pkill, killall, xkill
+# - Build tools: make
+# - Privilege escalation: sudo, doas
+# - Service management: systemctl, service
+# - OS package managers: apt, dnf, pacman, brew, etc.
+# - System power/disk: shutdown, reboot, mkfs, fdisk (blocked)
+# - Scheduling: crontab
+# - Low-level: dd
+#
+# Note: Many of these require custom handlers for complex logic
+
+[meta]
+name = "system"
+description = "System command permission gate"
+priority = 40
+
+# =============================================================================
+# BLOCKED SYSTEM COMMANDS
+# =============================================================================
+
+[[programs]]
+name = "shutdown"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "System power command blocked"
+
+[[programs]]
+name = "reboot"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "System power command blocked"
+
+[[programs]]
+name = "poweroff"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "System power command blocked"
+
+[[programs]]
+name = "halt"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "System power command blocked"
+
+[[programs]]
+name = "init"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "System power command blocked"
+
+[[programs]]
+name = "mkfs"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Disk partitioning blocked"
+
+[[programs]]
+name = "fdisk"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Disk partitioning blocked"
+
+[[programs]]
+name = "parted"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Disk partitioning blocked"
+
+[[programs]]
+name = "gdisk"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Disk partitioning blocked"
+
+[[programs]]
+name = "dd"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Low-level disk operation blocked"
+
+[[programs]]
+name = "shred"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Secure delete blocked"
+
+[[programs]]
+name = "wipe"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Secure wipe blocked"
+
+[[programs]]
+name = "mke2fs"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Filesystem creation blocked"
+
+[[programs]]
+name = "mkswap"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Swap creation blocked"
+
+[[programs]]
+name = "wipefs"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Filesystem wipe blocked"
+
+[[programs]]
+name = "hdparm"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Disk parameters blocked"
+
+[[programs]]
+name = "insmod"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Kernel module loading blocked"
+
+[[programs]]
+name = "rmmod"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Kernel module removal blocked"
+
+[[programs]]
+name = "modprobe"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Kernel module loading blocked"
+
+[[programs]]
+name = "grub-install"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Bootloader modification blocked"
+
+[[programs]]
+name = "update-grub"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Bootloader modification blocked"
+
+[[programs]]
+name = "useradd"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "User management blocked"
+
+[[programs]]
+name = "userdel"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "User management blocked"
+
+[[programs]]
+name = "usermod"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "User management blocked"
+
+[[programs]]
+name = "passwd"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Password change blocked"
+
+[[programs]]
+name = "chsh"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Shell change blocked"
+
+[[programs]]
+name = "iptables"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Firewall modification blocked"
+
+[[programs]]
+name = "ufw"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Firewall modification blocked"
+
+[[programs]]
+name = "firewall-cmd"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Firewall modification blocked"
+
+[[programs]]
+name = "chattr"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "File attribute change blocked"
+
+[[programs]]
+name = "mount"
+unknown_action = "ask"
+
+# mount without args shows mounted filesystems (read-only)
+[[programs.allow]]
+if_flags_any = ["--version", "--help", "-h", "-V"]
+
+[[programs.ask]]
+reason = "Mounting filesystem"
+
+[[programs]]
+name = "umount"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Unmounting blocked"
+
+[[programs]]
+name = "swapoff"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Swap management blocked"
+
+[[programs]]
+name = "swapon"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "Swap management blocked"
+
+[[programs]]
+name = "lvremove"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "LVM management blocked"
+
+[[programs]]
+name = "vgremove"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "LVM management blocked"
+
+[[programs]]
+name = "pvremove"
+unknown_action = "block"
+
+[[programs.block]]
+reason = "LVM management blocked"
+
+# =============================================================================
+# PSQL
+# =============================================================================
+
+[[programs]]
+name = "psql"
+unknown_action = "ask"
+
+# List databases is safe (read-only)
+[[programs.allow]]
+if_flags_any = ["-l", "--list"]
+
+# Note: Custom handler needed for -c/-f flag SQL parsing
+[[custom_handlers]]
+program = "psql"
+handler = "check_psql"
+description = "Parse -c query for SELECT/\\d (allow) vs INSERT/UPDATE/DELETE (ask), -f always asks"
+
+# =============================================================================
+# MYSQL
+# =============================================================================
+
+[[programs]]
+name = "mysql"
+unknown_action = "ask"
+
+# Note: Custom handler needed for -e flag SQL parsing
+[[custom_handlers]]
+program = "mysql"
+handler = "check_mysql"
+description = "Parse -e query for SELECT/SHOW (allow) vs INSERT/UPDATE/DELETE (ask)"
+
+# =============================================================================
+# SQLITE3
+# =============================================================================
+
+[[programs]]
+name = "sqlite3"
+unknown_action = "ask"
+
+# Read-only mode is safe
+[[programs.allow]]
+if_flags_any = ["-readonly"]
+
+[[programs.ask]]
+reason = "Database access"
+
+# =============================================================================
+# MONGOSH / MONGO
+# =============================================================================
+
+[[programs]]
+name = "mongosh"
+aliases = ["mongo"]
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Database session"
+if_flags_any = ["--eval"]
+
+[[programs.ask]]
+reason = "Database session"
+
+# =============================================================================
+# REDIS-CLI
+# =============================================================================
+
+[[programs]]
+name = "redis-cli"
+unknown_action = "ask"
+
+# Note: Custom handler checks first arg for read commands
+[[custom_handlers]]
+program = "redis-cli"
+handler = "check_redis"
+description = "Allow GET/MGET/HGET/KEYS/INFO/PING, ask for SET/DEL/FLUSHDB"
+
+# =============================================================================
+# PROCESS MANAGEMENT
+# =============================================================================
+
+[[programs]]
+name = "kill"
+unknown_action = "ask"
+
+# Signal 0 is just a check (no actual signal sent)
+[[programs.allow]]
+if_flags_any = ["-0"]
+
+[[programs.ask]]
+reason = "Terminating process(es)"
+
+[[programs]]
+name = "pkill"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Terminating process(es)"
+
+[[programs]]
+name = "killall"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Terminating process(es)"
+
+[[programs]]
+name = "xkill"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Terminating process(es)"
+
+# =============================================================================
+# MAKE
+# =============================================================================
+
+[[programs]]
+name = "make"
+unknown_action = "ask"
+
+# Dry-run flags are safe
+[[programs.allow_if_flags]]
+flags_any = ["-n", "--dry-run", "--just-print", "--recon"]
+
+# Print database/query mode is safe
+[[programs.allow_if_flags]]
+flags_any = ["-p", "--print-data-base", "-q", "--question"]
+
+# Safe targets
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "tests"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "lint"
+
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "all"
+
+[[programs.allow]]
+subcommand = "clean"
+
+[[programs.allow]]
+subcommand = "format"
+
+[[programs.allow]]
+subcommand = "fmt"
+
+[[programs.allow]]
+subcommand = "typecheck"
+
+[[programs.allow]]
+subcommand = "dev"
+
+[[programs.allow]]
+subcommand = "run"
+
+[[programs.allow]]
+subcommand = "help"
+
+# Note: Custom handler for unknown targets
+[[custom_handlers]]
+program = "make"
+handler = "check_make"
+description = "Allow safe targets, ask for others with target name in reason"
+
+# =============================================================================
+# OTHER BUILD TOOLS
+# =============================================================================
+
+# CMake - build system generator
+[[programs]]
+name = "cmake"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow_if_flags]]
+flags_any = ["-N", "--view-only"]
+
+[[programs.ask]]
+reason = "Configuring build"
+
+# Ninja - fast build system
+[[programs]]
+name = "ninja"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "-t"
+
+[[programs.ask]]
+subcommand = "clean"
+reason = "Cleaning build"
+
+# Just - command runner
+[[programs]]
+name = "just"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "--list"
+
+[[programs.allow]]
+subcommand = "--summary"
+
+[[programs.allow]]
+subcommand = "--dump"
+
+[[programs.allow]]
+subcommand = "--evaluate"
+
+# Taskfile/Task - task runner
+[[programs]]
+name = "task"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "--list"
+
+[[programs.allow]]
+subcommand = "--list-all"
+
+# Gradle
+[[programs]]
+name = "gradle"
+aliases = ["gradlew", "./gradlew"]
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "tasks"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "dependencies"
+
+[[programs.allow]]
+subcommand = "properties"
+
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "clean"
+
+[[programs.ask]]
+subcommand = "publish"
+reason = "Publishing artifacts"
+
+[[programs.ask]]
+subcommand = "uploadArchives"
+reason = "Uploading archives"
+
+# Maven
+[[programs]]
+name = "mvn"
+aliases = ["maven", "./mvnw", "mvnw"]
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "validate"
+
+[[programs.allow]]
+subcommand = "compile"
+
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "package"
+
+[[programs.allow]]
+subcommand = "verify"
+
+[[programs.allow]]
+subcommand = "clean"
+
+[[programs.allow]]
+subcommand = "dependency:tree"
+
+[[programs.allow]]
+subcommand = "dependency:analyze"
+
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing to local repo"
+
+[[programs.ask]]
+subcommand = "deploy"
+reason = "Deploying artifacts"
+
+# Bazel
+[[programs]]
+name = "bazel"
+aliases = ["bazelisk"]
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "query"
+
+[[programs.allow]]
+subcommand = "cquery"
+
+[[programs.allow]]
+subcommand = "aquery"
+
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "coverage"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.ask]]
+subcommand = "clean"
+reason = "Cleaning build"
+
+[[programs.ask]]
+subcommand = "run"
+reason = "Running target"
+
+# Meson - build system
+[[programs]]
+name = "meson"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "introspect"
+
+[[programs.allow]]
+subcommand = "configure"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.ask]]
+subcommand = "setup"
+reason = "Setting up build"
+
+[[programs.ask]]
+subcommand = "compile"
+reason = "Compiling project"
+
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing"
+
+# Ansible
+[[programs]]
+name = "ansible"
+aliases = ["ansible-playbook", "ansible-galaxy", "ansible-vault"]
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "--list-hosts"
+
+[[programs.allow]]
+subcommand = "--list-tasks"
+
+[[programs.allow]]
+subcommand = "--syntax-check"
+
+[[programs.allow_if_flags]]
+flags_any = ["--check", "-C", "--diff"]
+
+[[programs.ask]]
+reason = "Running playbook"
+
+# Vagrant
+[[programs]]
+name = "vagrant"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "status"
+
+[[programs.allow]]
+subcommand = "global-status"
+
+[[programs.allow]]
+subcommand = "ssh-config"
+
+[[programs.allow]]
+subcommand = "port"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.ask]]
+subcommand = "up"
+reason = "Starting VM"
+
+[[programs.ask]]
+subcommand = "halt"
+reason = "Stopping VM"
+
+[[programs.ask]]
+subcommand = "destroy"
+reason = "Destroying VM"
+
+[[programs.ask]]
+subcommand = "provision"
+reason = "Provisioning VM"
+
+[[programs.ask]]
+subcommand = "ssh"
+reason = "SSH into VM"
+
+[[programs.ask]]
+subcommand = "reload"
+reason = "Reloading VM"
+
+# Hyperfine - benchmarking tool
+[[programs]]
+name = "hyperfine"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.ask]]
+reason = "Running benchmarks"
+
+# =============================================================================
+# SUDO / DOAS
+# =============================================================================
+
+[[programs]]
+name = "sudo"
+aliases = ["doas"]
+unknown_action = "ask"
+
+# Safe flags (don't execute commands)
+[[programs.allow]]
+if_flags_any = ["-l", "--list"]
+
+[[programs.allow]]
+if_flags_any = ["-v", "--validate"]
+
+[[programs.allow]]
+if_flags_any = ["-k", "--reset-timestamp"]
+
+# Note: Custom handler extracts underlying command and provides description
+[[custom_handlers]]
+program = "sudo"
+handler = "check_sudo"
+description = "Extract underlying command and provide descriptive reason"
+
+# =============================================================================
+# SYSTEMCTL
+# =============================================================================
+
+[[programs]]
+name = "systemctl"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "status"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "list-units"
+
+[[programs.allow]]
+subcommand = "list-unit-files"
+
+[[programs.allow]]
+subcommand = "list-sockets"
+
+[[programs.allow]]
+subcommand = "list-timers"
+
+[[programs.allow]]
+subcommand = "list-jobs"
+
+[[programs.allow]]
+subcommand = "list-dependencies"
+
+[[programs.allow]]
+subcommand = "is-active"
+
+[[programs.allow]]
+subcommand = "is-enabled"
+
+[[programs.allow]]
+subcommand = "is-failed"
+
+[[programs.allow]]
+subcommand = "is-system-running"
+
+[[programs.allow]]
+subcommand = "cat"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Write commands
+[[programs.ask]]
+subcommand = "start"
+reason = "Starting service"
+
+[[programs.ask]]
+subcommand = "stop"
+reason = "Stopping service"
+
+[[programs.ask]]
+subcommand = "restart"
+reason = "Restarting service"
+
+[[programs.ask]]
+subcommand = "reload"
+reason = "Reloading service"
+
+[[programs.ask]]
+subcommand = "enable"
+reason = "Enabling service"
+
+[[programs.ask]]
+subcommand = "disable"
+reason = "Disabling service"
+
+[[programs.ask]]
+subcommand = "mask"
+reason = "Masking service"
+
+[[programs.ask]]
+subcommand = "unmask"
+reason = "Unmasking service"
+
+[[programs.ask]]
+subcommand = "kill"
+reason = "Killing service"
+
+[[programs.ask]]
+subcommand = "reset-failed"
+reason = "Resetting failed state"
+
+[[programs.ask]]
+subcommand = "daemon-reload"
+reason = "Reloading daemon"
+
+[[programs.ask]]
+subcommand = "daemon-reexec"
+reason = "Re-executing daemon"
+
+[[programs.ask]]
+subcommand = "set-default"
+reason = "Setting default target"
+
+[[programs.ask]]
+subcommand = "isolate"
+reason = "Isolating target"
+
+[[programs.ask]]
+subcommand = "edit"
+reason = "Editing unit"
+
+# =============================================================================
+# SERVICE
+# =============================================================================
+
+[[programs]]
+name = "service"
+unknown_action = "ask"
+
+# --status-all is read-only
+[[programs.allow]]
+if_flags_any = ["--status-all"]
+
+# Note: Custom handler checks for "service <name> status"
+[[custom_handlers]]
+program = "service"
+handler = "check_service"
+description = "Allow 'service <name> status', ask for other actions"
+
+# =============================================================================
+# CRONTAB
+# =============================================================================
+
+[[programs]]
+name = "crontab"
+unknown_action = "ask"
+
+# List is safe (read-only)
+[[programs.allow]]
+if_flags_any = ["-l"]
+
+[[programs.ask]]
+reason = "Modifying scheduled tasks"
+
+# =============================================================================
+# APT / APT-GET / APT-CACHE
+# =============================================================================
+
+[[programs]]
+name = "apt"
+aliases = ["apt-get"]
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "showpkg"
+
+[[programs.allow]]
+subcommand = "depends"
+
+[[programs.allow]]
+subcommand = "rdepends"
+
+[[programs.allow]]
+subcommand = "policy"
+
+[[programs.allow]]
+subcommand = "madison"
+
+[[programs.allow]]
+subcommand = "pkgnames"
+
+[[programs.allow]]
+subcommand = "dotty"
+
+[[programs.allow]]
+subcommand = "xvcg"
+
+[[programs.allow]]
+subcommand = "stats"
+
+[[programs.allow]]
+subcommand = "dump"
+
+[[programs.allow]]
+subcommand = "dumpavail"
+
+[[programs.allow]]
+subcommand = "showsrc"
+
+[[programs.allow]]
+subcommand = "changelog"
+
+[[programs.allow]]
+subcommand = "download"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+# Write commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "purge"
+reason = "Purging packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating package lists"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading packages"
+
+[[programs.ask]]
+subcommand = "full-upgrade"
+reason = "Full system upgrade"
+
+[[programs.ask]]
+subcommand = "dist-upgrade"
+reason = "Distribution upgrade"
+
+[[programs.ask]]
+subcommand = "autoremove"
+reason = "Removing unused packages"
+
+[[programs.ask]]
+subcommand = "autoclean"
+reason = "Cleaning cache"
+
+[[programs.ask]]
+subcommand = "clean"
+reason = "Cleaning cache"
+
+[[programs.ask]]
+subcommand = "build-dep"
+reason = "Installing build dependencies"
+
+[[programs.ask]]
+subcommand = "source"
+reason = "Downloading source"
+
+[[programs.ask]]
+subcommand = "edit-sources"
+reason = "Editing sources"
+
+[[programs.ask]]
+subcommand = "satisfy"
+reason = "Satisfying dependencies"
+
+[[programs]]
+name = "apt-cache"
+unknown_action = "allow"  # Read-only package info
+default_allow = true
+
+# apt-cache is always read-only
+
+# =============================================================================
+# DNF / YUM
+# =============================================================================
+
+[[programs]]
+name = "dnf"
+aliases = ["yum"]
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "provides"
+
+[[programs.allow]]
+subcommand = "whatprovides"
+
+[[programs.allow]]
+subcommand = "repolist"
+
+[[programs.allow]]
+subcommand = "repoinfo"
+
+[[programs.allow]]
+subcommand = "repoquery"
+
+[[programs.allow]]
+subcommand = "deplist"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "check-update"
+
+[[programs.allow]]
+subcommand = "history"
+
+[[programs.allow]]
+subcommand = "alias"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+# Write commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "erase"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading packages"
+
+[[programs.ask]]
+subcommand = "downgrade"
+reason = "Downgrading packages"
+
+[[programs.ask]]
+subcommand = "reinstall"
+reason = "Reinstalling packages"
+
+[[programs.ask]]
+subcommand = "autoremove"
+reason = "Removing unused packages"
+
+[[programs.ask]]
+subcommand = "clean"
+reason = "Cleaning cache"
+
+[[programs.ask]]
+subcommand = "makecache"
+reason = "Building cache"
+
+[[programs.ask]]
+subcommand = "group"
+reason = "Group operation"
+
+[[programs.ask]]
+subcommand = "module"
+reason = "Module operation"
+
+[[programs.ask]]
+subcommand = "swap"
+reason = "Swapping packages"
+
+[[programs.ask]]
+subcommand = "distro-sync"
+reason = "Syncing distribution"
+
+# =============================================================================
+# PACMAN / YAY / PARU
+# =============================================================================
+
+[[programs]]
+name = "pacman"
+aliases = ["yay", "paru"]
+unknown_action = "ask"
+
+# Query operations are safe (-Q)
+[[programs.allow]]
+subcommand = "-Q"
+
+[[programs.allow]]
+subcommand = "--query"
+
+[[programs.allow]]
+subcommand = "-Qs"
+
+[[programs.allow]]
+subcommand = "-Qi"
+
+[[programs.allow]]
+subcommand = "-Ql"
+
+[[programs.allow]]
+subcommand = "-Qo"
+
+# Search/info only
+[[programs.allow]]
+subcommand = "-Ss"
+
+[[programs.allow]]
+subcommand = "-Si"
+
+[[programs.allow]]
+subcommand = "-Sl"
+
+[[programs.allow]]
+subcommand = "-Sg"
+
+# Files operations are safe (-F)
+[[programs.allow]]
+subcommand = "-F"
+
+[[programs.allow]]
+subcommand = "--files"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Note: Custom handler needed for prefix matching -S, -R, -U, -D
+[[custom_handlers]]
+program = "pacman"
+handler = "check_pacman"
+description = "Handle -S (sync), -R (remove), -U (upgrade), -D (database) prefixes"
+
+# =============================================================================
+# BREW (Homebrew)
+# =============================================================================
+
+[[programs]]
+name = "brew"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "ls"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "home"
+
+[[programs.allow]]
+subcommand = "homepage"
+
+[[programs.allow]]
+subcommand = "deps"
+
+[[programs.allow]]
+subcommand = "uses"
+
+[[programs.allow]]
+subcommand = "leaves"
+
+[[programs.allow]]
+subcommand = "outdated"
+
+[[programs.allow]]
+subcommand = "config"
+
+[[programs.allow]]
+subcommand = "doctor"
+
+[[programs.allow]]
+subcommand = "commands"
+
+[[programs.allow]]
+subcommand = "desc"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "cat"
+
+[[programs.allow]]
+subcommand = "formula"
+
+[[programs.allow]]
+subcommand = "cask"
+
+# Write commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating Homebrew"
+
+[[programs.ask]]
+subcommand = "reinstall"
+reason = "Reinstalling packages"
+
+[[programs.ask]]
+subcommand = "link"
+reason = "Linking packages"
+
+[[programs.ask]]
+subcommand = "unlink"
+reason = "Unlinking packages"
+
+[[programs.ask]]
+subcommand = "pin"
+reason = "Pinning packages"
+
+[[programs.ask]]
+subcommand = "unpin"
+reason = "Unpinning packages"
+
+[[programs.ask]]
+subcommand = "tap"
+reason = "Tapping repository"
+
+[[programs.ask]]
+subcommand = "untap"
+reason = "Untapping repository"
+
+[[programs.ask]]
+subcommand = "cleanup"
+reason = "Cleaning up"
+
+[[programs.ask]]
+subcommand = "autoremove"
+reason = "Removing unused"
+
+[[programs.ask]]
+subcommand = "services"
+reason = "Managing services"
+
+# =============================================================================
+# ZYPPER (openSUSE)
+# =============================================================================
+
+[[programs]]
+name = "zypper"
+unknown_action = "ask"
+
+# Read-only
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "se"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "if"
+
+[[programs.allow]]
+subcommand = "list-updates"
+
+[[programs.allow]]
+subcommand = "lu"
+
+[[programs.allow]]
+subcommand = "packages"
+
+[[programs.allow]]
+subcommand = "pa"
+
+[[programs.allow]]
+subcommand = "patterns"
+
+[[programs.allow]]
+subcommand = "pt"
+
+[[programs.allow]]
+subcommand = "products"
+
+[[programs.allow]]
+subcommand = "pd"
+
+[[programs.allow]]
+subcommand = "repos"
+
+[[programs.allow]]
+subcommand = "lr"
+
+[[programs.allow]]
+subcommand = "services"
+
+[[programs.allow]]
+subcommand = "ls"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+# Write
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "in"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "rm"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "up"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "dist-upgrade"
+reason = "Distribution upgrade"
+
+[[programs.ask]]
+subcommand = "dup"
+reason = "Distribution upgrade"
+
+[[programs.ask]]
+subcommand = "patch"
+reason = "Installing patches"
+
+[[programs.ask]]
+subcommand = "addrepo"
+reason = "Adding repository"
+
+[[programs.ask]]
+subcommand = "ar"
+reason = "Adding repository"
+
+[[programs.ask]]
+subcommand = "removerepo"
+reason = "Removing repository"
+
+[[programs.ask]]
+subcommand = "rr"
+reason = "Removing repository"
+
+[[programs.ask]]
+subcommand = "refresh"
+reason = "Refreshing repositories"
+
+[[programs.ask]]
+subcommand = "ref"
+reason = "Refreshing repositories"
+
+[[programs.ask]]
+subcommand = "clean"
+reason = "Cleaning cache"
+
+# =============================================================================
+# APK (Alpine)
+# =============================================================================
+
+[[programs]]
+name = "apk"
+unknown_action = "ask"
+
+# Read-only
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "dot"
+
+[[programs.allow]]
+subcommand = "policy"
+
+[[programs.allow]]
+subcommand = "stats"
+
+[[programs.allow]]
+subcommand = "audit"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+# Write
+[[programs.ask]]
+subcommand = "add"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "del"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating index"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading packages"
+
+[[programs.ask]]
+subcommand = "fix"
+reason = "Fixing packages"
+
+[[programs.ask]]
+subcommand = "cache"
+reason = "Cache operation"
+
+[[programs.ask]]
+subcommand = "fetch"
+reason = "Fetching packages"
+
+# =============================================================================
+# NIX / NIX-ENV / NIX-SHELL
+# =============================================================================
+
+[[programs]]
+name = "nix"
+unknown_action = "ask"
+
+# Read-only
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "eval"
+
+[[programs.allow]]
+subcommand = "repl"
+
+[[programs.allow]]
+subcommand = "flake"
+
+[[programs.allow]]
+subcommand = "path-info"
+
+[[programs.allow]]
+subcommand = "derivation"
+
+[[programs.allow]]
+subcommand = "store"
+
+[[programs.allow]]
+subcommand = "log"
+
+[[programs.allow]]
+subcommand = "why-depends"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Write
+[[programs.ask]]
+subcommand = "build"
+reason = "Building derivation"
+
+[[programs.ask]]
+subcommand = "develop"
+reason = "Entering dev shell"
+
+[[programs.ask]]
+subcommand = "run"
+reason = "Running package"
+
+[[programs.ask]]
+subcommand = "shell"
+reason = "Entering shell"
+
+[[programs.ask]]
+subcommand = "profile"
+reason = "Profile operation"
+
+[[programs.ask]]
+subcommand = "upgrade-nix"
+reason = "Upgrading Nix"
+
+[[programs.ask]]
+subcommand = "copy"
+reason = "Copying paths"
+
+[[programs.ask]]
+subcommand = "collect-garbage"
+reason = "Collecting garbage"
+
+[[programs]]
+name = "nix-env"
+unknown_action = "ask"
+
+# Query is safe
+[[programs.allow]]
+subcommand = "-q"
+
+[[programs.allow]]
+subcommand = "--query"
+
+# Write
+[[programs.ask]]
+subcommand = "-i"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "--install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "-e"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "--uninstall"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "-u"
+reason = "Upgrading packages"
+
+[[programs.ask]]
+subcommand = "--upgrade"
+reason = "Upgrading packages"
+
+[[programs]]
+name = "nix-shell"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Entering Nix shell"
+
+# =============================================================================
+# FLATPAK / SNAP
+# =============================================================================
+
+[[programs]]
+name = "flatpak"
+aliases = ["snap"]
+unknown_action = "ask"
+
+# Read-only
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "remote-ls"
+
+[[programs.allow]]
+subcommand = "remotes"
+
+[[programs.allow]]
+subcommand = "history"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Write
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Uninstalling"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading"
+
+[[programs.ask]]
+subcommand = "run"
+reason = "Running"
+
+[[programs.ask]]
+subcommand = "remote-add"
+reason = "Adding remote"
+
+[[programs.ask]]
+subcommand = "remote-delete"
+reason = "Removing remote"
+
+[[programs.ask]]
+subcommand = "repair"
+reason = "Repairing"

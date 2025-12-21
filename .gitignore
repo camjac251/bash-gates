@@ -1,5 +1,6 @@
 # Build artifacts
 /target/
+/src/generated/
 **/*.rs.bk
 
 # IDE

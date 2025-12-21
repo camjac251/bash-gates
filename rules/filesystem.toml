@@ -1,0 +1,218 @@
+# Filesystem Permission Gate
+#
+# Handles filesystem modification commands:
+# - rm: File/directory removal
+# - mv: Move/rename files
+# - cp: Copy files
+# - mkdir: Create directories
+# - touch: Create/update files
+# - chmod/chown/chgrp: Permission changes
+# - ln: Create links
+# - sed -i: In-place editing
+# - perl -i: In-place editing
+# - tar: Archive operations
+# - unzip/zip: Archive operations
+#
+# Special handling:
+# - rm with /, ~, /* is blocked (catastrophic)
+# - rm with .., ../, * asks with warning
+# - tar -t and unzip -l are read-only (listing)
+
+[meta]
+name = "filesystem"
+description = "Filesystem modification permission gate"
+priority = 30
+
+# =============================================================================
+# RM (complex - needs custom handler for path checking)
+# =============================================================================
+
+[[programs]]
+name = "rm"
+unknown_action = "ask"
+
+# Block catastrophic rm patterns (exported to Gemini CLI)
+[[programs.block]]
+if_args_contain = [" /", " /*", " ~/", " ~/*"]
+reason = "Catastrophic rm blocked (root or home)"
+
+[[programs.block]]
+subcommand = "-rf /"
+reason = "rm -rf / blocked"
+
+[[programs.block]]
+subcommand = "-rf /*"
+reason = "rm -rf /* blocked"
+
+[[programs.block]]
+subcommand = "-rf ~"
+reason = "rm -rf ~ blocked"
+
+[[programs.block]]
+subcommand = "-fr /"
+reason = "rm -fr / blocked"
+
+[[programs.block]]
+subcommand = "-fr ~"
+reason = "rm -fr ~ blocked"
+
+# Note: Custom handler also checks for:
+# - Path normalization (// -> /, /. -> /)
+# - Path traversal with ..
+# - Risky patterns: .., ../, *
+[[custom_handlers]]
+program = "rm"
+handler = "check_rm"
+description = "Check for catastrophic paths (blocked) and risky patterns (ask with warning)"
+
+# =============================================================================
+# MV (always asks)
+# =============================================================================
+
+[[programs]]
+name = "mv"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Moving files"
+
+# =============================================================================
+# CP (always asks)
+# =============================================================================
+
+[[programs]]
+name = "cp"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Copying files"
+
+# =============================================================================
+# MKDIR (always asks)
+# =============================================================================
+
+[[programs]]
+name = "mkdir"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Creating directory"
+
+# =============================================================================
+# TOUCH (always asks)
+# =============================================================================
+
+[[programs]]
+name = "touch"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Creating/updating file"
+
+# =============================================================================
+# CHMOD/CHOWN/CHGRP (always asks)
+# =============================================================================
+
+[[programs]]
+name = "chmod"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Changing permissions"
+
+[[programs]]
+name = "chown"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Changing permissions"
+
+[[programs]]
+name = "chgrp"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Changing permissions"
+
+# =============================================================================
+# LN (always asks)
+# =============================================================================
+
+[[programs]]
+name = "ln"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Creating link"
+
+# =============================================================================
+# SED with -i (in-place edit)
+# =============================================================================
+# Note: sed without -i is handled by basics gate
+
+[[conditional_allow]]
+program = "sed"
+description = "sed is safe without -i flag (in-place edit)"
+unless_flags = ["-i", "--in-place"]
+on_flag_present = "ask"
+
+# =============================================================================
+# PERL (always asks - can execute arbitrary code via -e, system(), etc.)
+# =============================================================================
+
+[[programs]]
+name = "perl"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "perl: can execute arbitrary code"
+
+# =============================================================================
+# TAR (list safe, extract/create asks)
+# =============================================================================
+
+[[programs]]
+name = "tar"
+unknown_action = "ask"
+
+# List contents is safe (-t, --list, or combined like -tvf)
+[[programs.allow]]
+subcommand = "-t"
+
+[[programs.allow]]
+subcommand = "--list"
+
+# Note: Custom handler needed for combined flags like -tvf, -xf, -cf
+[[custom_handlers]]
+program = "tar"
+handler = "check_tar"
+description = "Check for t flag (list=safe) vs x/c flags (extract/create=ask)"
+
+# =============================================================================
+# UNZIP (list safe, extract asks)
+# =============================================================================
+
+[[programs]]
+name = "unzip"
+unknown_action = "ask"
+
+# List contents is safe (read-only)
+[[programs.allow]]
+if_flags_any = ["-l"]
+
+[[programs.ask]]
+reason = "Extracting archive"
+
+# =============================================================================
+# ZIP (always asks - note: -l flag converts line endings, does NOT list contents)
+# =============================================================================
+
+[[programs]]
+name = "zip"
+unknown_action = "ask"
+
+# Note: -l flag converts line endings (CR-LF to Unix), it does NOT list contents
+# Use zipinfo to list zip contents (which is in basics safe_commands)
+
+[[programs.ask]]
+reason = "Creating/modifying archive"

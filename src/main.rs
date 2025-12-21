@@ -19,9 +19,36 @@
 
 use bash_gates::models::{HookInput, HookOutput};
 use bash_gates::router::check_command_with_settings;
+use bash_gates::toml_export;
+use std::env;
 use std::io::{self, Read};
 
 fn main() {
+    // Check for CLI flags
+    let args: Vec<String> = env::args().collect();
+
+    if args
+        .iter()
+        .any(|a| a == "--export-toml" || a == "--gemini-policy")
+    {
+        // Export Gemini CLI policy rules
+        print!("{}", toml_export::generate_toml());
+        return;
+    }
+
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        eprintln!("bash-gates - Intelligent bash command permission gate");
+        eprintln!();
+        eprintln!("USAGE:");
+        eprintln!("  bash-gates                   Read hook input from stdin (default)");
+        eprintln!("  bash-gates --export-toml     Export Gemini CLI policy rules");
+        eprintln!("  bash-gates --help            Show this help");
+        eprintln!();
+        eprintln!("GEMINI CLI SETUP:");
+        eprintln!("  bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml");
+        return;
+    }
+
     // Read input from stdin
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
@@ -45,7 +72,7 @@ fn main() {
         }
     };
 
-    // Only process Bash tools
+    // Only process Bash tools (Claude Code)
     if hook_input.tool_name != "Bash" {
         print_approve();
         return;
@@ -119,5 +146,15 @@ mod tests {
         let output = check_command("rm -rf /");
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("deny"));
+    }
+
+    #[test]
+    fn test_output_uses_pre_tool_use() {
+        let output = check_command("git status");
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(
+            json.contains("PreToolUse"),
+            "Expected PreToolUse in: {json}"
+        );
     }
 }

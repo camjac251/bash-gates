@@ -1,7 +1,13 @@
 //! Git command permission gate.
+//!
+//! Uses generated declarative rules with custom handling for:
+//! - Global options parsing (-C, --git-dir, etc.)
+//! - git add special cases (wildcards, --all, .)
+//! - --force-with-lease exception for force push warning
 
+use crate::generated::rules::check_git_declarative;
 use crate::models::{CommandInfo, GateResult};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 /// Git global options that take a value (must skip arg + value)
@@ -42,170 +48,6 @@ static GIT_GLOBAL_FLAGS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     .into_iter()
     .collect()
 });
-
-/// Read-only git commands
-static GIT_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "status",
-        "log",
-        "diff",
-        "show",
-        "tag",
-        "remote",
-        "stash",
-        "describe",
-        "rev-parse",
-        "ls-files",
-        "blame",
-        "reflog",
-        "shortlog",
-        "whatchanged",
-        "ls-tree",
-        "cat-file",
-        "rev-list",
-        "name-rev",
-        "for-each-ref",
-        "symbolic-ref",
-        "verify-commit",
-        "verify-tag",
-        "fsck",
-        "count-objects",
-        "gc",
-        "prune",
-        "help",
-        "version",
-        "--version",
-        "-h",
-        "--help",
-    ]
-    .into_iter()
-    .collect()
-});
-
-/// Commands that need subcommand checking
-static GIT_SUBCOMMAND_CHECK: LazyLock<HashMap<&str, HashMap<&str, &str>>> = LazyLock::new(|| {
-    [
-        (
-            "config",
-            [
-                ("get", "allow"),
-                ("list", "allow"),
-                ("--get", "allow"),
-                ("--list", "allow"),
-                ("set", "ask"),
-                ("--add", "ask"),
-                ("--unset", "ask"),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "stash",
-            [
-                ("list", "allow"),
-                ("show", "allow"),
-                ("drop", "ask"),
-                ("pop", "ask"),
-                ("clear", "ask"),
-                ("push", "ask"),
-                ("apply", "ask"),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "worktree",
-            [
-                ("list", "allow"),
-                ("add", "ask"),
-                ("remove", "ask"),
-                ("prune", "ask"),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "submodule",
-            [
-                ("status", "allow"),
-                ("foreach", "allow"),
-                ("init", "ask"),
-                ("update", "ask"),
-                ("add", "ask"),
-                ("deinit", "ask"),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        (
-            "remote",
-            [
-                ("show", "allow"),
-                ("-v", "allow"),
-                ("get-url", "allow"),
-                ("add", "ask"),
-                ("remove", "ask"),
-                ("rename", "ask"),
-                ("set-url", "ask"),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-    ]
-    .into_iter()
-    .collect()
-});
-
-/// Write commands (require approval)
-static GIT_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("add", "Staging files"),
-        ("commit", "Committing changes"),
-        ("push", "Pushing to remote"),
-        ("pull", "Pulling from remote"),
-        ("merge", "Merging branches"),
-        ("rebase", "Rebasing"),
-        ("checkout", "Checking out"),
-        ("switch", "Switching branches"),
-        ("branch", "Branch operation"),
-        ("reset", "Resetting"),
-        ("restore", "Restoring files"),
-        ("clean", "Cleaning working tree"),
-        ("cherry-pick", "Cherry-picking"),
-        ("revert", "Reverting commits"),
-        ("am", "Applying patches"),
-        ("apply", "Applying patches"),
-        ("format-patch", "Creating patches"),
-        ("init", "Initializing repo"),
-        ("clone", "Cloning repo"),
-        ("fetch", "Fetching"),
-        ("mv", "Moving files"),
-        ("rm", "Removing files"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-/// High-risk patterns (ask with warning)
-static GIT_HIGH_RISK: &[(&[&str], &str)] = &[
-    (
-        &["push", "--force"],
-        "Force push (safer: --force-with-lease)",
-    ),
-    (&["push", "-f"], "Force push (safer: --force-with-lease)"),
-    (
-        &["reset", "--hard"],
-        "Hard reset (can lose uncommitted work)",
-    ),
-    (
-        &["clean", "-fd"],
-        "Clean (deletes untracked files permanently)",
-    ),
-    (
-        &["clean", "-fdx"],
-        "Clean (deletes untracked + ignored files)",
-    ),
-];
 
 /// Skip git global options to find the actual subcommand.
 /// Returns (index, subcommand) where index is the position in args.
@@ -258,6 +100,11 @@ fn extract_subcommand(args: &[String]) -> (Option<usize>, Option<&str>) {
 }
 
 /// Check git command.
+///
+/// Delegates to generated declarative rules with custom handling for:
+/// - Global options parsing to find actual subcommand
+/// - git add special cases
+/// - --force-with-lease exception
 pub fn check_git(cmd: &CommandInfo) -> GateResult {
     if cmd.program != "git" {
         return GateResult::skip();
@@ -276,141 +123,71 @@ pub fn check_git(cmd: &CommandInfo) -> GateResult {
     };
 
     // Get args after the subcommand
-    let subcmd_args: Vec<&str> = subcmd_idx.map_or_else(Vec::new, |idx| {
-        args.iter()
-            .skip(idx + 1)
-            .map(std::string::String::as_str)
-            .collect()
-    });
+    let subcmd_args: Vec<String> =
+        subcmd_idx.map_or_else(Vec::new, |idx| args.iter().skip(idx + 1).cloned().collect());
+
+    // Build normalized args (subcommand + its args, without global opts)
+    let mut normalized_args: Vec<String> = vec![subcommand.to_string()];
+    normalized_args.extend(subcmd_args.clone());
+
+    // Create normalized command for declarative rules
+    let normalized_cmd = CommandInfo {
+        program: cmd.program.clone(),
+        args: normalized_args.clone(),
+        raw: cmd.raw.clone(),
+        is_subshell: cmd.is_subshell,
+        is_pipeline: cmd.is_pipeline,
+        pipeline_position: cmd.pipeline_position,
+    };
 
     // Check for dry-run flags FIRST (makes commands safe)
     if args.iter().any(|a| a == "--dry-run" || a == "-n") {
         return GateResult::allow();
     }
 
-    // Build effective args for pattern matching
-    let mut effective_args: Vec<&str> = vec![subcommand];
-    effective_args.extend(subcmd_args.iter());
-
-    // Check high-risk patterns
-    // Note: --force-with-lease is the SAFE alternative, so exclude it from --force check
-    for (pattern, reason) in GIT_HIGH_RISK {
-        if matches_pattern(&effective_args, pattern) {
-            // Special case: --force-with-lease should NOT trigger the --force warning
-            if pattern.contains(&"--force") && args.iter().any(|a| a == "--force-with-lease") {
-                continue;
-            }
-            return GateResult::ask(format!("git: {reason}"));
-        }
+    // Special case: --force-with-lease should NOT trigger the --force warning
+    // Check this before declarative rules which would warn about --force
+    if subcommand == "push" && args.iter().any(|a| a == "--force-with-lease") {
+        // It's --force-with-lease (the safe option), just ask normally
+        return GateResult::ask("git: Pushing to remote");
     }
 
-    // Check subcommand-specific handling
-    if let Some(sub_checks) = GIT_SUBCOMMAND_CHECK.get(subcommand) {
-        if !subcmd_args.is_empty() {
-            if let Some(&decision) = sub_checks.get(subcmd_args[0]) {
-                if decision == "allow" {
-                    return GateResult::allow();
-                }
-                return GateResult::ask(format!("git {} {}", subcommand, subcmd_args[0]));
-            }
-        }
+    // Special case: git add with wildcards, --all, or .
+    if subcommand == "add" {
+        return check_git_add(&normalized_args);
     }
 
-    // Pure read commands
-    if GIT_READ.contains(subcommand) {
-        return GateResult::allow();
-    }
-
-    // Write commands
-    if let Some(&reason) = GIT_WRITE.get(subcommand) {
-        // Special handling for some commands
-        match subcommand {
-            "add" => return check_git_add(&effective_args),
-            "checkout" => return check_git_checkout(&effective_args),
-            "branch" => return check_git_branch(&effective_args),
-            _ => return GateResult::ask(format!("git: {reason}")),
-        }
-    }
-
-    // Unknown git command - ask
-    GateResult::ask(format!("git: {subcommand}"))
-}
-
-/// Check if args match a pattern (prefix match)
-fn matches_pattern(args: &[&str], pattern: &[&str]) -> bool {
-    if args.len() < pattern.len() {
-        return false;
-    }
-
-    for (i, p) in pattern.iter().enumerate() {
-        if !args[i].starts_with(p) {
-            return false;
-        }
-    }
-    true
-}
-
-/// Check git add for dangerous patterns.
-fn check_git_add(args: &[&str]) -> GateResult {
-    let dangerous = ["-A", "--all", "-a"];
-    if args.iter().any(|a| dangerous.contains(a)) {
-        return GateResult::ask("git add --all (stages everything)");
-    }
-
-    if args.contains(&".") {
-        return GateResult::ask("git add . (stages all in directory)");
-    }
-
-    if args.iter().skip(1).any(|a| a.contains('*')) {
-        return GateResult::ask("git add with wildcard");
-    }
-
-    GateResult::ask("git: Staging files")
-}
-
-/// Check git checkout.
-fn check_git_checkout(args: &[&str]) -> GateResult {
-    if args.contains(&"-b") || args.contains(&"-B") {
+    // Special case: checkout with -b/-B creates a branch
+    if subcommand == "checkout" && normalized_args.iter().any(|a| a == "-b" || a == "-B") {
         return GateResult::ask("git: Creating branch");
     }
 
-    if args.contains(&"--") {
+    // Special case: checkout with -- discards changes
+    if subcommand == "checkout" && normalized_args.iter().any(|a| a == "--") {
         return GateResult::ask("git: Discarding changes");
     }
 
-    GateResult::ask("git: Checking out")
+    // Use declarative rules for everything else
+    check_git_declarative(&normalized_cmd)
+        .unwrap_or_else(|| GateResult::ask(format!("git: {subcommand}")))
 }
 
-/// Check git branch command.
-fn check_git_branch(args: &[&str]) -> GateResult {
-    // Just listing branches
-    if args.len() == 1 {
-        return GateResult::allow();
+/// Check git add for dangerous patterns.
+fn check_git_add(args: &[String]) -> GateResult {
+    let dangerous = ["-A", "--all", "-a"];
+    if args.iter().any(|a| dangerous.contains(&a.as_str())) {
+        return GateResult::ask("git: Staging all files");
     }
 
-    // Listing flags
-    let listing_flags = ["-a", "--all", "-r", "--remotes", "-v", "-vv", "--list"];
-    if args.iter().any(|a| listing_flags.contains(a)) {
-        return GateResult::allow();
+    if args.iter().any(|a| a == ".") {
+        return GateResult::ask("git: Staging directory");
     }
 
-    // Delete flags
-    if args
-        .iter()
-        .any(|a| *a == "-d" || *a == "-D" || *a == "--delete")
-    {
-        return GateResult::ask("git: Deleting branch");
+    if args.iter().skip(1).any(|a| a.contains('*')) {
+        return GateResult::ask("git: Staging with wildcard");
     }
 
-    // Move/rename
-    if args
-        .iter()
-        .any(|a| *a == "-m" || *a == "-M" || *a == "--move")
-    {
-        return GateResult::ask("git: Renaming branch");
-    }
-
-    GateResult::ask("git: Branch operation")
+    GateResult::ask("git: Staging files")
 }
 
 #[cfg(test)]
@@ -466,8 +243,8 @@ mod tests {
     fn test_write_commands_ask() {
         let write_cmds = [
             (&["add", "file.txt"][..], "Staging"),
-            (&["add", "."], "stages all"),
-            (&["add", "-A"], "stages everything"),
+            (&["add", "."], "Staging directory"),
+            (&["add", "-A"], "Staging all"),
             (&["commit", "-m", "message"], "Committing"),
             (&["push", "origin", "main"], "Pushing"),
             (&["pull", "origin", "main"], "Pulling"),
@@ -652,7 +429,10 @@ mod tests {
             (&["--git-dir", "/path/.git", "push"], "Pushing"),
             (&["-C", "/path", "push", "--force"], "Force push"),
             (&["-C", "/path", "reset", "--hard"], "Hard reset"),
-            (&["-C", "/home/user/project", "add", "."], "stages all"),
+            (
+                &["-C", "/home/user/project", "add", "."],
+                "Staging directory",
+            ),
             (
                 &["-C", "/home/user/project", "branch", "-d", "old"],
                 "Deleting branch",

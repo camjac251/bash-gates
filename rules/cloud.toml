@@ -1,0 +1,1232 @@
+# Cloud CLI Permission Gates
+#
+# Handles cloud provider and container orchestration CLIs:
+# - AWS CLI
+# - Google Cloud (gcloud)
+# - Azure CLI (az)
+# - Terraform / OpenTofu
+# - Kubernetes (kubectl)
+# - Docker / Podman
+# - Docker Compose / Podman Compose
+# - Helm
+# - Pulumi
+#
+# Note: AWS and gcloud have complex service+action prefix matching
+# that requires custom handlers for full coverage.
+
+[meta]
+name = "cloud"
+description = "Cloud provider and container CLI permission gates"
+priority = 15
+
+# =============================================================================
+# AWS CLI
+# =============================================================================
+# AWS commands are: aws <service> <action> [options]
+# Read: describe-*, list-*, get-* prefixes
+# Write: create-*, delete-*, put-*, run-*, start-*, stop-*, terminate-*
+
+[[programs]]
+name = "aws"
+unknown_action = "ask"
+
+# Simple read commands
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "s3 ls"
+
+[[programs.allow]]
+subcommand = "sts get-caller-identity"
+
+[[programs.allow]]
+subcommand = "sts get-session-token"
+
+[[programs.allow]]
+subcommand = "configure list"
+
+# Blocked commands
+[[programs.block]]
+subcommand = "iam delete-user"
+reason = "Deleting IAM users is blocked"
+
+[[programs.block]]
+subcommand_prefix = "organizations delete"
+reason = "Organization deletion blocked"
+
+# Custom handler for service+action prefix matching
+[[custom_handlers]]
+program = "aws"
+handler = "check_aws"
+description = "Complex prefix matching for describe-*/list-*/get-* (allow) vs create-*/delete-*/put-* (ask)"
+
+# =============================================================================
+# GOOGLE CLOUD (gcloud)
+# =============================================================================
+
+[[programs]]
+name = "gcloud"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "config list"
+
+[[programs.allow]]
+subcommand = "config get-value"
+
+[[programs.allow]]
+subcommand = "auth list"
+
+[[programs.allow]]
+subcommand = "auth describe"
+
+[[programs.allow]]
+subcommand = "projects list"
+
+[[programs.allow]]
+subcommand = "projects describe"
+
+[[programs.allow]]
+subcommand = "compute instances list"
+
+[[programs.allow]]
+subcommand = "compute instances describe"
+
+[[programs.allow]]
+subcommand = "compute zones list"
+
+[[programs.allow]]
+subcommand = "compute regions list"
+
+[[programs.allow]]
+subcommand = "compute machine-types list"
+
+[[programs.allow]]
+subcommand = "container clusters list"
+
+[[programs.allow]]
+subcommand = "container clusters describe"
+
+[[programs.allow]]
+subcommand = "container clusters get-credentials"
+
+[[programs.allow]]
+subcommand = "storage ls"
+
+[[programs.allow]]
+subcommand = "storage cat"
+
+[[programs.allow]]
+subcommand = "functions list"
+
+[[programs.allow]]
+subcommand = "functions describe"
+
+[[programs.allow]]
+subcommand = "functions logs"
+
+[[programs.allow]]
+subcommand = "run services list"
+
+[[programs.allow]]
+subcommand = "run services describe"
+
+[[programs.allow]]
+subcommand = "sql instances list"
+
+[[programs.allow]]
+subcommand = "sql instances describe"
+
+[[programs.allow]]
+subcommand = "logging read"
+
+[[programs.allow]]
+subcommand = "iam list"
+
+[[programs.allow]]
+subcommand = "iam describe"
+
+[[programs.allow]]
+subcommand = "secrets list"
+
+[[programs.allow]]
+subcommand = "secrets describe"
+
+[[programs.allow]]
+subcommand = "secrets versions"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "info"
+
+# Write commands
+[[programs.ask]]
+subcommand = "compute instances create"
+reason = "Compute create"
+
+[[programs.ask]]
+subcommand = "compute instances delete"
+reason = "Compute delete"
+
+[[programs.ask]]
+subcommand = "compute instances start"
+reason = "Compute start"
+
+[[programs.ask]]
+subcommand = "compute instances stop"
+reason = "Compute stop"
+
+[[programs.ask]]
+subcommand = "compute instances reset"
+reason = "Compute reset"
+
+[[programs.ask]]
+subcommand = "container clusters create"
+reason = "GKE create"
+
+[[programs.ask]]
+subcommand = "container clusters delete"
+reason = "GKE delete"
+
+[[programs.ask]]
+subcommand = "container clusters resize"
+reason = "GKE resize"
+
+[[programs.ask]]
+subcommand = "container clusters upgrade"
+reason = "GKE upgrade"
+
+[[programs.ask]]
+subcommand = "storage cp"
+reason = "Storage copy"
+
+[[programs.ask]]
+subcommand = "storage mv"
+reason = "Storage move"
+
+[[programs.ask]]
+subcommand = "storage rm"
+reason = "Storage delete"
+
+[[programs.ask]]
+subcommand = "functions deploy"
+reason = "Functions deploy"
+
+[[programs.ask]]
+subcommand = "functions delete"
+reason = "Functions delete"
+
+[[programs.ask]]
+subcommand = "run deploy"
+reason = "Cloud Run deploy"
+
+[[programs.ask]]
+subcommand = "run services delete"
+reason = "Cloud Run delete"
+
+[[programs.ask]]
+subcommand = "sql instances create"
+reason = "Cloud SQL create"
+
+[[programs.ask]]
+subcommand = "sql instances delete"
+reason = "Cloud SQL delete"
+
+[[programs.ask]]
+subcommand = "sql instances patch"
+reason = "Cloud SQL patch"
+
+[[programs.ask]]
+subcommand = "secrets create"
+reason = "Secrets create"
+
+[[programs.ask]]
+subcommand = "secrets delete"
+reason = "Secrets delete"
+
+[[programs.ask]]
+subcommand = "projects create"
+reason = "Project create"
+
+[[programs.ask]]
+subcommand = "projects delete"
+reason = "Project delete"
+
+# =============================================================================
+# AZURE CLI (az)
+# =============================================================================
+
+[[programs]]
+name = "az"
+unknown_action = "ask"
+
+# Simple patterns for Azure
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+# Custom handler for Azure show/list patterns
+[[custom_handlers]]
+program = "az"
+handler = "check_az"
+description = "Allow list/show subcommands, ask for create/delete/update/start/stop/restart"
+
+# =============================================================================
+# TERRAFORM / OPENTOFU
+# =============================================================================
+
+[[programs]]
+name = "terraform"
+aliases = ["tofu"]
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "plan"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "output"
+
+[[programs.allow]]
+subcommand = "validate"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "providers"
+
+[[programs.allow]]
+subcommand = "graph"
+
+[[programs.allow]]
+subcommand = "-version"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-help"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# state subcommands
+[[programs.allow]]
+subcommand = "state list"
+
+[[programs.allow]]
+subcommand = "state show"
+
+# workspace subcommands
+[[programs.allow]]
+subcommand = "workspace list"
+
+# fmt -check is read-only (just checks, doesn't modify)
+[[programs.allow]]
+subcommand = "fmt"
+if_flags_any = ["-check"]
+
+# Write commands
+[[programs.ask]]
+subcommand = "apply"
+reason = "Terraform: Applying changes"
+
+[[programs.ask]]
+subcommand = "destroy"
+reason = "Terraform: Destroying infrastructure"
+
+[[programs.ask]]
+subcommand = "import"
+reason = "Terraform: Importing resource"
+
+[[programs.ask]]
+subcommand = "taint"
+reason = "Terraform: Tainting resource"
+
+[[programs.ask]]
+subcommand = "untaint"
+reason = "Terraform: Untainting resource"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Terraform: Initializing"
+
+[[programs.ask]]
+subcommand = "fmt"
+reason = "Terraform: Formatting files"
+
+# state mutations
+[[programs.ask]]
+subcommand = "state mv"
+reason = "Terraform: state mv"
+
+[[programs.ask]]
+subcommand = "state rm"
+reason = "Terraform: state rm"
+
+[[programs.ask]]
+subcommand = "state push"
+reason = "Terraform: state push"
+
+[[programs.ask]]
+subcommand = "state pull"
+reason = "Terraform: state pull"
+
+# workspace mutations
+[[programs.ask]]
+subcommand = "workspace new"
+reason = "Terraform: workspace new"
+
+[[programs.ask]]
+subcommand = "workspace delete"
+reason = "Terraform: workspace delete"
+
+[[programs.ask]]
+subcommand = "workspace select"
+reason = "Terraform: workspace select"
+
+# =============================================================================
+# KUBECTL
+# =============================================================================
+
+[[programs]]
+name = "kubectl"
+aliases = ["k"]
+unknown_action = "ask"
+
+# Blocked patterns
+[[programs.block]]
+subcommand = "delete namespace kube-system"
+reason = "Cannot delete kube-system"
+
+[[programs.block]]
+subcommand = "delete ns kube-system"
+reason = "Cannot delete kube-system"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "get"
+
+[[programs.allow]]
+subcommand = "describe"
+
+[[programs.allow]]
+subcommand = "logs"
+
+[[programs.allow]]
+subcommand = "top"
+
+[[programs.allow]]
+subcommand = "explain"
+
+[[programs.allow]]
+subcommand = "api-resources"
+
+[[programs.allow]]
+subcommand = "api-versions"
+
+[[programs.allow]]
+subcommand = "cluster-info"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# config subcommands
+[[programs.allow]]
+subcommand = "config view"
+
+[[programs.allow]]
+subcommand = "config get-contexts"
+
+[[programs.allow]]
+subcommand = "config current-context"
+
+[[programs.allow]]
+subcommand = "config get-clusters"
+
+# auth subcommands
+[[programs.allow]]
+subcommand = "auth can-i"
+
+[[programs.allow]]
+subcommand = "auth whoami"
+
+# Write commands
+[[programs.ask]]
+subcommand = "apply"
+reason = "Applying resources"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating resources"
+
+[[programs.ask]]
+subcommand = "delete"
+reason = "Deleting resources"
+
+[[programs.ask]]
+subcommand = "edit"
+reason = "Editing resources"
+
+[[programs.ask]]
+subcommand = "patch"
+reason = "Patching resources"
+
+[[programs.ask]]
+subcommand = "replace"
+reason = "Replacing resources"
+
+[[programs.ask]]
+subcommand = "scale"
+reason = "Scaling resources"
+
+[[programs.ask]]
+subcommand = "rollout"
+reason = "Rollout operation"
+
+[[programs.ask]]
+subcommand = "expose"
+reason = "Exposing service"
+
+[[programs.ask]]
+subcommand = "run"
+reason = "Running pod"
+
+[[programs.ask]]
+subcommand = "exec"
+reason = "Executing in pod"
+
+[[programs.ask]]
+subcommand = "cp"
+reason = "Copying files"
+
+[[programs.ask]]
+subcommand = "port-forward"
+reason = "Port forwarding"
+
+[[programs.ask]]
+subcommand = "label"
+reason = "Labeling resources"
+
+[[programs.ask]]
+subcommand = "annotate"
+reason = "Annotating resources"
+
+[[programs.ask]]
+subcommand = "taint"
+reason = "Tainting nodes"
+
+[[programs.ask]]
+subcommand = "drain"
+reason = "Draining nodes"
+
+[[programs.ask]]
+subcommand = "cordon"
+reason = "Cordoning nodes"
+
+[[programs.ask]]
+subcommand = "uncordon"
+reason = "Uncordoning nodes"
+
+# config mutations
+[[programs.ask]]
+subcommand = "config set-context"
+reason = "config set-context"
+
+[[programs.ask]]
+subcommand = "config use-context"
+reason = "config use-context"
+
+[[programs.ask]]
+subcommand = "config set-cluster"
+reason = "config set-cluster"
+
+[[programs.ask]]
+subcommand = "config set-credentials"
+reason = "config set-credentials"
+
+[[programs.ask]]
+subcommand = "config delete-context"
+reason = "config delete-context"
+
+[[programs.ask]]
+subcommand = "config delete-cluster"
+reason = "config delete-cluster"
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+
+[[programs]]
+name = "docker"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "ps"
+
+[[programs.allow]]
+subcommand = "images"
+
+[[programs.allow]]
+subcommand = "inspect"
+
+[[programs.allow]]
+subcommand = "logs"
+
+[[programs.allow]]
+subcommand = "stats"
+
+[[programs.allow]]
+subcommand = "top"
+
+[[programs.allow]]
+subcommand = "port"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "history"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# network/volume/system read-only
+[[programs.allow]]
+subcommand = "network ls"
+
+[[programs.allow]]
+subcommand = "network list"
+
+[[programs.allow]]
+subcommand = "network inspect"
+
+[[programs.allow]]
+subcommand = "volume ls"
+
+[[programs.allow]]
+subcommand = "volume list"
+
+[[programs.allow]]
+subcommand = "volume inspect"
+
+[[programs.allow]]
+subcommand = "system df"
+
+[[programs.allow]]
+subcommand = "system info"
+
+# Write commands
+[[programs.ask]]
+subcommand = "run"
+reason = "Docker: Running container"
+
+[[programs.ask]]
+subcommand = "exec"
+reason = "Docker: Executing in container"
+
+[[programs.ask]]
+subcommand = "build"
+reason = "Docker: Building image"
+
+[[programs.ask]]
+subcommand = "push"
+reason = "Docker: Pushing image"
+
+[[programs.ask]]
+subcommand = "pull"
+reason = "Docker: Pulling image"
+
+[[programs.ask]]
+subcommand = "rm"
+reason = "Docker: Removing container"
+
+[[programs.ask]]
+subcommand = "rmi"
+reason = "Docker: Removing image"
+
+[[programs.ask]]
+subcommand = "kill"
+reason = "Docker: Killing container"
+
+[[programs.ask]]
+subcommand = "stop"
+reason = "Docker: Stopping container"
+
+[[programs.ask]]
+subcommand = "start"
+reason = "Docker: Starting container"
+
+[[programs.ask]]
+subcommand = "restart"
+reason = "Docker: Restarting container"
+
+[[programs.ask]]
+subcommand = "pause"
+reason = "Docker: Pausing container"
+
+[[programs.ask]]
+subcommand = "unpause"
+reason = "Docker: Unpausing container"
+
+[[programs.ask]]
+subcommand = "tag"
+reason = "Docker: Tagging image"
+
+[[programs.ask]]
+subcommand = "commit"
+reason = "Docker: Committing container"
+
+[[programs.ask]]
+subcommand = "cp"
+reason = "Docker: Copying files"
+
+[[programs.ask]]
+subcommand = "login"
+reason = "Docker: Logging in"
+
+[[programs.ask]]
+subcommand = "logout"
+reason = "Docker: Logging out"
+
+# network/volume/system mutations
+[[programs.ask]]
+subcommand = "network create"
+reason = "Docker: network create"
+
+[[programs.ask]]
+subcommand = "network rm"
+reason = "Docker: network rm"
+
+[[programs.ask]]
+subcommand = "network connect"
+reason = "Docker: network connect"
+
+[[programs.ask]]
+subcommand = "network disconnect"
+reason = "Docker: network disconnect"
+
+[[programs.ask]]
+subcommand = "volume create"
+reason = "Docker: volume create"
+
+[[programs.ask]]
+subcommand = "volume rm"
+reason = "Docker: volume rm"
+
+[[programs.ask]]
+subcommand = "system prune"
+reason = "Docker: system prune"
+
+# =============================================================================
+# PODMAN
+# =============================================================================
+
+[[programs]]
+name = "podman"
+unknown_action = "ask"
+
+# Read-only commands (same as Docker plus Podman-specific)
+[[programs.allow]]
+subcommand = "ps"
+
+[[programs.allow]]
+subcommand = "images"
+
+[[programs.allow]]
+subcommand = "inspect"
+
+[[programs.allow]]
+subcommand = "logs"
+
+[[programs.allow]]
+subcommand = "stats"
+
+[[programs.allow]]
+subcommand = "top"
+
+[[programs.allow]]
+subcommand = "port"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "history"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "healthcheck"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# network/volume/system/machine read-only
+[[programs.allow]]
+subcommand = "network ls"
+
+[[programs.allow]]
+subcommand = "network list"
+
+[[programs.allow]]
+subcommand = "network inspect"
+
+[[programs.allow]]
+subcommand = "volume ls"
+
+[[programs.allow]]
+subcommand = "volume list"
+
+[[programs.allow]]
+subcommand = "volume inspect"
+
+[[programs.allow]]
+subcommand = "system df"
+
+[[programs.allow]]
+subcommand = "system info"
+
+[[programs.allow]]
+subcommand = "machine info"
+
+[[programs.allow]]
+subcommand = "machine inspect"
+
+[[programs.allow]]
+subcommand = "machine list"
+
+# pod read-only
+[[programs.allow]]
+subcommand = "pod ps"
+
+[[programs.allow]]
+subcommand = "pod list"
+
+[[programs.allow]]
+subcommand = "pod inspect"
+
+[[programs.allow]]
+subcommand = "pod logs"
+
+[[programs.allow]]
+subcommand = "pod top"
+
+[[programs.allow]]
+subcommand = "pod stats"
+
+# secret read-only
+[[programs.allow]]
+subcommand = "secret ls"
+
+[[programs.allow]]
+subcommand = "secret list"
+
+[[programs.allow]]
+subcommand = "secret inspect"
+
+# Write commands
+[[programs.ask]]
+subcommand = "run"
+reason = "Podman: Running container"
+
+[[programs.ask]]
+subcommand = "exec"
+reason = "Podman: Executing in container"
+
+[[programs.ask]]
+subcommand = "build"
+reason = "Podman: Building image"
+
+[[programs.ask]]
+subcommand = "push"
+reason = "Podman: Pushing image"
+
+[[programs.ask]]
+subcommand = "pull"
+reason = "Podman: Pulling image"
+
+[[programs.ask]]
+subcommand = "rm"
+reason = "Podman: Removing container"
+
+[[programs.ask]]
+subcommand = "rmi"
+reason = "Podman: Removing image"
+
+[[programs.ask]]
+subcommand = "kill"
+reason = "Podman: Killing container"
+
+[[programs.ask]]
+subcommand = "stop"
+reason = "Podman: Stopping container"
+
+[[programs.ask]]
+subcommand = "start"
+reason = "Podman: Starting container"
+
+[[programs.ask]]
+subcommand = "restart"
+reason = "Podman: Restarting container"
+
+[[programs.ask]]
+subcommand = "pause"
+reason = "Podman: Pausing container"
+
+[[programs.ask]]
+subcommand = "unpause"
+reason = "Podman: Unpausing container"
+
+[[programs.ask]]
+subcommand = "tag"
+reason = "Podman: Tagging image"
+
+[[programs.ask]]
+subcommand = "commit"
+reason = "Podman: Committing container"
+
+[[programs.ask]]
+subcommand = "cp"
+reason = "Podman: Copying files"
+
+[[programs.ask]]
+subcommand = "login"
+reason = "Podman: Logging in"
+
+[[programs.ask]]
+subcommand = "logout"
+reason = "Podman: Logging out"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Podman: Creating container"
+
+[[programs.ask]]
+subcommand = "pod"
+reason = "Podman: Pod operation"
+
+[[programs.ask]]
+subcommand = "generate"
+reason = "Podman: Generating config"
+
+[[programs.ask]]
+subcommand = "play"
+reason = "Podman: Playing kube YAML"
+
+# =============================================================================
+# DOCKER COMPOSE / PODMAN COMPOSE
+# =============================================================================
+
+[[programs]]
+name = "docker-compose"
+aliases = ["podman-compose"]
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "ps"
+
+[[programs.allow]]
+subcommand = "logs"
+
+[[programs.allow]]
+subcommand = "config"
+
+[[programs.allow]]
+subcommand = "images"
+
+[[programs.allow]]
+subcommand = "ls"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Write commands
+[[programs.ask]]
+subcommand = "up"
+reason = "Compose: Starting services"
+
+[[programs.ask]]
+subcommand = "down"
+reason = "Compose: Stopping services"
+
+[[programs.ask]]
+subcommand = "start"
+reason = "Compose: Starting services"
+
+[[programs.ask]]
+subcommand = "stop"
+reason = "Compose: Stopping services"
+
+[[programs.ask]]
+subcommand = "restart"
+reason = "Compose: Restarting services"
+
+[[programs.ask]]
+subcommand = "pause"
+reason = "Compose: Pausing services"
+
+[[programs.ask]]
+subcommand = "unpause"
+reason = "Compose: Unpausing services"
+
+[[programs.ask]]
+subcommand = "build"
+reason = "Compose: Building services"
+
+[[programs.ask]]
+subcommand = "push"
+reason = "Compose: Pushing images"
+
+[[programs.ask]]
+subcommand = "pull"
+reason = "Compose: Pulling images"
+
+[[programs.ask]]
+subcommand = "rm"
+reason = "Compose: Removing services"
+
+[[programs.ask]]
+subcommand = "kill"
+reason = "Compose: Killing services"
+
+[[programs.ask]]
+subcommand = "exec"
+reason = "Compose: Executing in service"
+
+[[programs.ask]]
+subcommand = "run"
+reason = "Compose: Running one-off"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Compose: Creating services"
+
+# =============================================================================
+# HELM
+# =============================================================================
+
+[[programs]]
+name = "helm"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "ls"
+
+[[programs.allow]]
+subcommand = "get"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "repo"
+
+[[programs.allow]]
+subcommand = "status"
+
+[[programs.allow]]
+subcommand = "history"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "template"
+
+[[programs.allow]]
+subcommand = "lint"
+
+[[programs.allow]]
+subcommand = "verify"
+
+# Write commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Helm: Installing release"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Helm: Upgrading release"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Helm: Uninstalling release"
+
+[[programs.ask]]
+subcommand = "rollback"
+reason = "Helm: Rolling back"
+
+[[programs.ask]]
+subcommand = "delete"
+reason = "Helm: Deleting release"
+
+[[programs.ask]]
+subcommand = "push"
+reason = "Helm: Pushing chart"
+
+[[programs.ask]]
+subcommand = "package"
+reason = "Helm: Packaging chart"
+
+# =============================================================================
+# PULUMI
+# =============================================================================
+
+[[programs]]
+name = "pulumi"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "preview"
+
+[[programs.allow]]
+subcommand = "whoami"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# stack subcommands
+[[programs.allow]]
+subcommand = "stack ls"
+
+[[programs.allow]]
+subcommand = "stack list"
+
+[[programs.allow]]
+subcommand = "stack output"
+
+[[programs.allow]]
+subcommand = "stack history"
+
+[[programs.allow]]
+subcommand = "stack export"
+
+# config subcommands
+[[programs.allow]]
+subcommand = "config get"
+
+# Write commands
+[[programs.ask]]
+subcommand = "up"
+reason = "Pulumi: Deploying stack"
+
+[[programs.ask]]
+subcommand = "destroy"
+reason = "Pulumi: Destroying stack"
+
+[[programs.ask]]
+subcommand = "refresh"
+reason = "Pulumi: Refreshing state"
+
+[[programs.ask]]
+subcommand = "import"
+reason = "Pulumi: Importing resource"
+
+[[programs.ask]]
+subcommand = "cancel"
+reason = "Pulumi: Canceling update"
+
+[[programs.ask]]
+subcommand = "new"
+reason = "Pulumi: Creating project"
+
+# stack mutations
+[[programs.ask]]
+subcommand = "stack init"
+reason = "Pulumi: stack init"
+
+[[programs.ask]]
+subcommand = "stack rm"
+reason = "Pulumi: stack rm"
+
+[[programs.ask]]
+subcommand = "stack select"
+reason = "Pulumi: stack select"
+
+# config mutations
+[[programs.ask]]
+subcommand = "config set"
+reason = "Pulumi: config set"
+
+[[programs.ask]]
+subcommand = "config rm"
+reason = "Pulumi: config rm"

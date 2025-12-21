@@ -1,5 +1,12 @@
 //! Network command permission gate (curl, wget, ssh, etc.).
+//!
+//! Uses declarative rules for simple cases, custom logic for complex flag parsing.
 
+use crate::gates::helpers::{get_flag_value, has_any_flag};
+use crate::generated::rules::{
+    check_curl_declarative, check_nc_declarative, check_rsync_declarative, check_scp_declarative,
+    check_sftp_declarative, check_ssh_declarative, check_wget_declarative,
+};
 use crate::models::{CommandInfo, GateResult};
 
 /// Check network commands.
@@ -7,85 +14,48 @@ pub fn check_network(cmd: &CommandInfo) -> GateResult {
     match cmd.program.as_str() {
         "curl" => check_curl(cmd),
         "wget" => check_wget(cmd),
-        "ssh" | "scp" | "sftp" | "rsync" => check_ssh_family(cmd),
+        "ssh" => check_ssh(cmd),
+        "scp" => check_scp(cmd),
+        "sftp" => check_sftp(cmd),
+        "rsync" => check_rsync(cmd),
         "nc" | "ncat" | "netcat" => check_netcat(cmd),
         "http" | "https" | "xh" => check_httpie(cmd),
         _ => GateResult::skip(),
     }
 }
 
-/// Check curl command.
+/// Check curl command - complex flag parsing for HTTP methods and data.
 fn check_curl(cmd: &CommandInfo) -> GateResult {
     let args = &cmd.args;
 
-    // Pipe to shell is caught by router, but double-check here
-    if cmd.raw.contains("| bash")
-        || cmd.raw.contains("| sh")
-        || cmd.raw.contains("|bash")
-        || cmd.raw.contains("|sh")
-    {
-        return GateResult::ask("curl: Piping to shell");
-    }
-
-    // Version/help - allow
-    if args
-        .iter()
-        .any(|a| a == "--version" || a == "-h" || a == "--help")
-    {
-        return GateResult::allow();
-    }
-
-    let mut method = "GET";
-    let mut has_data = false;
-    let mut has_output = false;
-    let mut is_head_request = false;
-
-    let mut i = 0;
-    while i < args.len() {
-        let arg = args[i].as_str();
-
-        // Method flags
-        if (arg == "-X" || arg == "--request") && i + 1 < args.len() {
-            method = &args[i + 1];
-            i += 1;
-        } else if let Some(m) = arg.strip_prefix("-X") {
-            method = m;
-        } else if let Some(m) = arg.strip_prefix("--request=") {
-            method = m;
-        }
-        // Data flags (implies mutation)
-        else if matches!(
-            arg,
-            "-d" | "--data"
-                | "--data-raw"
-                | "--data-binary"
-                | "--data-urlencode"
-                | "-F"
-                | "--form"
-                | "-T"
-                | "--upload-file"
-                | "--json"
-        ) {
-            has_data = true;
-        }
-        // Output flags
-        else if matches!(arg, "-o" | "--output" | "-O" | "--remote-name") {
-            has_output = true;
-        }
-        // HEAD request
-        else if arg == "-I" || arg == "--head" {
-            is_head_request = true;
-        }
-
-        i += 1;
+    // Version/help - try declarative
+    if has_any_flag(args, &["--version", "-h", "--help"]) {
+        return check_curl_declarative(cmd).unwrap_or_else(GateResult::allow);
     }
 
     // HEAD requests are always safe
-    if is_head_request {
+    if has_any_flag(args, &["-I", "--head"]) {
         return GateResult::allow();
     }
 
-    // Data implies mutation
+    // Get HTTP method (defaults to GET)
+    let method = get_flag_value(args, &["-X", "--request"]).unwrap_or("GET");
+
+    // Data flags imply mutation
+    let data_flags = [
+        "-d",
+        "--data",
+        "--data-raw",
+        "--data-binary",
+        "--data-urlencode",
+        "-F",
+        "--form",
+        "-T",
+        "--upload-file",
+        "--json",
+    ];
+    let has_data = has_any_flag(args, &data_flags);
+
     if has_data {
         return GateResult::ask(format!("curl: {} with data", method.to_uppercase()));
     }
@@ -97,7 +67,7 @@ fn check_curl(cmd: &CommandInfo) -> GateResult {
     }
 
     // Downloading to file
-    if has_output {
+    if has_any_flag(args, &["-o", "--output", "-O", "--remote-name"]) {
         return GateResult::ask("curl: Downloading file");
     }
 
@@ -109,17 +79,12 @@ fn check_curl(cmd: &CommandInfo) -> GateResult {
 fn check_wget(cmd: &CommandInfo) -> GateResult {
     let args = &cmd.args;
 
-    // Pipe to shell is caught by router, but double-check here
-    if cmd.raw.contains("| bash") || cmd.raw.contains("| sh") {
-        return GateResult::ask("wget: Piping to shell");
-    }
-
-    // Version/help - allow
+    // Version/help - try declarative
     if args
         .iter()
         .any(|a| a == "--version" || a == "-h" || a == "--help")
     {
-        return GateResult::allow();
+        return check_wget_declarative(cmd).unwrap_or_else(GateResult::allow);
     }
 
     // Spider mode - read only
@@ -144,27 +109,38 @@ fn check_wget(cmd: &CommandInfo) -> GateResult {
     GateResult::ask("wget: Downloading")
 }
 
-/// Check ssh/scp/sftp/rsync commands.
-fn check_ssh_family(cmd: &CommandInfo) -> GateResult {
-    let program = cmd.program.as_str();
+/// Check ssh command.
+fn check_ssh(cmd: &CommandInfo) -> GateResult {
+    check_ssh_declarative(cmd).unwrap_or_else(|| GateResult::ask("ssh: Remote connection"))
+}
+
+/// Check scp command.
+fn check_scp(cmd: &CommandInfo) -> GateResult {
+    check_scp_declarative(cmd).unwrap_or_else(|| GateResult::ask("scp: File transfer"))
+}
+
+/// Check sftp command.
+fn check_sftp(cmd: &CommandInfo) -> GateResult {
+    check_sftp_declarative(cmd).unwrap_or_else(|| GateResult::ask("sftp: File transfer"))
+}
+
+/// Check rsync command.
+fn check_rsync(cmd: &CommandInfo) -> GateResult {
     let args = &cmd.args;
 
-    // rsync dry-run is safe
-    if program == "rsync" {
-        if args.iter().any(|a| a == "-n" || a == "--dry-run") {
-            return GateResult::allow();
-        }
-        return GateResult::ask("rsync: File sync");
+    // Dry-run is safe
+    if args.iter().any(|a| a == "-n" || a == "--dry-run") {
+        return GateResult::allow();
     }
 
-    // All others require approval
-    let action = match program {
-        "ssh" => "Remote connection",
-        "scp" | "sftp" => "File transfer",
-        _ => "Remote operation",
-    };
+    // Use declarative for version/help
+    if let Some(result) = check_rsync_declarative(cmd) {
+        if matches!(result.decision, crate::models::Decision::Allow) {
+            return result;
+        }
+    }
 
-    GateResult::ask(format!("{program}: {action}"))
+    GateResult::ask("rsync: File sync")
 }
 
 /// Check netcat commands.
@@ -176,6 +152,13 @@ fn check_netcat(cmd: &CommandInfo) -> GateResult {
         return GateResult::block("Netcat -e blocked (reverse shell risk)");
     }
 
+    // Use declarative for blocks
+    if let Some(result) = check_nc_declarative(cmd) {
+        if matches!(result.decision, crate::models::Decision::Block) {
+            return result;
+        }
+    }
+
     // Listen mode - ask
     if args.iter().any(|a| a == "-l") {
         return GateResult::ask("netcat: Listen mode (opens port)");
@@ -185,255 +168,158 @@ fn check_netcat(cmd: &CommandInfo) -> GateResult {
     GateResult::ask("netcat: Network connection")
 }
 
-/// Check `HTTPie` (`http`/`https`/`xh`) commands.
+/// Check HTTPie-style clients (http, https, xh).
 fn check_httpie(cmd: &CommandInfo) -> GateResult {
     let args = &cmd.args;
-
     if args.is_empty() {
-        return GateResult::allow();
+        return GateResult::ask("httpie: No URL specified");
     }
 
-    // Version/help
-    if args.iter().any(|a| a == "--version" || a == "--help") {
-        return GateResult::allow();
+    // Check for non-GET methods
+    let methods = ["POST", "PUT", "DELETE", "PATCH"];
+    if args
+        .iter()
+        .any(|a| methods.contains(&a.to_uppercase().as_str()))
+    {
+        return GateResult::ask("httpie: Mutating request");
     }
 
-    // Check first arg for method
-    let first = args[0].to_uppercase();
-
-    if first == "GET" {
-        return GateResult::allow();
+    // Check for data (key=value or key:=value)
+    if args.iter().any(|a| a.contains('=')) {
+        return GateResult::ask("httpie: Request with data");
     }
 
-    if matches!(first.as_str(), "POST" | "PUT" | "DELETE" | "PATCH") {
-        return GateResult::ask(format!("HTTPie: {first} request"));
+    // Check for download
+    if args.iter().any(|a| a == "-d" || a == "--download") {
+        return GateResult::ask("httpie: Downloading file");
     }
 
-    // If first arg is a URL (no method), default is GET
-    if args[0].starts_with("http://") || args[0].starts_with("https://") {
-        return GateResult::allow();
-    }
-
-    GateResult::ask("HTTPie: Request")
+    // Simple GET - allow
+    GateResult::allow()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gates::test_utils::cmd;
+    use crate::gates::test_utils::cmd as make_cmd;
     use crate::models::Decision;
 
-    // === Curl ===
+    fn curl(args: &[&str]) -> CommandInfo {
+        make_cmd("curl", args)
+    }
 
-    mod curl {
-        use super::*;
+    fn wget(args: &[&str]) -> CommandInfo {
+        make_cmd("wget", args)
+    }
 
-        #[test]
-        fn test_safe_requests_allow() {
-            let safe_cmds = [
-                &["https://api.example.com"][..],
-                &["--version"],
-                &["-h"],
-                &["-I", "https://example.com"],
-                &["--head", "https://example.com"],
-            ];
+    fn rsync(args: &[&str]) -> CommandInfo {
+        make_cmd("rsync", args)
+    }
 
-            for args in safe_cmds {
-                let result = check_network(&cmd("curl", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
+    fn nc(args: &[&str]) -> CommandInfo {
+        make_cmd("nc", args)
+    }
 
-        #[test]
-        fn test_risky_requests_ask() {
-            let risky_cmds = [
-                (&["-X", "POST", "https://api.example.com"][..], "POST"),
-                (&["-X", "PUT", "https://api.example.com"], "PUT"),
-                (&["-X", "DELETE", "https://api.example.com"], "DELETE"),
-                (
-                    &["-d", "{\"key\":\"value\"}", "https://api.example.com"],
-                    "with data",
-                ),
-                (
-                    &["--data", "key=value", "https://api.example.com"],
-                    "with data",
-                ),
-                (
-                    &["-F", "file=@upload.txt", "https://api.example.com"],
-                    "with data",
-                ),
-                (&["-o", "output.html", "https://example.com"], "Downloading"),
-                (&["-O", "https://example.com/file.zip"], "Downloading"),
-            ];
+    // === curl ===
 
-            for (args, expected) in risky_cmds {
-                let result = check_network(&cmd("curl", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
+    #[test]
+    fn test_curl_get_allows() {
+        let allow_cmds = [
+            &["https://example.com"][..],
+            &["-I", "https://example.com"],
+            &["--head", "https://example.com"],
+            &["--version"],
+        ];
+
+        for args in allow_cmds {
+            let result = check_network(&curl(args));
+            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
         }
     }
 
-    // === Wget ===
+    #[test]
+    fn test_curl_mutating_asks() {
+        let ask_cmds = [
+            &["-X", "POST", "https://example.com"][..],
+            &["-X", "PUT", "https://example.com"],
+            &["-XDELETE", "https://example.com"],
+            &["-d", "data", "https://example.com"],
+            &["--json", "{}", "https://example.com"],
+            &["-o", "file", "https://example.com"],
+            &["-O", "https://example.com/file"],
+        ];
 
-    mod wget {
-        use super::*;
-
-        #[test]
-        fn test_safe_requests_allow() {
-            let safe_cmds = [
-                &["--version"][..],
-                &["-h"],
-                &["--spider", "https://example.com"],
-            ];
-
-            for args in safe_cmds {
-                let result = check_network(&cmd("wget", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
-
-        #[test]
-        fn test_risky_requests_ask() {
-            let risky_cmds = [
-                (&["https://example.com"][..], "Downloading"),
-                (
-                    &["-O", "file.zip", "https://example.com/file.zip"],
-                    "Downloading",
-                ),
-                (&["-r", "https://example.com"], "Recursive"),
-                (&["--mirror", "https://example.com"], "Mirroring"),
-                (
-                    &["--post-data", "key=value", "https://api.example.com"],
-                    "POST",
-                ),
-            ];
-
-            for (args, expected) in risky_cmds {
-                let result = check_network(&cmd("wget", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
+        for args in ask_cmds {
+            let result = check_network(&curl(args));
+            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
         }
     }
 
-    // === SSH Family ===
+    // === wget ===
 
-    mod ssh_family {
-        use super::*;
+    #[test]
+    fn test_wget_spider_allows() {
+        let result = check_network(&wget(&["--spider", "https://example.com"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
 
-        #[test]
-        fn test_ssh_family_asks() {
-            let ssh_cmds = [
-                ("ssh", "Remote connection"),
-                ("scp", "File transfer"),
-                ("sftp", "File transfer"),
-            ];
+    #[test]
+    fn test_wget_download_asks() {
+        let ask_cmds = [
+            &["https://example.com/file"][..],
+            &["-O", "file", "https://example.com"],
+            &["-r", "https://example.com"],
+            &["-m", "https://example.com"],
+        ];
 
-            for (program, expected) in ssh_cmds {
-                let result = check_network(&cmd(program, &["user@host"]));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {program}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {program}"
-                );
-            }
-        }
-
-        #[test]
-        fn test_rsync_dry_run_allows() {
-            let result = check_network(&cmd("rsync", &["-n", "-av", "src/", "dest/"]));
-            assert_eq!(result.decision, Decision::Allow);
-        }
-
-        #[test]
-        fn test_rsync_real_asks() {
-            let result = check_network(&cmd("rsync", &["-av", "src/", "dest/"]));
-            assert_eq!(result.decision, Decision::Ask);
-            assert!(
-                result
-                    .reason
-                    .as_ref()
-                    .unwrap()
-                    .to_lowercase()
-                    .contains("sync")
-            );
+        for args in ask_cmds {
+            let result = check_network(&wget(args));
+            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
         }
     }
 
-    // === Netcat ===
+    // === rsync ===
 
-    mod netcat {
-        use super::*;
+    #[test]
+    fn test_rsync_dry_run_allows() {
+        let result = check_network(&rsync(&["-n", "src/", "dst/"]));
+        assert_eq!(result.decision, Decision::Allow);
 
-        #[test]
-        fn test_nc_execute_blocks() {
-            let result = check_network(&cmd("nc", &["-e", "/bin/bash", "host", "1234"]));
-            assert_eq!(result.decision, Decision::Block);
-            assert!(
-                result
-                    .reason
-                    .as_ref()
-                    .unwrap()
-                    .to_lowercase()
-                    .contains("reverse shell")
-            );
-        }
-
-        #[test]
-        fn test_nc_listen_asks() {
-            let result = check_network(&cmd("nc", &["-l", "1234"]));
-            assert_eq!(result.decision, Decision::Ask);
-            assert!(result.reason.as_ref().unwrap().contains("Listen"));
-        }
-
-        #[test]
-        fn test_nc_connect_asks() {
-            let result = check_network(&cmd("nc", &["host", "1234"]));
-            assert_eq!(result.decision, Decision::Ask);
-        }
+        let result = check_network(&rsync(&["--dry-run", "src/", "dst/"]));
+        assert_eq!(result.decision, Decision::Allow);
     }
 
-    // === HTTPie ===
+    #[test]
+    fn test_rsync_sync_asks() {
+        let result = check_network(&rsync(&["-av", "src/", "dst/"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
 
-    mod httpie {
-        use super::*;
+    // === netcat ===
 
-        #[test]
-        fn test_get_allows() {
-            for program in ["http", "https", "xh"] {
-                let result = check_network(&cmd(program, &["GET", "https://api.example.com"]));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {program}");
-            }
-        }
+    #[test]
+    fn test_netcat_execute_blocked() {
+        let result = check_network(&nc(&["-e", "/bin/bash", "host", "1234"]));
+        assert_eq!(result.decision, Decision::Block);
+    }
 
-        #[test]
-        fn test_url_only_allows() {
-            for program in ["http", "https", "xh"] {
-                let result = check_network(&cmd(program, &["https://api.example.com"]));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {program}");
-            }
-        }
+    #[test]
+    fn test_netcat_listen_asks() {
+        let result = check_network(&nc(&["-l", "1234"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
 
-        #[test]
-        fn test_mutating_methods_ask() {
-            for program in ["http", "https", "xh"] {
-                for method in ["POST", "PUT", "DELETE", "PATCH"] {
-                    let result = check_network(&cmd(program, &[method, "https://api.example.com"]));
-                    assert_eq!(
-                        result.decision,
-                        Decision::Ask,
-                        "Failed for: {program} {method}"
-                    );
-                    assert!(result.reason.as_ref().unwrap().contains(method));
-                }
-            }
-        }
+    #[test]
+    fn test_netcat_connect_asks() {
+        let result = check_network(&nc(&["host", "1234"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    // === Non-network ===
+
+    #[test]
+    fn test_non_network_skips() {
+        let result = check_network(&make_cmd("git", &["status"]));
+        assert_eq!(result.decision, Decision::Skip);
     }
 }

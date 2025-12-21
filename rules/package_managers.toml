@@ -1,0 +1,1311 @@
+# Package Managers Permission Gate
+#
+# Handles language package managers:
+# - JavaScript: npm, pnpm, yarn, bun
+# - Python: pip, uv, poetry, pipx
+# - Rust: cargo
+# - Go: go
+# - Python environments: conda, mamba, micromamba
+#
+# For each manager, we distinguish between:
+# - Read-only commands (list, info, search)
+# - Safe local commands (run, test, build)
+# - Risky commands (install, publish, init)
+
+[meta]
+name = "package_managers"
+description = "Language package manager permission gates"
+priority = 20
+
+# =============================================================================
+# NPM
+# =============================================================================
+
+[[programs]]
+name = "npm"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "ls"
+
+[[programs.allow]]
+subcommand = "ll"
+
+[[programs.allow]]
+subcommand = "la"
+
+[[programs.allow]]
+subcommand = "view"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "config"
+
+[[programs.allow]]
+subcommand = "get"
+
+[[programs.allow]]
+subcommand = "prefix"
+
+[[programs.allow]]
+subcommand = "root"
+
+[[programs.allow]]
+subcommand = "bin"
+
+[[programs.allow]]
+subcommand = "whoami"
+
+[[programs.allow]]
+subcommand = "token"
+
+[[programs.allow]]
+subcommand = "team"
+
+[[programs.allow]]
+subcommand = "outdated"
+
+[[programs.allow]]
+subcommand = "doctor"
+
+[[programs.allow]]
+subcommand = "explain"
+
+[[programs.allow]]
+subcommand = "why"
+
+[[programs.allow]]
+subcommand = "fund"
+
+[[programs.allow]]
+subcommand = "audit"
+
+[[programs.allow]]
+subcommand = "query"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Script execution (can run arbitrary code from package.json)
+[[programs.ask]]
+subcommand = "run"
+reason = "Running script from package.json"
+
+[[programs.ask]]
+subcommand = "run-script"
+reason = "Running script from package.json"
+
+[[programs.ask]]
+subcommand = "start"
+reason = "Running start script"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "dev"
+
+[[programs.allow]]
+subcommand = "lint"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "typecheck"
+
+[[programs.allow]]
+subcommand = "format"
+
+[[programs.allow]]
+subcommand = "prettier"
+
+[[programs.allow]]
+subcommand = "eslint"
+
+[[programs.allow]]
+subcommand = "tsc"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "i"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "add"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "ci"
+reason = "Clean install"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "rm"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "un"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "up"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "link"
+reason = "Linking package"
+
+[[programs.ask]]
+subcommand = "unlink"
+reason = "Unlinking package"
+
+[[programs.ask]]
+subcommand = "publish"
+reason = "Publishing package"
+
+[[programs.ask]]
+subcommand = "unpublish"
+reason = "Unpublishing package"
+
+[[programs.ask]]
+subcommand = "deprecate"
+reason = "Deprecating package"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing package"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating package"
+
+[[programs.ask]]
+subcommand = "exec"
+reason = "Executing package"
+
+[[programs.ask]]
+subcommand = "npx"
+reason = "Executing package"
+
+[[programs.ask]]
+subcommand = "prune"
+reason = "Pruning packages"
+
+[[programs.ask]]
+subcommand = "dedupe"
+reason = "Deduplicating"
+
+[[programs.ask]]
+subcommand = "shrinkwrap"
+reason = "Locking dependencies"
+
+[[programs.ask]]
+subcommand = "cache"
+reason = "Cache operation"
+
+[[programs.ask]]
+subcommand = "pack"
+reason = "Creating tarball"
+
+[[programs.ask]]
+subcommand = "set"
+reason = "Setting config"
+
+# =============================================================================
+# PNPM
+# =============================================================================
+
+[[programs]]
+name = "pnpm"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "ls"
+
+[[programs.allow]]
+subcommand = "ll"
+
+[[programs.allow]]
+subcommand = "why"
+
+[[programs.allow]]
+subcommand = "outdated"
+
+[[programs.allow]]
+subcommand = "audit"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Script execution
+[[programs.ask]]
+subcommand = "run"
+reason = "Running script from package.json"
+
+[[programs.ask]]
+subcommand = "start"
+reason = "Running start script"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "dev"
+
+[[programs.allow]]
+subcommand = "lint"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "typecheck"
+
+[[programs.allow]]
+subcommand = "format"
+
+[[programs.allow]]
+subcommand = "tsc"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "exec"
+reason = "Executing arbitrary command"
+
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "i"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "add"
+reason = "Adding packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "rm"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "up"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "link"
+reason = "Linking package"
+
+[[programs.ask]]
+subcommand = "unlink"
+reason = "Unlinking package"
+
+[[programs.ask]]
+subcommand = "publish"
+reason = "Publishing package"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing package"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating package"
+
+[[programs.ask]]
+subcommand = "dlx"
+reason = "Executing package"
+
+[[programs.ask]]
+subcommand = "prune"
+reason = "Pruning packages"
+
+[[programs.ask]]
+subcommand = "store"
+reason = "Store operation"
+
+[[programs.ask]]
+subcommand = "patch"
+reason = "Patching package"
+
+# =============================================================================
+# YARN
+# =============================================================================
+
+[[programs]]
+name = "yarn"
+unknown_action = "ask"
+
+# Note: bare "yarn" = install, handled by custom handler
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "why"
+
+[[programs.allow]]
+subcommand = "outdated"
+
+[[programs.allow]]
+subcommand = "audit"
+
+[[programs.allow]]
+subcommand = "config"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Script execution
+[[programs.ask]]
+subcommand = "run"
+reason = "Running script from package.json"
+
+[[programs.ask]]
+subcommand = "start"
+reason = "Running start script"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "dev"
+
+[[programs.allow]]
+subcommand = "lint"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "typecheck"
+
+[[programs.allow]]
+subcommand = "format"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "exec"
+reason = "Executing arbitrary command"
+
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "add"
+reason = "Adding packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading packages"
+
+[[programs.ask]]
+subcommand = "upgrade-interactive"
+reason = "Upgrading packages"
+
+[[programs.ask]]
+subcommand = "link"
+reason = "Linking package"
+
+[[programs.ask]]
+subcommand = "unlink"
+reason = "Unlinking package"
+
+[[programs.ask]]
+subcommand = "publish"
+reason = "Publishing package"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing package"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating package"
+
+[[programs.ask]]
+subcommand = "dlx"
+reason = "Executing package"
+
+[[programs.ask]]
+subcommand = "cache"
+reason = "Cache operation"
+
+[[programs.ask]]
+subcommand = "global"
+reason = "Global operation"
+
+[[programs.ask]]
+subcommand = "set"
+reason = "Setting config"
+
+# Custom handler for bare "yarn" = install
+[[custom_handlers]]
+program = "yarn"
+handler = "check_yarn_bare"
+description = "Bare yarn command is equivalent to yarn install"
+
+# =============================================================================
+# PIP
+# =============================================================================
+
+[[programs]]
+name = "pip"
+aliases = ["pip3"]
+unknown_action = "ask"
+
+# Dry-run flag makes install safe
+[[programs.allow_if_flags]]
+flags_any = ["--dry-run", "-n"]
+for_subcommands = ["install"]
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "freeze"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "index"
+
+[[programs.allow]]
+subcommand = "config"
+
+[[programs.allow]]
+subcommand = "cache"
+
+[[programs.allow]]
+subcommand = "debug"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "download"
+reason = "Downloading packages"
+
+[[programs.ask]]
+subcommand = "wheel"
+reason = "Building wheel"
+
+# =============================================================================
+# UV
+# =============================================================================
+
+[[programs]]
+name = "uv"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "tree"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+# Script execution
+[[programs.ask]]
+subcommand = "run"
+reason = "Running command in environment"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "sync"
+
+[[programs.allow]]
+subcommand = "lock"
+
+[[programs.allow]]
+subcommand = "venv"
+
+# uv pip subcommands (safe)
+[[programs.allow]]
+subcommand = "pip list"
+
+[[programs.allow]]
+subcommand = "pip show"
+
+[[programs.allow]]
+subcommand = "pip freeze"
+
+[[programs.allow]]
+subcommand = "pip check"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "add"
+reason = "Adding dependency"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing dependency"
+
+[[programs.ask]]
+subcommand = "tool"
+reason = "Tool operation"
+
+[[programs.ask]]
+subcommand = "python"
+reason = "Python operation"
+
+[[programs.ask]]
+subcommand = "cache"
+reason = "Cache operation"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing project"
+
+[[programs.ask]]
+subcommand = "build"
+reason = "Building package"
+
+[[programs.ask]]
+subcommand = "publish"
+reason = "Publishing package"
+
+# uv pip risky subcommands
+[[programs.ask]]
+subcommand = "pip install"
+reason = "uv pip: install"
+
+[[programs.ask]]
+subcommand = "pip uninstall"
+reason = "uv pip: uninstall"
+
+# =============================================================================
+# CARGO
+# =============================================================================
+
+[[programs]]
+name = "cargo"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "clippy"
+
+[[programs.allow]]
+subcommand = "doc"
+
+[[programs.allow]]
+subcommand = "tree"
+
+[[programs.allow]]
+subcommand = "metadata"
+
+[[programs.allow]]
+subcommand = "pkgid"
+
+[[programs.allow]]
+subcommand = "verify-project"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "locate-project"
+
+[[programs.allow]]
+subcommand = "read-manifest"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "help"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "run"
+
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "bench"
+
+[[programs.allow]]
+subcommand = "fmt"
+
+[[programs.allow]]
+subcommand = "clean"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Uninstalling"
+
+[[programs.ask]]
+subcommand = "new"
+reason = "Creating project"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing project"
+
+[[programs.ask]]
+subcommand = "add"
+reason = "Adding dependency"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing dependency"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating dependencies"
+
+[[programs.ask]]
+subcommand = "publish"
+reason = "Publishing crate"
+
+[[programs.ask]]
+subcommand = "yank"
+reason = "Yanking version"
+
+[[programs.ask]]
+subcommand = "fix"
+reason = "Auto-fixing code"
+
+[[programs.ask]]
+subcommand = "generate-lockfile"
+reason = "Generating lockfile"
+
+# =============================================================================
+# GO
+# =============================================================================
+
+[[programs]]
+name = "go"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "doc"
+
+[[programs.allow]]
+subcommand = "env"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "vet"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "run"
+
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "fmt"
+
+[[programs.allow]]
+subcommand = "clean"
+
+# go mod safe subcommands
+[[programs.allow]]
+subcommand = "mod graph"
+
+[[programs.allow]]
+subcommand = "mod verify"
+
+[[programs.allow]]
+subcommand = "mod why"
+
+[[programs.allow]]
+subcommand = "mod tidy"
+
+[[programs.allow]]
+subcommand = "mod download"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing"
+
+[[programs.ask]]
+subcommand = "get"
+reason = "Getting packages"
+
+[[programs.ask]]
+subcommand = "generate"
+reason = "Generating code"
+
+[[programs.ask]]
+subcommand = "fix"
+reason = "Fixing code"
+
+[[programs.ask]]
+subcommand = "work"
+reason = "Workspace operation"
+
+# go mod risky subcommands (catch-all for unknown go mod commands)
+[[programs.ask]]
+subcommand = "mod init"
+reason = "go mod: init"
+
+[[programs.ask]]
+subcommand = "mod edit"
+reason = "go mod: edit"
+
+# =============================================================================
+# BUN
+# =============================================================================
+
+[[programs]]
+name = "bun"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "pm"
+
+[[programs.allow]]
+subcommand = "-v"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Script execution
+[[programs.ask]]
+subcommand = "run"
+reason = "Running script from package.json"
+
+[[programs.ask]]
+subcommand = "start"
+reason = "Running start script"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "test"
+
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "dev"
+
+[[programs.allow]]
+subcommand = "lint"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "typecheck"
+
+[[programs.allow]]
+subcommand = "format"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "i"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "add"
+reason = "Adding packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "rm"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "link"
+reason = "Linking package"
+
+[[programs.ask]]
+subcommand = "unlink"
+reason = "Unlinking package"
+
+[[programs.ask]]
+subcommand = "x"
+reason = "Executing package"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing project"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating project"
+
+[[programs.ask]]
+subcommand = "publish"
+reason = "Publishing"
+
+# =============================================================================
+# CONDA / MAMBA / MICROMAMBA
+# =============================================================================
+
+[[programs]]
+name = "conda"
+aliases = ["mamba", "micromamba"]
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "config"
+
+[[programs.allow]]
+subcommand = "package"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "doctor"
+
+[[programs.allow]]
+subcommand = "notices"
+
+[[programs.allow]]
+subcommand = "compare"
+
+# env list is read-only
+[[programs.allow]]
+subcommand = "env list"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing packages"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing packages"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Uninstalling packages"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating packages"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading packages"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating environment"
+
+[[programs.ask]]
+subcommand = "activate"
+reason = "Activating environment"
+
+[[programs.ask]]
+subcommand = "deactivate"
+reason = "Deactivating environment"
+
+[[programs.ask]]
+subcommand = "clean"
+reason = "Cleaning cache"
+
+[[programs.ask]]
+subcommand = "build"
+reason = "Building package"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing conda"
+
+[[programs.ask]]
+subcommand = "run"
+reason = "Running in environment"
+
+# env mutations
+[[programs.ask]]
+subcommand = "env create"
+reason = "env create"
+
+[[programs.ask]]
+subcommand = "env remove"
+reason = "env remove"
+
+# =============================================================================
+# POETRY
+# =============================================================================
+
+[[programs]]
+name = "poetry"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "check"
+
+[[programs.allow]]
+subcommand = "config"
+
+[[programs.allow]]
+subcommand = "env"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "about"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "build"
+
+[[programs.allow]]
+subcommand = "lock"
+
+# Commands that execute arbitrary code
+[[programs.ask]]
+subcommand = "run"
+reason = "Running arbitrary command in environment"
+
+[[programs.ask]]
+subcommand = "shell"
+reason = "Spawning interactive shell"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing dependencies"
+
+[[programs.ask]]
+subcommand = "add"
+reason = "Adding dependency"
+
+[[programs.ask]]
+subcommand = "remove"
+reason = "Removing dependency"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating dependencies"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing project"
+
+[[programs.ask]]
+subcommand = "new"
+reason = "Creating project"
+
+[[programs.ask]]
+subcommand = "publish"
+reason = "Publishing package"
+
+[[programs.ask]]
+subcommand = "cache"
+reason = "Cache operation"
+
+[[programs.ask]]
+subcommand = "export"
+reason = "Exporting dependencies"
+
+[[programs.ask]]
+subcommand = "self"
+reason = "Self operation"
+
+[[programs.ask]]
+subcommand = "source"
+reason = "Source operation"
+
+# =============================================================================
+# PIPX
+# =============================================================================
+
+[[programs]]
+name = "pipx"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "environment"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Risky commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing application"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Uninstalling application"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading application"
+
+[[programs.ask]]
+subcommand = "upgrade-all"
+reason = "Upgrading all applications"
+
+[[programs.ask]]
+subcommand = "reinstall"
+reason = "Reinstalling application"
+
+[[programs.ask]]
+subcommand = "reinstall-all"
+reason = "Reinstalling all"
+
+[[programs.ask]]
+subcommand = "inject"
+reason = "Injecting package"
+
+[[programs.ask]]
+subcommand = "uninject"
+reason = "Uninjecting package"
+
+[[programs.ask]]
+subcommand = "ensurepath"
+reason = "Modifying PATH"
+
+[[programs.ask]]
+subcommand = "run"
+reason = "Running application"

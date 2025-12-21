@@ -1,0 +1,207 @@
+# Network Permission Gate
+#
+# Handles network commands:
+# - curl: HTTP client
+# - wget: Web downloader
+# - ssh/scp/sftp: Secure shell and file transfer
+# - rsync: File synchronization
+# - nc/ncat/netcat: Network connections
+# - http/https/xh: HTTPie clients
+#
+# Patterns:
+# - GET requests and head checks are safe
+# - POST/PUT/DELETE and downloads ask
+# - -e flag for netcat is blocked (reverse shell)
+# - rsync --dry-run is safe
+
+[meta]
+name = "network"
+description = "Network command permission gate"
+priority = 35
+
+# =============================================================================
+# CURL
+# =============================================================================
+
+[[programs]]
+name = "curl"
+unknown_action = "allow"  # Default is GET which is safe
+
+# Version/help is safe
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# HEAD request is safe (read-only)
+[[programs.allow]]
+if_flags_any = ["-I", "--head"]
+
+# Note: Custom handler needed for:
+# - Detecting HTTP method from -X/--request
+# - Checking for -d/--data (implies mutation)
+# - Checking for -o/-O (download)
+[[custom_handlers]]
+program = "curl"
+handler = "check_curl"
+description = "Check HTTP method and data/output flags"
+
+# =============================================================================
+# WGET
+# =============================================================================
+
+[[programs]]
+name = "wget"
+unknown_action = "ask"  # Default wget downloads
+
+# Version/help is safe
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# Spider mode is safe (just checks URLs, no download)
+[[programs.allow]]
+if_flags_any = ["--spider"]
+
+# Specific risky patterns
+[[programs.ask]]
+reason = "Downloading file"
+if_flags_any = ["-O", "--output-document", "-P", "--directory-prefix"]
+
+[[programs.ask]]
+reason = "Recursive download"
+if_flags_any = ["-r", "--recursive"]
+
+[[programs.ask]]
+reason = "Mirroring site"
+if_flags_any = ["-m", "--mirror"]
+
+[[programs.ask]]
+reason = "POST request"
+if_flags_any = ["--post-data", "--post-file"]
+
+[[programs.ask]]
+reason = "Downloading"
+
+# =============================================================================
+# SSH
+# =============================================================================
+
+[[programs]]
+name = "ssh"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Remote connection"
+
+# =============================================================================
+# SCP
+# =============================================================================
+
+[[programs]]
+name = "scp"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "File transfer"
+
+# =============================================================================
+# SFTP
+# =============================================================================
+
+[[programs]]
+name = "sftp"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "File transfer"
+
+# =============================================================================
+# RSYNC
+# =============================================================================
+
+[[programs]]
+name = "rsync"
+unknown_action = "ask"
+
+# Dry-run is safe
+[[programs.allow_if_flags]]
+flags_any = ["-n", "--dry-run"]
+
+[[programs.ask]]
+reason = "File sync"
+
+# =============================================================================
+# NETCAT (nc, ncat, netcat)
+# =============================================================================
+
+[[programs]]
+name = "nc"
+aliases = ["ncat", "netcat"]
+unknown_action = "ask"
+
+# -e is blocked (reverse shell)
+[[programs.block]]
+reason = "Netcat -e blocked (reverse shell risk)"
+if_args_contain = ["-e"]
+
+# -l is listen mode
+[[programs.ask]]
+reason = "Listen mode (opens port)"
+if_flags_any = ["-l"]
+
+[[programs.ask]]
+reason = "Network connection"
+
+# =============================================================================
+# HTTPIE (http, https, xh)
+# =============================================================================
+
+[[programs]]
+name = "http"
+aliases = ["https", "xh"]
+unknown_action = "ask"
+
+# Version/help is safe
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# GET method is safe
+[[programs.allow]]
+subcommand = "GET"
+
+# URL-only (defaults to GET) is safe for http:// and https://
+# Note: Custom handler needed to check if first arg is a URL
+[[custom_handlers]]
+program = "http"
+handler = "check_httpie"
+description = "Allow GET and URL-only (default GET), ask for POST/PUT/DELETE/PATCH"
+
+# Mutating methods ask
+[[programs.ask]]
+subcommand = "POST"
+reason = "HTTPie: POST request"
+
+[[programs.ask]]
+subcommand = "PUT"
+reason = "HTTPie: PUT request"
+
+[[programs.ask]]
+subcommand = "DELETE"
+reason = "HTTPie: DELETE request"
+
+[[programs.ask]]
+subcommand = "PATCH"
+reason = "HTTPie: PATCH request"

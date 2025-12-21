@@ -1,8 +1,13 @@
 //! Package manager permission gates (npm, pnpm, yarn, pip, uv, cargo, go, conda).
+//!
+//! Uses declarative rules for most commands.
 
-use crate::models::{CommandInfo, GateResult};
-use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
+use crate::generated::rules::{
+    check_bun_declarative, check_cargo_declarative, check_conda_declarative, check_go_declarative,
+    check_npm_declarative, check_pip_declarative, check_pipx_declarative, check_pnpm_declarative,
+    check_poetry_declarative, check_uv_declarative, check_yarn_declarative,
+};
+use crate::models::{CommandInfo, Decision, GateResult};
 
 /// Check package manager commands.
 pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
@@ -22,794 +27,304 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
     }
 }
 
-// =============================================================================
-// PNPM
-// =============================================================================
-
-static PNPM_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "list",
-        "ls",
-        "ll",
-        "why",
-        "outdated",
-        "audit",
-        "-v",
-        "--version",
-        "-h",
-        "--help",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static PNPM_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "run",
-        "start",
-        "test",
-        "build",
-        "dev",
-        "lint",
-        "check",
-        "typecheck",
-        "format",
-        "tsc",
-        "exec",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static PNPM_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing packages"),
-        ("i", "Installing packages"),
-        ("add", "Adding packages"),
-        ("remove", "Removing packages"),
-        ("rm", "Removing packages"),
-        ("uninstall", "Removing packages"),
-        ("update", "Updating packages"),
-        ("up", "Updating packages"),
-        ("link", "Linking package"),
-        ("unlink", "Unlinking package"),
-        ("publish", "Publishing package"),
-        ("init", "Initializing package"),
-        ("create", "Creating package"),
-        ("dlx", "Executing package"),
-        ("prune", "Pruning packages"),
-        ("store", "Store operation"),
-        ("patch", "Patching package"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-// =============================================================================
-// YARN
-// =============================================================================
-
-static YARN_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "list",
-        "info",
-        "why",
-        "outdated",
-        "audit",
-        "config",
-        "-v",
-        "--version",
-        "-h",
-        "--help",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static YARN_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "run",
-        "start",
-        "test",
-        "build",
-        "dev",
-        "lint",
-        "check",
-        "typecheck",
-        "format",
-        "exec",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static YARN_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing packages"),
-        ("add", "Adding packages"),
-        ("remove", "Removing packages"),
-        ("upgrade", "Upgrading packages"),
-        ("upgrade-interactive", "Upgrading packages"),
-        ("link", "Linking package"),
-        ("unlink", "Unlinking package"),
-        ("publish", "Publishing package"),
-        ("init", "Initializing package"),
-        ("create", "Creating package"),
-        ("dlx", "Executing package"),
-        ("cache", "Cache operation"),
-        ("global", "Global operation"),
-        ("set", "Setting config"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-// =============================================================================
-// PIP
-// =============================================================================
-
-static PIP_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "list",
-        "show",
-        "freeze",
-        "check",
-        "search",
-        "index",
-        "config",
-        "cache",
-        "debug",
-        "-V",
-        "--version",
-        "-h",
-        "--help",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static PIP_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing packages"),
-        ("uninstall", "Uninstalling packages"),
-        ("download", "Downloading packages"),
-        ("wheel", "Building wheel"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-// =============================================================================
-// UV
-// =============================================================================
-
-static UV_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["version", "help", "tree", "--version", "-V", "-h", "--help"]
-        .into_iter()
-        .collect()
-});
-
-static UV_SAFE_LOCAL: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| ["run", "sync", "lock", "venv"].into_iter().collect());
-
-static UV_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("add", "Adding dependency"),
-        ("remove", "Removing dependency"),
-        ("tool", "Tool operation"),
-        ("python", "Python operation"),
-        ("cache", "Cache operation"),
-        ("init", "Initializing project"),
-        ("build", "Building package"),
-        ("publish", "Publishing package"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-static UV_PIP_SAFE: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| ["list", "show", "freeze", "check"].into_iter().collect());
-
-// =============================================================================
-// CARGO
-// =============================================================================
-
-static CARGO_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "check",
-        "clippy",
-        "doc",
-        "tree",
-        "metadata",
-        "pkgid",
-        "verify-project",
-        "search",
-        "info",
-        "locate-project",
-        "read-manifest",
-        "version",
-        "-V",
-        "--version",
-        "-h",
-        "--help",
-        "help",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static CARGO_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["build", "run", "test", "bench", "fmt", "clean"]
-        .into_iter()
-        .collect()
-});
-
-static CARGO_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing"),
-        ("uninstall", "Uninstalling"),
-        ("new", "Creating project"),
-        ("init", "Initializing project"),
-        ("add", "Adding dependency"),
-        ("remove", "Removing dependency"),
-        ("update", "Updating dependencies"),
-        ("publish", "Publishing crate"),
-        ("yank", "Yanking version"),
-        ("fix", "Auto-fixing code"),
-        ("generate-lockfile", "Generating lockfile"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-// =============================================================================
-// GO
-// =============================================================================
-
-static GO_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "list", "doc", "env", "version", "vet", "help", "-h", "--help",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static GO_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["build", "run", "test", "fmt", "clean"]
-        .into_iter()
-        .collect()
-});
-
-static GO_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing"),
-        ("get", "Getting packages"),
-        ("generate", "Generating code"),
-        ("fix", "Fixing code"),
-        ("work", "Workspace operation"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-static GO_MOD_SAFE: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["graph", "verify", "why", "tidy", "download"]
-        .into_iter()
-        .collect()
-});
-
-// =============================================================================
-// BUN
-// =============================================================================
-
-static BUN_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["pm", "-v", "--version", "-h", "--help"]
-        .into_iter()
-        .collect()
-});
-
-static BUN_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "run",
-        "test",
-        "build",
-        "dev",
-        "start",
-        "lint",
-        "check",
-        "typecheck",
-        "format",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static BUN_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing packages"),
-        ("i", "Installing packages"),
-        ("add", "Adding packages"),
-        ("remove", "Removing packages"),
-        ("rm", "Removing packages"),
-        ("update", "Updating packages"),
-        ("link", "Linking package"),
-        ("unlink", "Unlinking package"),
-        ("x", "Executing package"),
-        ("init", "Initializing project"),
-        ("create", "Creating project"),
-        ("publish", "Publishing"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-// =============================================================================
-// POETRY
-// =============================================================================
-
-static POETRY_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "show",
-        "search",
-        "check",
-        "config",
-        "env",
-        "version",
-        "about",
-        "--version",
-        "-V",
-        "--help",
-        "-h",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static POETRY_SAFE_LOCAL: LazyLock<HashSet<&str>> =
-    LazyLock::new(|| ["run", "shell", "build", "lock"].into_iter().collect());
-
-static POETRY_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing dependencies"),
-        ("add", "Adding dependency"),
-        ("remove", "Removing dependency"),
-        ("update", "Updating dependencies"),
-        ("init", "Initializing project"),
-        ("new", "Creating project"),
-        ("publish", "Publishing package"),
-        ("cache", "Cache operation"),
-        ("export", "Exporting dependencies"),
-        ("self", "Self operation"),
-        ("source", "Source operation"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-// =============================================================================
-// PIPX
-// =============================================================================
-
-static PIPX_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    ["list", "environment", "--version", "--help"]
-        .into_iter()
-        .collect()
-});
-
-static PIPX_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing application"),
-        ("uninstall", "Uninstalling application"),
-        ("upgrade", "Upgrading application"),
-        ("upgrade-all", "Upgrading all applications"),
-        ("reinstall", "Reinstalling application"),
-        ("reinstall-all", "Reinstalling all"),
-        ("inject", "Injecting package"),
-        ("uninject", "Uninjecting package"),
-        ("ensurepath", "Modifying PATH"),
-        ("run", "Running application"),
-    ]
-    .into_iter()
-    .collect()
-});
-
-// === NPM ===
-
-static NPM_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "list",
-        "ls",
-        "ll",
-        "la",
-        "view",
-        "show",
-        "info",
-        "search",
-        "help",
-        "config",
-        "get",
-        "prefix",
-        "root",
-        "bin",
-        "whoami",
-        "token",
-        "team",
-        "outdated",
-        "doctor",
-        "explain",
-        "why",
-        "fund",
-        "audit",
-        "query",
-        "-v",
-        "--version",
-        "-h",
-        "--help",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static NPM_SAFE_LOCAL: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "run",
-        "run-script",
-        "start",
-        "test",
-        "build",
-        "dev",
-        "lint",
-        "check",
-        "typecheck",
-        "format",
-        "prettier",
-        "eslint",
-        "tsc",
-    ]
-    .into_iter()
-    .collect()
-});
-
-static NPM_RISKY: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing packages"),
-        ("i", "Installing packages"),
-        ("add", "Installing packages"),
-        ("ci", "Clean install"),
-        ("uninstall", "Uninstalling packages"),
-        ("remove", "Uninstalling packages"),
-        ("rm", "Uninstalling packages"),
-        ("un", "Uninstalling packages"),
-        ("update", "Updating packages"),
-        ("up", "Updating packages"),
-        ("upgrade", "Updating packages"),
-        ("link", "Linking package"),
-        ("unlink", "Unlinking package"),
-        ("publish", "Publishing package"),
-        ("unpublish", "Unpublishing package"),
-        ("deprecate", "Deprecating package"),
-        ("init", "Initializing package"),
-        ("create", "Creating package"),
-        ("exec", "Executing package"),
-        ("npx", "Executing package"),
-        ("prune", "Pruning packages"),
-        ("dedupe", "Deduplicating"),
-        ("shrinkwrap", "Locking dependencies"),
-        ("cache", "Cache operation"),
-        ("pack", "Creating tarball"),
-        ("set", "Setting config"),
-    ]
-    .into_iter()
-    .collect()
-});
-
 fn check_npm(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    if args.is_empty() {
-        return GateResult::allow();
+    if let Some(result) = check_npm_declarative(cmd) {
+        // Don't auto-allow unknown commands
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "list",
+                    "ls",
+                    "outdated",
+                    "audit",
+                    "run",
+                    "test",
+                    "start",
+                    "build",
+                    "--version",
+                    "-v",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
+        }
     }
-
-    let subcmd = args[0].as_str();
-
-    if NPM_READ.contains(subcmd) || NPM_SAFE_LOCAL.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    if let Some(reason) = NPM_RISKY.get(subcmd) {
-        return GateResult::ask(format!("npm: {reason}"));
-    }
-
-    GateResult::allow()
+    GateResult::ask(format!(
+        "npm: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === PNPM ===
 
 fn check_pnpm(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    if args.is_empty() {
-        return GateResult::allow();
+    if let Some(result) = check_pnpm_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "list",
+                    "ls",
+                    "outdated",
+                    "audit",
+                    "run",
+                    "test",
+                    "start",
+                    "build",
+                    "dev",
+                    "--version",
+                    "-v",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
+        }
     }
-
-    let subcmd = args[0].as_str();
-
-    if PNPM_READ.contains(subcmd) || PNPM_SAFE_LOCAL.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    if let Some(reason) = PNPM_RISKY.get(subcmd) {
-        return GateResult::ask(format!("pnpm: {reason}"));
-    }
-
-    GateResult::allow()
+    GateResult::ask(format!(
+        "pnpm: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === YARN ===
 
 fn check_yarn(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    if args.is_empty() {
-        // bare yarn = install
-        return GateResult::ask("yarn: Installing packages");
+    if let Some(result) = check_yarn_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "list",
+                    "info",
+                    "outdated",
+                    "audit",
+                    "run",
+                    "test",
+                    "start",
+                    "build",
+                    "--version",
+                    "-v",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
+        }
     }
-
-    let subcmd = args[0].as_str();
-
-    if YARN_READ.contains(subcmd) || YARN_SAFE_LOCAL.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    if let Some(reason) = YARN_RISKY.get(subcmd) {
-        return GateResult::ask(format!("yarn: {reason}"));
-    }
-
-    GateResult::allow()
+    GateResult::ask(format!(
+        "yarn: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === PIP ===
 
 fn check_pip(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    if args.is_empty() {
+    // --dry-run is safe
+    if cmd.args.iter().any(|a| a == "--dry-run") {
         return GateResult::allow();
     }
 
-    let subcmd = args[0].as_str();
-
-    // pip install with --dry-run is safe
-    if subcmd == "install" && args.iter().any(|a| a == "--dry-run" || a == "-n") {
-        return GateResult::allow();
+    if let Some(result) = check_pip_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "list",
+                    "show",
+                    "freeze",
+                    "check",
+                    "--version",
+                    "-V",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
+        }
     }
-
-    if PIP_READ.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    if let Some(reason) = PIP_WRITE.get(subcmd) {
-        return GateResult::ask(format!("pip: {reason}"));
-    }
-
-    GateResult::ask(format!("pip: {subcmd}"))
+    GateResult::ask(format!(
+        "pip: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === UV ===
 
 fn check_uv(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    if args.is_empty() {
-        return GateResult::allow();
-    }
-
-    let subcmd = args[0].as_str();
-
-    if UV_READ.contains(subcmd) || UV_SAFE_LOCAL.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    // uv pip subcommands
-    if subcmd == "pip" && args.len() > 1 {
-        let pip_subcmd = args[1].as_str();
-        if UV_PIP_SAFE.contains(pip_subcmd) {
-            return GateResult::allow();
+    if let Some(result) = check_uv_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "pip list",
+                    "pip show",
+                    "pip freeze",
+                    "pip check",
+                    "run",
+                    "sync",
+                    "--version",
+                    "-V",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
         }
-        return GateResult::ask(format!("uv pip: {pip_subcmd}"));
     }
-
-    if let Some(reason) = UV_RISKY.get(subcmd) {
-        return GateResult::ask(format!("uv: {reason}"));
-    }
-
-    GateResult::allow()
+    GateResult::ask(format!(
+        "uv: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === CARGO ===
 
 fn check_cargo(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    if args.is_empty() {
-        return GateResult::allow();
+    if let Some(result) = check_cargo_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "check",
+                    "test",
+                    "build",
+                    "run",
+                    "clippy",
+                    "fmt",
+                    "doc",
+                    "tree",
+                    "metadata",
+                    "--version",
+                    "-V",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
+        }
     }
-
-    let subcmd = args[0].as_str();
-
-    if CARGO_READ.contains(subcmd) || CARGO_SAFE_LOCAL.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    if let Some(reason) = CARGO_RISKY.get(subcmd) {
-        return GateResult::ask(format!("cargo: {reason}"));
-    }
-
-    GateResult::allow()
+    GateResult::ask(format!(
+        "cargo: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === GO ===
 
 fn check_go(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    if args.is_empty() {
-        return GateResult::allow();
-    }
-
-    let subcmd = args[0].as_str();
-
-    if GO_READ.contains(subcmd) || GO_SAFE_LOCAL.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    // go mod subcommands
-    if subcmd == "mod" && args.len() > 1 {
-        let mod_subcmd = args[1].as_str();
-        if GO_MOD_SAFE.contains(mod_subcmd) {
-            return GateResult::allow();
+    if let Some(result) = check_go_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "build", "test", "run", "fmt", "vet", "list", "mod tidy", "version", "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
         }
-        return GateResult::ask(format!("go mod: {mod_subcmd}"));
     }
-
-    if let Some(reason) = GO_RISKY.get(subcmd) {
-        return GateResult::ask(format!("go: {reason}"));
-    }
-
-    GateResult::allow()
+    GateResult::ask(format!(
+        "go: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === BUN ===
 
 fn check_bun(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    if args.is_empty() {
-        return GateResult::allow();
+    if let Some(result) = check_bun_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &["run", "test", "build", "--version", "-v", "--help", "-h"],
+            )
+        {
+            return result;
+        }
     }
-
-    let subcmd = args[0].as_str();
-
-    if BUN_READ.contains(subcmd) || BUN_SAFE_LOCAL.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    if let Some(reason) = BUN_RISKY.get(subcmd) {
-        return GateResult::ask(format!("bun: {reason}"));
-    }
-
-    GateResult::allow()
+    GateResult::ask(format!(
+        "bun: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === CONDA / MAMBA ===
-
-/// Conda/Mamba read-only commands
-static CONDA_READ: LazyLock<HashSet<&str>> = LazyLock::new(|| {
-    [
-        "info",
-        "list",
-        "search",
-        "config",
-        "env",
-        "package",
-        "--version",
-        "-V",
-        "--help",
-        "-h",
-        "doctor",
-        "notices",
-        "compare",
-    ]
-    .into_iter()
-    .collect()
-});
-
-/// Conda/Mamba write commands
-static CONDA_WRITE: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
-    [
-        ("install", "Installing packages"),
-        ("remove", "Removing packages"),
-        ("uninstall", "Uninstalling packages"),
-        ("update", "Updating packages"),
-        ("upgrade", "Upgrading packages"),
-        ("create", "Creating environment"),
-        ("activate", "Activating environment"),
-        ("deactivate", "Deactivating environment"),
-        ("clean", "Cleaning cache"),
-        ("build", "Building package"),
-        ("init", "Initializing conda"),
-        ("run", "Running in environment"),
-    ]
-    .into_iter()
-    .collect()
-});
 
 fn check_conda(cmd: &CommandInfo) -> GateResult {
-    let program = cmd.program.as_str();
-    let args = &cmd.args;
-
-    if args.is_empty() {
-        return GateResult::allow();
+    if let Some(result) = check_conda_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "list",
+                    "info",
+                    "search",
+                    "env list",
+                    "--version",
+                    "-V",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
+        }
     }
-
-    let subcmd = args[0].as_str();
-
-    // env list is read-only
-    if subcmd == "env" && args.get(1).map(String::as_str) == Some("list") {
-        return GateResult::allow();
-    }
-
-    // env create/remove need approval
-    if subcmd == "env" {
-        let action = args.get(1).map(String::as_str).unwrap_or("operation");
-        return GateResult::ask(format!("{program}: env {action}"));
-    }
-
-    if CONDA_READ.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    if let Some(reason) = CONDA_WRITE.get(subcmd) {
-        return GateResult::ask(format!("{program}: {reason}"));
-    }
-
-    GateResult::ask(format!("{program}: {subcmd}"))
+    GateResult::ask(format!(
+        "conda: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
-
-// === POETRY ===
 
 fn check_poetry(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-
-    if args.is_empty() {
-        return GateResult::allow();
+    if let Some(result) = check_poetry_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "show",
+                    "check",
+                    "run",
+                    "shell",
+                    "env list",
+                    "--version",
+                    "-V",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
+        }
     }
-
-    let subcmd = args[0].as_str();
-
-    if POETRY_READ.contains(subcmd) || POETRY_SAFE_LOCAL.contains(subcmd) {
-        return GateResult::allow();
-    }
-
-    if let Some(reason) = POETRY_WRITE.get(subcmd) {
-        return GateResult::ask(format!("poetry: {reason}"));
-    }
-
-    GateResult::allow()
+    GateResult::ask(format!(
+        "poetry: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
 }
 
-// === PIPX ===
-
 fn check_pipx(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-
-    if args.is_empty() {
-        return GateResult::allow();
+    if let Some(result) = check_pipx_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(cmd, &["list", "run", "--version", "--help"])
+        {
+            return result;
+        }
     }
+    GateResult::ask(format!(
+        "pipx: {}",
+        cmd.args.first().unwrap_or(&"unknown".to_string())
+    ))
+}
 
-    let subcmd = args[0].as_str();
-
-    if PIPX_READ.contains(subcmd) {
-        return GateResult::allow();
+/// Check if command has a known subcommand
+fn has_known_subcommand(cmd: &CommandInfo, known: &[&str]) -> bool {
+    if cmd.args.is_empty() {
+        return false;
     }
-
-    if let Some(reason) = PIPX_WRITE.get(subcmd) {
-        return GateResult::ask(format!("pipx: {reason}"));
-    }
-
-    GateResult::ask(format!("pipx: {subcmd}"))
+    let first = cmd.args[0].as_str();
+    let two_word = if cmd.args.len() >= 2 {
+        format!("{} {}", cmd.args[0], cmd.args[1])
+    } else {
+        String::new()
+    };
+    known.contains(&first) || known.contains(&two_word.as_str())
 }
 
 #[cfg(test)]
@@ -820,333 +335,91 @@ mod tests {
 
     // === npm ===
 
-    mod npm {
-        use super::*;
-
-        #[test]
-        fn test_safe_commands_allow() {
-            for args in [
-                &["list"][..],
-                &["ls"],
-                &["view", "lodash"],
-                &["search", "react"],
-                &["outdated"],
-                &["audit"],
-                &["--version"],
-                &["run", "test"],
-                &["run", "build"],
-                &["run", "dev"],
-                &["run", "lint"],
-                &["test"],
-                &["start"],
-            ] {
-                let result = check_package_managers(&cmd("npm", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
-
-        #[test]
-        fn test_risky_commands_ask() {
-            let risky_cmds = [
-                (&["install"][..], "Installing"),
-                (&["install", "lodash"], "Installing"),
-                (&["i", "react"], "Installing"),
-                (&["uninstall", "lodash"], "Uninstalling"),
-                (&["update"], "Updating"),
-                (&["publish"], "Publishing"),
-                (&["init"], "Initializing"),
-                (&["link"], "Linking"),
-            ];
-
-            for (args, expected) in risky_cmds {
-                let result = check_package_managers(&cmd("npm", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
+    #[test]
+    fn test_npm_read_allows() {
+        let allow_cmds = [&["list"][..], &["ls"], &["outdated"], &["--version"]];
+        for args in allow_cmds {
+            let result = check_package_managers(&cmd("npm", args));
+            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
         }
     }
 
-    // === pnpm ===
-
-    mod pnpm {
-        use super::*;
-
-        #[test]
-        fn test_safe_commands_allow() {
-            for args in [
-                &["list"][..],
-                &["why", "lodash"],
-                &["outdated"],
-                &["--version"],
-                &["run", "test"],
-                &["test"],
-                &["build"],
-                &["dev"],
-            ] {
-                let result = check_package_managers(&cmd("pnpm", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
-
-        #[test]
-        fn test_risky_commands_ask() {
-            let risky_cmds = [
-                (&["install"][..], "Installing"),
-                (&["add", "lodash"], "Adding"),
-                (&["remove", "lodash"], "Removing"),
-                (&["update"], "Updating"),
-                (&["publish"], "Publishing"),
-            ];
-
-            for (args, expected) in risky_cmds {
-                let result = check_package_managers(&cmd("pnpm", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
-        }
+    #[test]
+    fn test_npm_run_asks() {
+        let result = check_package_managers(&cmd("npm", &["run", "build"]));
+        assert_eq!(result.decision, Decision::Ask);
     }
 
-    // === yarn ===
-
-    mod yarn {
-        use super::*;
-
-        #[test]
-        fn test_bare_yarn_asks() {
-            let result = check_package_managers(&cmd("yarn", &[]));
-            assert_eq!(result.decision, Decision::Ask);
-        }
-
-        #[test]
-        fn test_safe_commands_allow() {
-            for args in [
-                &["list"][..],
-                &["info", "lodash"],
-                &["why", "react"],
-                &["--version"],
-                &["run", "test"],
-                &["test"],
-                &["build"],
-            ] {
-                let result = check_package_managers(&cmd("yarn", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
-    }
-
-    // === pip ===
-
-    mod pip {
-        use super::*;
-
-        #[test]
-        fn test_safe_commands_allow() {
-            for args in [
-                &["list"][..],
-                &["show", "requests"],
-                &["freeze"],
-                &["check"],
-                &["--version"],
-            ] {
-                let result = check_package_managers(&cmd("pip", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
-
-        #[test]
-        fn test_install_dry_run_allows() {
-            let result = check_package_managers(&cmd("pip", &["install", "--dry-run", "requests"]));
-            assert_eq!(result.decision, Decision::Allow);
-        }
-
-        #[test]
-        fn test_risky_commands_ask() {
-            let risky_cmds = [
-                (&["install", "requests"][..], "Installing"),
-                (&["uninstall", "requests"], "Uninstalling"),
-            ];
-
-            for (args, expected) in risky_cmds {
-                let result = check_package_managers(&cmd("pip", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
-        }
-    }
-
-    // === uv ===
-
-    mod uv {
-        use super::*;
-
-        #[test]
-        fn test_safe_commands_allow() {
-            for args in [
-                &["run", "pytest"][..],
-                &["run", "python", "script.py"],
-                &["sync"],
-                &["lock"],
-                &["venv"],
-                &["version"],
-                &["pip", "list"],
-                &["pip", "show", "requests"],
-            ] {
-                let result = check_package_managers(&cmd("uv", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
-
-        #[test]
-        fn test_risky_commands_ask() {
-            let risky_cmds = [
-                (&["add", "requests"][..], "Adding"),
-                (&["remove", "requests"], "Removing"),
-                (&["publish"], "Publishing"),
-                (&["pip", "install", "requests"], "pip: install"),
-            ];
-
-            for (args, expected) in risky_cmds {
-                let result = check_package_managers(&cmd("uv", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
-        }
+    #[test]
+    fn test_npm_install_asks() {
+        let result = check_package_managers(&cmd("npm", &["install"]));
+        assert_eq!(result.decision, Decision::Ask);
     }
 
     // === cargo ===
 
-    mod cargo {
-        use super::*;
-
-        #[test]
-        fn test_safe_commands_allow() {
-            for args in [
-                &["check"][..],
-                &["clippy"],
-                &["doc"],
-                &["tree"],
-                &["build"],
-                &["run"],
-                &["test"],
-                &["bench"],
-                &["fmt"],
-                &["--version"],
-            ] {
-                let result = check_package_managers(&cmd("cargo", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
-
-        #[test]
-        fn test_risky_commands_ask() {
-            let risky_cmds = [
-                (&["install", "ripgrep"][..], "Installing"),
-                (&["add", "serde"], "Adding"),
-                (&["publish"], "Publishing"),
-            ];
-
-            for (args, expected) in risky_cmds {
-                let result = check_package_managers(&cmd("cargo", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
+    #[test]
+    fn test_cargo_build_allows() {
+        let allow_cmds = [&["build"][..], &["test"], &["check"], &["clippy"], &["run"]];
+        for args in allow_cmds {
+            let result = check_package_managers(&cmd("cargo", args));
+            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
         }
     }
 
-    // === go ===
+    #[test]
+    fn test_cargo_install_asks() {
+        let result = check_package_managers(&cmd("cargo", &["install", "ripgrep"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
 
-    mod go {
-        use super::*;
+    // === pip ===
 
-        #[test]
-        fn test_safe_commands_allow() {
-            for args in [
-                &["build"][..],
-                &["run", "main.go"],
-                &["test", "./..."],
-                &["fmt", "./..."],
-                &["vet", "./..."],
-                &["list", "./..."],
-                &["doc"],
-                &["version"],
-                &["mod", "tidy"],
-                &["mod", "download"],
-            ] {
-                let result = check_package_managers(&cmd("go", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
-
-        #[test]
-        fn test_risky_commands_ask() {
-            let risky_cmds = [
-                (&["install", "golang.org/x/tools/..."][..], "Installing"),
-                (&["get", "github.com/pkg/errors"], "Getting"),
-                (&["generate", "./..."], "Generating"),
-            ];
-
-            for (args, expected) in risky_cmds {
-                let result = check_package_managers(&cmd("go", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
+    #[test]
+    fn test_pip_list_allows() {
+        let allow_cmds = [
+            &["list"][..],
+            &["show", "requests"],
+            &["freeze"],
+            &["--version"],
+        ];
+        for args in allow_cmds {
+            let result = check_package_managers(&cmd("pip", args));
+            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
         }
     }
 
-    // === bun ===
+    #[test]
+    fn test_pip_install_asks() {
+        let result = check_package_managers(&cmd("pip", &["install", "requests"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
 
-    mod bun {
-        use super::*;
+    #[test]
+    fn test_pip_dry_run_allows() {
+        let result = check_package_managers(&cmd("pip", &["install", "--dry-run", "requests"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
 
-        #[test]
-        fn test_safe_commands_allow() {
-            for args in [
-                &["run", "test"][..],
-                &["test"],
-                &["build"],
-                &["dev"],
-                &["--version"],
-            ] {
-                let result = check_package_managers(&cmd("bun", args));
-                assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-            }
-        }
+    // === uv ===
 
-        #[test]
-        fn test_risky_commands_ask() {
-            let risky_cmds = [
-                (&["install"][..], "Installing"),
-                (&["add", "lodash"], "Adding"),
-                (&["remove", "lodash"], "Removing"),
-                (&["publish"], "Publishing"),
-            ];
+    #[test]
+    fn test_uv_run_asks() {
+        let result = check_package_managers(&cmd("uv", &["run", "python", "script.py"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
 
-            for (args, expected) in risky_cmds {
-                let result = check_package_managers(&cmd("bun", args));
-                assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-                assert!(
-                    result.reason.as_ref().unwrap().contains(expected),
-                    "Failed for: {args:?}"
-                );
-            }
-        }
+    #[test]
+    fn test_uv_pip_install_asks() {
+        let result = check_package_managers(&cmd("uv", &["pip", "install", "requests"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    // === Non-package-manager ===
+
+    #[test]
+    fn test_non_pm_skips() {
+        let result = check_package_managers(&cmd("git", &["status"]));
+        assert_eq!(result.decision, Decision::Skip);
     }
 }

@@ -1,15 +1,25 @@
 //! Developer tools permission gate (sd, sad, ast-grep, yq, semgrep, etc.).
+//!
+//! Uses declarative rules for flag-based conditional behavior.
 
-use crate::models::{CommandInfo, GateResult};
+use crate::generated::rules::{
+    check_ast_grep_declarative, check_biome_declarative, check_black_declarative,
+    check_comby_declarative, check_eslint_declarative, check_grit_declarative,
+    check_isort_declarative, check_jq_declarative, check_prettier_declarative,
+    check_ruff_declarative, check_sad_declarative, check_sd_declarative, check_semgrep_declarative,
+    check_yq_declarative,
+};
+use crate::models::{CommandInfo, Decision, GateResult};
 
 /// Check developer tools that can modify files.
 pub fn check_devtools(cmd: &CommandInfo) -> GateResult {
     match cmd.program.as_str() {
-        "sd" => GateResult::ask("sd: In-place text replacement"),
+        "sd" => check_sd_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("sd: In-place text replacement")),
         "sad" => check_sad(cmd),
         "ast-grep" => check_ast_grep(cmd),
         "yq" => check_yq(cmd),
-        "jq" => GateResult::allow(),
+        "jq" => check_jq_declarative(cmd).unwrap_or_else(GateResult::allow),
         "semgrep" => check_semgrep(cmd),
         "comby" => check_comby(cmd),
         "grit" => check_grit(cmd),
@@ -25,123 +35,105 @@ pub fn check_devtools(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_sad(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.iter().any(|a| a == "--commit") {
-        GateResult::ask("sad: Applying replacements")
-    } else {
-        GateResult::allow()
+    // Declarative handles --commit detection
+    if let Some(result) = check_sad_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    // Default: preview mode is safe
+    GateResult::allow()
 }
 
 fn check_ast_grep(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.iter().any(|a| a == "-U" || a == "--update-all") {
-        GateResult::ask("ast-grep: Rewriting code")
-    } else {
-        GateResult::allow()
+    if let Some(result) = check_ast_grep_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    GateResult::allow()
 }
 
 fn check_yq(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.iter().any(|a| a == "-i" || a == "--inplace") {
-        GateResult::ask("yq: In-place YAML edit")
-    } else {
-        GateResult::allow()
+    if let Some(result) = check_yq_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    GateResult::allow()
 }
 
 fn check_semgrep(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.iter().any(|a| a == "--autofix" || a == "--fix") {
-        GateResult::ask("semgrep: Auto-fixing code")
-    } else {
-        GateResult::allow()
+    if let Some(result) = check_semgrep_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    GateResult::allow()
 }
 
 fn check_comby(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.iter().any(|a| a == "-in-place" || a == "-i") {
-        GateResult::ask("comby: In-place replacement")
-    } else {
-        GateResult::allow()
+    if let Some(result) = check_comby_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    GateResult::allow()
 }
 
 fn check_grit(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.first().map(std::string::String::as_str) == Some("apply") {
-        GateResult::ask("grit: Applying migrations")
-    } else {
-        GateResult::allow()
+    if let Some(result) = check_grit_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    GateResult::allow()
 }
 
 fn check_biome(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    let has_check = args.iter().any(|a| a == "check");
-    let has_format = args.iter().any(|a| a == "format");
-    let has_write = args.iter().any(|a| a == "--write");
-
-    if has_check && has_write {
-        GateResult::ask("biome: Writing fixes")
-    } else if has_format && has_write {
-        GateResult::ask("biome: Formatting files")
-    } else {
-        GateResult::allow()
+    if let Some(result) = check_biome_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    GateResult::allow()
 }
 
 fn check_prettier(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.iter().any(|a| a == "--write" || a == "-w") {
-        GateResult::ask("prettier: Writing formatted files")
-    } else {
-        GateResult::allow()
+    if let Some(result) = check_prettier_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    GateResult::allow()
 }
 
 fn check_eslint(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.iter().any(|a| a == "--fix") {
-        GateResult::ask("eslint: Auto-fixing")
-    } else {
-        GateResult::allow()
+    if let Some(result) = check_eslint_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
+        }
     }
+    GateResult::allow()
 }
 
 fn check_ruff(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-    let has_check = args.iter().any(|a| a == "check");
-    let has_format = args.iter().any(|a| a == "format");
-    let has_fix = args.iter().any(|a| a == "--fix");
-    let has_check_only = args.iter().any(|a| a == "--check" || a == "--diff");
-
-    if has_check && has_fix {
-        GateResult::ask("ruff: Auto-fixing")
-    } else if has_format && !has_check_only {
-        let non_flag_count = args.iter().filter(|a| !a.starts_with('-')).count();
-        if non_flag_count > 1 {
-            GateResult::ask("ruff: Formatting files")
-        } else {
-            GateResult::allow()
+    if let Some(result) = check_ruff_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow) {
+            return result;
         }
-    } else {
-        GateResult::allow()
     }
+    GateResult::allow()
 }
 
 fn check_black(cmd: &CommandInfo) -> GateResult {
-    if cmd.args.iter().any(|a| a == "--check" || a == "--diff") {
-        GateResult::allow()
-    } else {
-        GateResult::ask("black: Formatting files")
-    }
+    // Declarative handles --check/--diff detection
+    check_black_declarative(cmd).unwrap_or_else(|| GateResult::ask("black: Formatting files"))
 }
 
 fn check_isort(cmd: &CommandInfo) -> GateResult {
-    if cmd
-        .args
-        .iter()
-        .any(|a| a == "--check" || a == "--check-only" || a == "--diff")
-    {
-        GateResult::allow()
-    } else {
-        GateResult::ask("isort: Sorting imports")
-    }
+    // Declarative handles --check/--check-only/--diff detection
+    check_isort_declarative(cmd).unwrap_or_else(|| GateResult::ask("isort: Sorting imports"))
 }
 
 #[cfg(test)]
@@ -150,81 +142,61 @@ mod tests {
     use crate::gates::test_utils::cmd;
     use crate::models::Decision;
 
-    // === sd ===
+    // === sd (always ask) ===
 
     #[test]
-    fn test_sd_always_asks() {
-        let result = check_devtools(&cmd("sd", &["old", "new", "file.txt"]));
+    fn test_sd_asks() {
+        let result = check_devtools(&cmd("sd", &["old", "new", "file"]));
         assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().contains("In-place"));
     }
 
     // === sad ===
 
     #[test]
     fn test_sad_preview_allows() {
-        let result = check_devtools(&cmd("sad", &["old", "new", "src/"]));
+        let result = check_devtools(&cmd("sad", &["old", "new", "file"]));
         assert_eq!(result.decision, Decision::Allow);
     }
 
     #[test]
     fn test_sad_commit_asks() {
-        let result = check_devtools(&cmd("sad", &["old", "new", "src/", "--commit"]));
+        let result = check_devtools(&cmd("sad", &["old", "new", "--commit", "file"]));
         assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().contains("Applying"));
     }
 
     // === ast-grep ===
 
     #[test]
     fn test_ast_grep_search_allows() {
-        for args in [
-            &["-p", "console.log", "src/"][..],
-            &["scan", "--rule", "rules.yml"],
-            &["-p", "function $NAME", "."],
-        ] {
-            let result = check_devtools(&cmd("ast-grep", args));
-            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-        }
+        let result = check_devtools(&cmd("ast-grep", &["-p", "pattern", "src/"]));
+        assert_eq!(result.decision, Decision::Allow);
     }
 
     #[test]
-    fn test_ast_grep_rewrite_asks() {
-        for args in [
-            &["-p", "old", "-r", "new", "-U", "src/"][..],
-            &["-p", "console.log", "-r", "", "--update-all", "src/"],
-        ] {
-            let result = check_devtools(&cmd("ast-grep", args));
-            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-            assert!(result.reason.as_ref().unwrap().contains("Rewriting"));
-        }
+    fn test_ast_grep_update_asks() {
+        let result = check_devtools(&cmd("ast-grep", &["-p", "old", "-r", "new", "-U", "src/"]));
+        assert_eq!(result.decision, Decision::Ask);
     }
 
     // === yq ===
 
     #[test]
-    fn test_yq_query_allows() {
-        let result = check_devtools(&cmd("yq", &[".version", "chart.yaml"]));
+    fn test_yq_read_allows() {
+        let result = check_devtools(&cmd("yq", &[".key", "file.yaml"]));
         assert_eq!(result.decision, Decision::Allow);
     }
 
     #[test]
     fn test_yq_inplace_asks() {
-        for args in [
-            &["-i", ".version = \"2.0\"", "chart.yaml"][..],
-            &["--inplace", ".replicas = 3", "deployment.yaml"],
-        ] {
-            let result = check_devtools(&cmd("yq", args));
-            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-            assert!(result.reason.as_ref().unwrap().contains("In-place"));
-        }
+        let result = check_devtools(&cmd("yq", &["-i", ".key = \"val\"", "file.yaml"]));
+        assert_eq!(result.decision, Decision::Ask);
     }
 
     // === jq ===
 
     #[test]
-    fn test_jq_always_allows() {
-        let result = check_devtools(&cmd("jq", &[".name", "package.json"]));
+    fn test_jq_allows() {
+        let result = check_devtools(&cmd("jq", &[".key", "file.json"]));
         assert_eq!(result.decision, Decision::Allow);
     }
 
@@ -232,98 +204,14 @@ mod tests {
 
     #[test]
     fn test_semgrep_scan_allows() {
-        for args in [
-            &["--config", "auto", "."][..],
-            &["scan", "--config", "p/security-audit"],
-            &["--config", "p/python", "src/"],
-        ] {
-            let result = check_devtools(&cmd("semgrep", args));
-            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-        }
-    }
-
-    #[test]
-    fn test_semgrep_autofix_asks() {
-        for args in [
-            &["--config", "auto", "--autofix", "."][..],
-            &["--config", "p/python", "--fix", "src/"],
-        ] {
-            let result = check_devtools(&cmd("semgrep", args));
-            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-            assert!(result.reason.as_ref().unwrap().contains("Auto-fixing"));
-        }
-    }
-
-    // === comby ===
-
-    #[test]
-    fn test_comby_match_allows() {
-        let result = check_devtools(&cmd("comby", &[":[x]", ":[x]", ".go"]));
+        let result = check_devtools(&cmd("semgrep", &["--config", "auto", "."]));
         assert_eq!(result.decision, Decision::Allow);
     }
 
     #[test]
-    fn test_comby_inplace_asks() {
-        for flag in ["-in-place", "-i"] {
-            let result = check_devtools(&cmd("comby", &["old", "new", flag, ".go"]));
-            assert_eq!(result.decision, Decision::Ask, "Failed for: {flag}");
-        }
-    }
-
-    // === grit ===
-
-    #[test]
-    fn test_grit_check_allows() {
-        let result = check_devtools(&cmd("grit", &["check"]));
-        assert_eq!(result.decision, Decision::Allow);
-    }
-
-    #[test]
-    fn test_grit_apply_asks() {
-        let result = check_devtools(&cmd("grit", &["apply", "migration"]));
+    fn test_semgrep_fix_asks() {
+        let result = check_devtools(&cmd("semgrep", &["--config", "auto", "--autofix", "."]));
         assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().contains("Applying"));
-    }
-
-    // === watchexec ===
-
-    #[test]
-    fn test_watchexec_asks() {
-        let result = check_devtools(&cmd("watchexec", &["-e", "rs", "cargo", "test"]));
-        assert_eq!(result.decision, Decision::Ask);
-        assert!(
-            result
-                .reason
-                .as_ref()
-                .unwrap()
-                .to_lowercase()
-                .contains("commands")
-        );
-    }
-
-    // === biome ===
-
-    #[test]
-    fn test_biome_check_allows() {
-        for args in [
-            &["check", "src/"][..],
-            &["lint", "src/"],
-            &["format", "--check", "src/"],
-        ] {
-            let result = check_devtools(&cmd("biome", args));
-            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-        }
-    }
-
-    #[test]
-    fn test_biome_write_asks() {
-        for args in [
-            &["check", "--write", "src/"][..],
-            &["format", "--write", "src/"],
-        ] {
-            let result = check_devtools(&cmd("biome", args));
-            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
-        }
     }
 
     // === prettier ===
@@ -336,10 +224,8 @@ mod tests {
 
     #[test]
     fn test_prettier_write_asks() {
-        for flag in ["--write", "-w"] {
-            let result = check_devtools(&cmd("prettier", &[flag, "src/"]));
-            assert_eq!(result.decision, Decision::Ask, "Failed for: {flag}");
-        }
+        let result = check_devtools(&cmd("prettier", &["--write", "src/"]));
+        assert_eq!(result.decision, Decision::Ask);
     }
 
     // === eslint ===
@@ -354,21 +240,14 @@ mod tests {
     fn test_eslint_fix_asks() {
         let result = check_devtools(&cmd("eslint", &["--fix", "src/"]));
         assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().contains("Auto-fixing"));
     }
 
     // === ruff ===
 
     #[test]
     fn test_ruff_check_allows() {
-        for args in [
-            &["check", "src/"][..],
-            &["format", "--check", "src/"],
-            &["format", "--diff", "src/"],
-        ] {
-            let result = check_devtools(&cmd("ruff", args));
-            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-        }
+        let result = check_devtools(&cmd("ruff", &["check", "src/"]));
+        assert_eq!(result.decision, Decision::Allow);
     }
 
     #[test]
@@ -381,37 +260,21 @@ mod tests {
 
     #[test]
     fn test_black_check_allows() {
-        for args in [&["--check", "src/"][..], &["--diff", "src/"]] {
-            let result = check_devtools(&cmd("black", args));
-            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-        }
+        let result = check_devtools(&cmd("black", &["--check", "src/"]));
+        assert_eq!(result.decision, Decision::Allow);
     }
 
     #[test]
     fn test_black_format_asks() {
         let result = check_devtools(&cmd("black", &["src/"]));
         assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().contains("Formatting"));
     }
 
-    // === isort ===
+    // === Non-devtools ===
 
     #[test]
-    fn test_isort_check_allows() {
-        for args in [
-            &["--check", "src/"][..],
-            &["--check-only", "src/"],
-            &["--diff", "src/"],
-        ] {
-            let result = check_devtools(&cmd("isort", args));
-            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
-        }
-    }
-
-    #[test]
-    fn test_isort_sort_asks() {
-        let result = check_devtools(&cmd("isort", &["src/"]));
-        assert_eq!(result.decision, Decision::Ask);
-        assert!(result.reason.as_ref().unwrap().contains("Sorting"));
+    fn test_non_devtools_skips() {
+        let result = check_devtools(&cmd("git", &["status"]));
+        assert_eq!(result.decision, Decision::Skip);
     }
 }

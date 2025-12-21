@@ -1,0 +1,556 @@
+# GitHub CLI (gh) Gate
+#
+# Handles all `gh` commands with three categories:
+# - allow: Read-only operations (list, view, status)
+# - ask: Write operations (create, edit, delete, merge)
+# - block: Dangerous operations (repo delete, auth logout)
+#
+# Special handling for `gh api` based on HTTP method.
+
+[meta]
+name = "gh"
+description = "GitHub CLI permission gate"
+priority = 10
+
+[[programs]]
+name = "gh"
+unknown_action = "ask"  # Unknown gh commands require approval
+
+# API commands have special method-based handling
+[programs.api_rules]
+trigger = "api"
+method_flags = ["-X", "--method"]
+safe_methods = ["GET"]
+default_method = "GET"
+
+# === Blocked Commands ===
+# These are never allowed
+
+[[programs.block]]
+subcommand = "repo delete"
+reason = "Deleting repositories is blocked"
+
+[[programs.block]]
+subcommand = "auth logout"
+reason = "Logging out is blocked"
+
+# === Read-Only Commands ===
+# These are always allowed
+
+# Issue viewing
+[[programs.allow]]
+subcommand = "issue view"
+
+[[programs.allow]]
+subcommand = "issue list"
+
+[[programs.allow]]
+subcommand = "issue status"
+
+# PR viewing
+[[programs.allow]]
+subcommand = "pr view"
+
+[[programs.allow]]
+subcommand = "pr list"
+
+[[programs.allow]]
+subcommand = "pr status"
+
+[[programs.allow]]
+subcommand = "pr diff"
+
+[[programs.allow]]
+subcommand = "pr checks"
+
+[[programs.allow]]
+subcommand = "pr develop"
+
+# Repo viewing
+[[programs.allow]]
+subcommand = "repo view"
+
+[[programs.allow]]
+subcommand = "repo list"
+
+[[programs.allow]]
+subcommand = "repo clone"
+
+# Search (read-only)
+[[programs.allow]]
+subcommand = "search issues"
+
+[[programs.allow]]
+subcommand = "search prs"
+
+[[programs.allow]]
+subcommand = "search repos"
+
+[[programs.allow]]
+subcommand = "search commits"
+
+[[programs.allow]]
+subcommand = "search code"
+
+# Status/auth info
+[[programs.allow]]
+subcommand = "status"
+
+[[programs.allow]]
+subcommand = "auth status"
+
+[[programs.allow]]
+subcommand = "auth token"
+
+# Config reading
+[[programs.allow]]
+subcommand = "config get"
+
+[[programs.allow]]
+subcommand = "config list"
+
+# Run/workflow viewing
+[[programs.allow]]
+subcommand = "run list"
+
+[[programs.allow]]
+subcommand = "run view"
+
+[[programs.allow]]
+subcommand = "run download"
+
+[[programs.allow]]
+subcommand = "workflow list"
+
+[[programs.allow]]
+subcommand = "workflow view"
+
+# Release viewing
+[[programs.allow]]
+subcommand = "release list"
+
+[[programs.allow]]
+subcommand = "release view"
+
+[[programs.allow]]
+subcommand = "release download"
+
+# Gist viewing
+[[programs.allow]]
+subcommand = "gist list"
+
+[[programs.allow]]
+subcommand = "gist view"
+
+[[programs.allow]]
+subcommand = "gist clone"
+
+# Labels
+[[programs.allow]]
+subcommand = "label list"
+
+# Codespace viewing
+[[programs.allow]]
+subcommand = "codespace list"
+
+[[programs.allow]]
+subcommand = "cs list"
+
+# Keys
+[[programs.allow]]
+subcommand = "ssh-key list"
+
+[[programs.allow]]
+subcommand = "gpg-key list"
+
+# Extensions
+[[programs.allow]]
+subcommand = "extension list"
+
+# Browse (opens browser)
+[[programs.allow]]
+subcommand = "browse"
+
+# Alias viewing
+[[programs.allow]]
+subcommand = "alias list"
+
+# Cache viewing
+[[programs.allow]]
+subcommand = "cache list"
+
+# Variables/secrets listing (doesn't show values)
+[[programs.allow]]
+subcommand = "variable list"
+
+[[programs.allow]]
+subcommand = "secret list"
+
+# Ruleset viewing
+[[programs.allow]]
+subcommand = "ruleset list"
+
+[[programs.allow]]
+subcommand = "ruleset view"
+
+# Project viewing
+[[programs.allow]]
+subcommand = "project list"
+
+[[programs.allow]]
+subcommand = "project view"
+
+# === Write Commands ===
+# These require user permission
+
+# Issue mutations
+[[programs.ask]]
+subcommand = "issue create"
+reason = "Creating issue"
+
+[[programs.ask]]
+subcommand = "issue close"
+reason = "Closing issue"
+
+[[programs.ask]]
+subcommand = "issue reopen"
+reason = "Reopening issue"
+
+[[programs.ask]]
+subcommand = "issue edit"
+reason = "Editing issue"
+
+[[programs.ask]]
+subcommand = "issue comment"
+reason = "Adding comment"
+
+[[programs.ask]]
+subcommand = "issue delete"
+reason = "Deleting issue"
+
+[[programs.ask]]
+subcommand = "issue transfer"
+reason = "Transferring issue"
+
+[[programs.ask]]
+subcommand = "issue pin"
+reason = "Pinning issue"
+
+[[programs.ask]]
+subcommand = "issue unpin"
+reason = "Unpinning issue"
+
+[[programs.ask]]
+subcommand = "issue lock"
+reason = "Locking issue"
+
+[[programs.ask]]
+subcommand = "issue unlock"
+reason = "Unlocking issue"
+
+# PR mutations
+[[programs.ask]]
+subcommand = "pr create"
+reason = "Creating PR"
+
+[[programs.ask]]
+subcommand = "pr close"
+reason = "Closing PR"
+
+[[programs.ask]]
+subcommand = "pr reopen"
+reason = "Reopening PR"
+
+[[programs.ask]]
+subcommand = "pr edit"
+reason = "Editing PR"
+
+[[programs.ask]]
+subcommand = "pr comment"
+reason = "Adding comment"
+
+[[programs.ask]]
+subcommand = "pr merge"
+reason = "Merging PR"
+
+[[programs.ask]]
+subcommand = "pr ready"
+reason = "Marking PR ready"
+
+[[programs.ask]]
+subcommand = "pr review"
+reason = "Submitting review"
+
+[[programs.ask]]
+subcommand = "pr checkout"
+reason = "Checking out PR"
+
+# Repo mutations
+[[programs.ask]]
+subcommand = "repo create"
+reason = "Creating repository"
+
+[[programs.ask]]
+subcommand = "repo rename"
+reason = "Renaming repository"
+
+[[programs.ask]]
+subcommand = "repo edit"
+reason = "Editing repository"
+
+[[programs.ask]]
+subcommand = "repo fork"
+reason = "Forking repository"
+
+[[programs.ask]]
+subcommand = "repo archive"
+reason = "Archiving repository"
+
+[[programs.ask]]
+subcommand = "repo unarchive"
+reason = "Unarchiving repository"
+
+[[programs.ask]]
+subcommand = "repo sync"
+reason = "Syncing repository"
+
+[[programs.ask]]
+subcommand = "repo set-default"
+reason = "Setting default repo"
+
+# Release mutations
+[[programs.ask]]
+subcommand = "release create"
+reason = "Creating release"
+
+[[programs.ask]]
+subcommand = "release delete"
+reason = "Deleting release"
+
+[[programs.ask]]
+subcommand = "release edit"
+reason = "Editing release"
+
+[[programs.ask]]
+subcommand = "release upload"
+reason = "Uploading asset"
+
+[[programs.ask]]
+subcommand = "release delete-asset"
+reason = "Deleting asset"
+
+# Gist mutations
+[[programs.ask]]
+subcommand = "gist create"
+reason = "Creating gist"
+
+[[programs.ask]]
+subcommand = "gist delete"
+reason = "Deleting gist"
+
+[[programs.ask]]
+subcommand = "gist edit"
+reason = "Editing gist"
+
+[[programs.ask]]
+subcommand = "gist rename"
+reason = "Renaming gist"
+
+# Label mutations
+[[programs.ask]]
+subcommand = "label create"
+reason = "Creating label"
+
+[[programs.ask]]
+subcommand = "label delete"
+reason = "Deleting label"
+
+[[programs.ask]]
+subcommand = "label edit"
+reason = "Editing label"
+
+[[programs.ask]]
+subcommand = "label clone"
+reason = "Cloning labels"
+
+# Workflow mutations
+[[programs.ask]]
+subcommand = "workflow run"
+reason = "Running workflow"
+
+[[programs.ask]]
+subcommand = "workflow enable"
+reason = "Enabling workflow"
+
+[[programs.ask]]
+subcommand = "workflow disable"
+reason = "Disabling workflow"
+
+# Run mutations
+[[programs.ask]]
+subcommand = "run cancel"
+reason = "Canceling run"
+
+[[programs.ask]]
+subcommand = "run rerun"
+reason = "Rerunning"
+
+[[programs.ask]]
+subcommand = "run delete"
+reason = "Deleting run"
+
+[[programs.ask]]
+subcommand = "run watch"
+reason = "Watching run"
+
+# Codespace mutations
+[[programs.ask]]
+subcommand = "codespace create"
+reason = "Creating codespace"
+
+[[programs.ask]]
+subcommand = "codespace delete"
+reason = "Deleting codespace"
+
+[[programs.ask]]
+subcommand = "codespace edit"
+reason = "Editing codespace"
+
+[[programs.ask]]
+subcommand = "codespace stop"
+reason = "Stopping codespace"
+
+[[programs.ask]]
+subcommand = "codespace rebuild"
+reason = "Rebuilding codespace"
+
+[[programs.ask]]
+subcommand = "cs create"
+reason = "Creating codespace"
+
+[[programs.ask]]
+subcommand = "cs delete"
+reason = "Deleting codespace"
+
+# Key mutations
+[[programs.ask]]
+subcommand = "ssh-key add"
+reason = "Adding SSH key"
+
+[[programs.ask]]
+subcommand = "ssh-key delete"
+reason = "Deleting SSH key"
+
+[[programs.ask]]
+subcommand = "gpg-key add"
+reason = "Adding GPG key"
+
+[[programs.ask]]
+subcommand = "gpg-key delete"
+reason = "Deleting GPG key"
+
+# Config mutations
+[[programs.ask]]
+subcommand = "config set"
+reason = "Setting config"
+
+[[programs.ask]]
+subcommand = "config clear-cache"
+reason = "Clearing cache"
+
+# Secret/variable mutations
+[[programs.ask]]
+subcommand = "secret set"
+reason = "Setting secret"
+
+[[programs.ask]]
+subcommand = "secret delete"
+reason = "Deleting secret"
+
+[[programs.ask]]
+subcommand = "variable set"
+reason = "Setting variable"
+
+[[programs.ask]]
+subcommand = "variable delete"
+reason = "Deleting variable"
+
+# Cache mutations
+[[programs.ask]]
+subcommand = "cache delete"
+reason = "Deleting cache"
+
+# Extension mutations
+[[programs.ask]]
+subcommand = "extension install"
+reason = "Installing extension"
+
+[[programs.ask]]
+subcommand = "extension upgrade"
+reason = "Upgrading extension"
+
+[[programs.ask]]
+subcommand = "extension remove"
+reason = "Removing extension"
+
+# Alias mutations
+[[programs.ask]]
+subcommand = "alias set"
+reason = "Setting alias"
+
+[[programs.ask]]
+subcommand = "alias delete"
+reason = "Deleting alias"
+
+[[programs.ask]]
+subcommand = "alias import"
+reason = "Importing aliases"
+
+# Project mutations
+[[programs.ask]]
+subcommand = "project create"
+reason = "Creating project"
+
+[[programs.ask]]
+subcommand = "project delete"
+reason = "Deleting project"
+
+[[programs.ask]]
+subcommand = "project edit"
+reason = "Editing project"
+
+[[programs.ask]]
+subcommand = "project close"
+reason = "Closing project"
+
+[[programs.ask]]
+subcommand = "project copy"
+reason = "Copying project"
+
+[[programs.ask]]
+subcommand = "project item-add"
+reason = "Adding project item"
+
+[[programs.ask]]
+subcommand = "project item-archive"
+reason = "Archiving item"
+
+[[programs.ask]]
+subcommand = "project item-create"
+reason = "Creating item"
+
+[[programs.ask]]
+subcommand = "project item-delete"
+reason = "Deleting item"
+
+[[programs.ask]]
+subcommand = "project item-edit"
+reason = "Editing item"
+
+[[programs.ask]]
+subcommand = "project field-create"
+reason = "Creating field"
+
+[[programs.ask]]
+subcommand = "project field-delete"
+reason = "Deleting field"

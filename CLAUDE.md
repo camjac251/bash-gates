@@ -2,11 +2,17 @@
 
 Intelligent bash command permission gate using tree-sitter AST parsing. Auto-allows known safe operations, asks for writes and unknown commands, blocks dangerous patterns.
 
+**Claude Code:** Use as a PreToolUse hook (native integration)
+**Gemini CLI:** Use `--export-toml` to generate policy rules
+
 ## Quick Reference
 
 ```bash
 # Test a command
 echo '{"tool_name": "Bash", "tool_input": {"command": "gh pr list"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
+
+# Export Gemini CLI policy rules
+./target/x86_64-unknown-linux-musl/release/bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
 
 # Run tests
 cargo test
@@ -420,3 +426,18 @@ In `~/.claude/settings.json`:
   }
 }
 ```
+
+## Gemini CLI Integration
+
+Gemini CLI's hook system cannot prompt users (only allow/block). Use the policy engine instead:
+
+```bash
+# Generate and install policy rules
+bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
+```
+
+This exports 700+ policy rules (pulled from actual gate definitions) with proper `ask_user` support:
+- **deny** (priority 900+): Dangerous commands like `rm -rf /`, `gh repo delete`
+- **allow** (priority 100-199): Safe read-only commands like `git status`, `ls`
+- **ask_user** (priority 200-299): Risky commands like `npm install`, `git push`
+- **ask_user** (priority 1): Default fallback for unknown commands

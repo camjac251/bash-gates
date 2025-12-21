@@ -1,175 +1,11 @@
 //! Basic shell commands that are safe (read-only or display-only).
+//!
+//! Uses generated SAFE_COMMANDS list with custom logic for:
+//! - sed/perl with -i flag (delegate to filesystem gate)
+//! - xargs with safe/unsafe target commands
 
+use crate::generated::rules::{SAFE_COMMANDS, check_conditional_allow, check_safe_command};
 use crate::models::{CommandInfo, GateResult};
-
-/// Safe read-only shell commands
-const SAFE_COMMANDS: &[&str] = &[
-    // Display/output
-    "echo",
-    "printf",
-    "cat",
-    "head",
-    "tail",
-    "less",
-    "more",
-    "bat",
-    "batcat",
-    // Listing/finding
-    "ls",
-    "eza",
-    "lsd",
-    "tree",
-    "find",
-    "fd",
-    "locate",
-    "which",
-    "whereis",
-    "type",
-    // Text processing (read-only)
-    "grep",
-    "rg",
-    "ripgrep",
-    "awk",
-    "cut",
-    "sort",
-    "uniq",
-    "wc",
-    "tr",
-    "tee",
-    "column",
-    "paste",
-    "join",
-    "comm",
-    "diff",
-    "cmp",
-    "fold",
-    "fmt",
-    "nl",
-    "rev",
-    "tac",
-    "expand",
-    "unexpand",
-    "pr",
-    "split",
-    "csplit",
-    // File info
-    "file",
-    "stat",
-    "du",
-    "df",
-    "lsof",
-    "readlink",
-    "realpath",
-    "basename",
-    "dirname",
-    // Process/system info
-    "ps",
-    "top",
-    "htop",
-    "btop",
-    "procs",
-    "pgrep",
-    "pidof",
-    "uptime",
-    "w",
-    "who",
-    "whoami",
-    "id",
-    "groups",
-    "uname",
-    "hostname",
-    "hostnamectl",
-    "date",
-    "cal",
-    "free",
-    "vmstat",
-    "iostat",
-    "nproc",
-    "lscpu",
-    "lsmem",
-    "lsblk",
-    "lspci",
-    "lsusb",
-    // Network info (read-only)
-    "ping",
-    "traceroute",
-    "tracepath",
-    "mtr",
-    "dig",
-    "nslookup",
-    "host",
-    "whois",
-    "ss",
-    "netstat",
-    "ip",
-    "ifconfig",
-    "route",
-    "arp",
-    // Archive listing (not extraction)
-    "zipinfo",
-    "unrar",
-    // Dev tools (read-only)
-    "git", // handled by git gate but fallback here
-    "tokei",
-    "cloc",
-    "scc",
-    "loc",
-    "jq",
-    "yq",
-    "gron",
-    "fx", // JSON/YAML viewers
-    "hexdump",
-    "xxd",
-    "base64",
-    "od",
-    "hexyl",
-    "strings",
-    // Help/docs
-    "man",
-    "info",
-    "help",
-    "tldr",
-    "tealdeer",
-    "cheat",
-    // Misc safe
-    "true",
-    "false",
-    "yes",
-    "seq",
-    "expr",
-    "bc",
-    "dc",
-    "factor",
-    "sleep",
-    "wait",
-    "time",
-    "timeout",
-    "env",
-    "printenv",
-    "export",
-    "set",
-    "pwd",
-    "cd",
-    "pushd",
-    "popd",
-    "dirs",
-    "alias",
-    "unalias",
-    "hash",
-    "test",
-    "[",
-    "[[",
-    // Rust/cargo read-only
-    "rustc",
-    "rustup",
-    // Python read-only
-    "python",
-    "python3",
-    "python2",
-    // Node read-only
-    "node",
-    "deno",
-];
 
 /// Commands that are safe only with certain conditions
 pub fn check_basics(cmd: &CommandInfo) -> GateResult {
@@ -187,25 +23,15 @@ pub fn check_basics(cmd: &CommandInfo) -> GateResult {
         return GateResult::allow();
     }
 
-    // awk/gawk/mawk - always safe (read-only by design)
-    if program == "awk" || program == "gawk" || program == "mawk" || program == "nawk" {
-        return GateResult::allow();
-    }
-
-    // perl without -i is safe for one-liners
-    if program == "perl" {
-        if cmd.args.iter().any(|a| a == "-i" || a.starts_with("-i")) {
-            return GateResult::skip(); // Let filesystem gate handle
-        }
-        return GateResult::allow();
-    }
+    // Note: perl removed from special handling - even without -i it can execute
+    // arbitrary code via -e, system(), etc. Handled by filesystem gate (always asks).
 
     // xargs with safe target command
     if program == "xargs" {
         // Find the target command (first non-flag argument)
         let target = cmd.args.iter().find(|a| !a.starts_with('-'));
         if let Some(target_cmd) = target {
-            if SAFE_COMMANDS.contains(&target_cmd.as_str()) {
+            if SAFE_COMMANDS.contains(target_cmd.as_str()) {
                 return GateResult::allow();
             }
         }
@@ -213,9 +39,14 @@ pub fn check_basics(cmd: &CommandInfo) -> GateResult {
         return GateResult::skip();
     }
 
-    // Check if in safe list
-    if SAFE_COMMANDS.contains(&program) {
-        return GateResult::allow();
+    // Try conditional allow rules (e.g., sed without -i)
+    if let Some(result) = check_conditional_allow(cmd) {
+        return result;
+    }
+
+    // Check if in safe commands list
+    if let Some(result) = check_safe_command(cmd) {
+        return result;
     }
 
     GateResult::skip()

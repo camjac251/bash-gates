@@ -1,0 +1,417 @@
+# Git Command Permission Gate
+#
+# Handles all git commands with careful distinction between:
+# - Read-only operations (status, log, diff, etc.)
+# - Write operations (add, commit, push, etc.)
+# - High-risk operations (force push, hard reset, etc.)
+#
+# Special handling:
+# - --dry-run flag makes any command safe
+# - Global options (-C, --git-dir, etc.) are skipped to find actual subcommand
+# - Subcommand-specific rules for config, stash, worktree, submodule, remote
+
+[meta]
+name = "git"
+description = "Git version control permission gate"
+priority = 10
+
+[[programs]]
+name = "git"
+unknown_action = "ask"
+
+# Global flags that override to allow (e.g., --dry-run makes commands safe)
+[[programs.allow_if_flags]]
+flags_any = ["--dry-run", "-n"]
+
+# === Blocked Commands ===
+# None - git commands are never outright blocked, just require approval
+
+# === Read-Only Commands ===
+# These are always allowed (pure information retrieval)
+
+[[programs.allow]]
+subcommand = "status"
+
+[[programs.allow]]
+subcommand = "log"
+
+[[programs.allow]]
+subcommand = "diff"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "tag"
+
+[[programs.allow]]
+subcommand = "describe"
+
+[[programs.allow]]
+subcommand = "rev-parse"
+
+[[programs.allow]]
+subcommand = "ls-files"
+
+[[programs.allow]]
+subcommand = "blame"
+
+[[programs.allow]]
+subcommand = "reflog"
+
+[[programs.allow]]
+subcommand = "shortlog"
+
+[[programs.allow]]
+subcommand = "whatchanged"
+
+[[programs.allow]]
+subcommand = "ls-tree"
+
+[[programs.allow]]
+subcommand = "cat-file"
+
+[[programs.allow]]
+subcommand = "rev-list"
+
+[[programs.allow]]
+subcommand = "name-rev"
+
+[[programs.allow]]
+subcommand = "for-each-ref"
+
+[[programs.allow]]
+subcommand = "symbolic-ref"
+
+[[programs.allow]]
+subcommand = "verify-commit"
+
+[[programs.allow]]
+subcommand = "verify-tag"
+
+[[programs.allow]]
+subcommand = "fsck"
+
+[[programs.allow]]
+subcommand = "count-objects"
+
+[[programs.allow]]
+subcommand = "gc"
+
+[[programs.allow]]
+subcommand = "prune"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "--help"
+
+# === Branch Command (mixed read/write) ===
+# Bare "git branch" or with listing flags is read-only
+
+[[programs.allow]]
+subcommand = "branch"
+unless_flags = ["-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy"]
+
+# === Config Subcommands ===
+
+[[programs.allow]]
+subcommand = "config get"
+
+[[programs.allow]]
+subcommand = "config list"
+
+[[programs.allow]]
+subcommand = "config --get"
+
+[[programs.allow]]
+subcommand = "config --list"
+
+[[programs.ask]]
+subcommand = "config set"
+reason = "git config set"
+
+[[programs.ask]]
+subcommand = "config --add"
+reason = "git config --add"
+
+[[programs.ask]]
+subcommand = "config --unset"
+reason = "git config --unset"
+
+# === Stash Subcommands ===
+
+[[programs.allow]]
+subcommand = "stash list"
+
+[[programs.allow]]
+subcommand = "stash show"
+
+[[programs.ask]]
+subcommand = "stash drop"
+reason = "git stash drop"
+
+[[programs.ask]]
+subcommand = "stash pop"
+reason = "git stash pop"
+
+[[programs.ask]]
+subcommand = "stash clear"
+reason = "git stash clear"
+
+[[programs.ask]]
+subcommand = "stash push"
+reason = "git stash push"
+
+[[programs.ask]]
+subcommand = "stash apply"
+reason = "git stash apply"
+
+# === Worktree Subcommands ===
+
+[[programs.allow]]
+subcommand = "worktree list"
+
+[[programs.ask]]
+subcommand = "worktree add"
+reason = "git worktree add"
+
+[[programs.ask]]
+subcommand = "worktree remove"
+reason = "git worktree remove"
+
+[[programs.ask]]
+subcommand = "worktree prune"
+reason = "git worktree prune"
+
+# === Submodule Subcommands ===
+
+[[programs.allow]]
+subcommand = "submodule status"
+
+# Note: submodule foreach runs arbitrary commands, so it must ask
+[[programs.ask]]
+subcommand = "submodule foreach"
+reason = "git submodule foreach (runs arbitrary commands)"
+
+[[programs.ask]]
+subcommand = "submodule init"
+reason = "git submodule init"
+
+[[programs.ask]]
+subcommand = "submodule update"
+reason = "git submodule update"
+
+[[programs.ask]]
+subcommand = "submodule add"
+reason = "git submodule add"
+
+[[programs.ask]]
+subcommand = "submodule deinit"
+reason = "git submodule deinit"
+
+# === Remote Subcommands ===
+
+[[programs.allow]]
+subcommand = "remote"
+unless_flags = ["add", "remove", "rename", "set-url"]
+
+[[programs.allow]]
+subcommand = "remote show"
+
+[[programs.allow]]
+subcommand = "remote -v"
+
+[[programs.allow]]
+subcommand = "remote get-url"
+
+[[programs.ask]]
+subcommand = "remote add"
+reason = "git remote add"
+
+[[programs.ask]]
+subcommand = "remote remove"
+reason = "git remote remove"
+
+[[programs.ask]]
+subcommand = "remote rename"
+reason = "git remote rename"
+
+[[programs.ask]]
+subcommand = "remote set-url"
+reason = "git remote set-url"
+
+# === High-Risk Commands (ask with warning) ===
+
+[[programs.ask]]
+subcommand = "push"
+reason = "Force push (safer: --force-with-lease)"
+if_flags_any = ["--force", "-f"]
+warn = true
+
+[[programs.ask]]
+subcommand = "reset"
+reason = "Hard reset (can lose uncommitted work)"
+if_flags_any = ["--hard"]
+warn = true
+
+[[programs.ask]]
+subcommand = "clean"
+reason = "Clean (deletes untracked files permanently)"
+if_flags_any = ["-fd", "-fdx", "-f"]
+warn = true
+
+# === Write Commands ===
+# These require user approval
+
+[[programs.ask]]
+subcommand = "commit"
+reason = "Committing changes"
+
+[[programs.ask]]
+subcommand = "push"
+reason = "Pushing to remote"
+
+[[programs.ask]]
+subcommand = "pull"
+reason = "Pulling from remote"
+
+[[programs.ask]]
+subcommand = "merge"
+reason = "Merging branches"
+
+[[programs.ask]]
+subcommand = "rebase"
+reason = "Rebasing"
+
+[[programs.ask]]
+subcommand = "checkout"
+reason = "Checking out"
+
+[[programs.ask]]
+subcommand = "switch"
+reason = "Switching branches"
+
+[[programs.ask]]
+subcommand = "reset"
+reason = "Resetting"
+
+[[programs.ask]]
+subcommand = "restore"
+reason = "Restoring files"
+
+[[programs.ask]]
+subcommand = "clean"
+reason = "Cleaning working tree"
+
+[[programs.ask]]
+subcommand = "cherry-pick"
+reason = "Cherry-picking"
+
+[[programs.ask]]
+subcommand = "revert"
+reason = "Reverting commits"
+
+[[programs.ask]]
+subcommand = "am"
+reason = "Applying patches"
+
+[[programs.ask]]
+subcommand = "apply"
+reason = "Applying patches"
+
+[[programs.ask]]
+subcommand = "format-patch"
+reason = "Creating patches"
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing repo"
+
+[[programs.ask]]
+subcommand = "clone"
+reason = "Cloning repo"
+
+[[programs.ask]]
+subcommand = "fetch"
+reason = "Fetching"
+
+[[programs.ask]]
+subcommand = "mv"
+reason = "Moving files"
+
+[[programs.ask]]
+subcommand = "rm"
+reason = "Removing files"
+
+# Branch mutations
+[[programs.ask]]
+subcommand = "branch"
+reason = "Deleting branch"
+if_flags_any = ["-d", "-D", "--delete"]
+
+[[programs.ask]]
+subcommand = "branch"
+reason = "Renaming branch"
+if_flags_any = ["-m", "-M", "--move"]
+
+# Interactive debugging
+[[programs.ask]]
+subcommand = "bisect"
+reason = "Starting bisect session"
+
+# History rewriting (dangerous)
+[[programs.ask]]
+subcommand = "filter-branch"
+reason = "Rewriting history (dangerous)"
+
+[[programs.ask]]
+subcommand = "filter-repo"
+reason = "Rewriting history (dangerous)"
+
+# Git notes - modifies commit metadata
+[[programs.ask]]
+subcommand = "notes"
+reason = "git notes operation"
+
+# Bundle operations
+[[programs.ask]]
+subcommand = "bundle"
+reason = "Bundle operation"
+
+# Maintenance
+[[programs.allow]]
+subcommand = "maintenance"
+
+# Sparse checkout
+[[programs.ask]]
+subcommand = "sparse-checkout"
+reason = "Modifying sparse checkout"
+
+# Worktree operations
+[[programs.ask]]
+subcommand = "worktree"
+reason = "git worktree operation"
+
+# === Custom Handlers ===
+# Complex logic that requires Rust code
+
+[[custom_handlers]]
+program = "git"
+handler = "check_git_add"
+description = "Handle git add with special checks for -A, --all, ., wildcards"
+
+[[custom_handlers]]
+program = "git"
+handler = "check_git_global_opts"
+description = "Skip global options (-C, --git-dir, etc.) to find actual subcommand"
