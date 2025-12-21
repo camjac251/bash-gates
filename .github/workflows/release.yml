@@ -16,6 +16,8 @@ on:
     branches: [main]
     paths:
       - "src/**"
+      - "rules/**"
+      - "build.rs"
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/release.yml"
@@ -64,8 +66,11 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Check formatting
-        run: cargo fmt -- --check
+      - name: Build (generates code via build.rs)
+        run: cargo build
+
+      - name: Format generated code
+        run: cargo fmt
 
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
