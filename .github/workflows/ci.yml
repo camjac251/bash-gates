@@ -37,6 +37,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Build (generates code via build.rs)
+        run: cargo build
+
       - name: Check formatting
         run: cargo fmt -- --check
 
@@ -45,6 +48,3 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
-
-      - name: Build (debug)
-        run: cargo build
