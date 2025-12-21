@@ -10,6 +10,21 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
+    // Set git version info for --version flag
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs/");
+
+    // Get git version: tag if on tag, otherwise tag-commits-hash
+    let git_version = std::process::Command::new("git")
+        .args(["describe", "--tags", "--always"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    println!("cargo:rustc-env=GIT_VERSION={}", git_version);
+
     // Rerun if any rule file changes
     println!("cargo:rerun-if-changed=rules/");
 

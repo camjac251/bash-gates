@@ -36,6 +36,11 @@ fn main() {
         return;
     }
 
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("bash-gates {}", env!("GIT_VERSION"));
+        return;
+    }
+
     if args.iter().any(|a| a == "--help" || a == "-h") {
         eprintln!("bash-gates - Intelligent bash command permission gate");
         eprintln!();
@@ -43,6 +48,7 @@ fn main() {
         eprintln!("  bash-gates                   Read hook input from stdin (default)");
         eprintln!("  bash-gates --export-toml     Export Gemini CLI policy rules");
         eprintln!("  bash-gates --help            Show this help");
+        eprintln!("  bash-gates --version         Show version");
         eprintln!();
         eprintln!("GEMINI CLI SETUP:");
         eprintln!("  bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml");
