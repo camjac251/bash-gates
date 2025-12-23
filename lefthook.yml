@@ -1,21 +1,33 @@
 min_version: 1.11.0
 
 pre-commit:
-  parallel: true
+  parallel: false
   commands:
-    fmt-check:
-      run: cargo fmt -- --check
+    # Build first to generate code via build.rs
+    build:
+      run: cargo build
       glob: "*.rs"
+      priority: 1
+    # Format generated code
+    fmt:
+      run: cargo fmt
+      glob: "*.rs"
+      priority: 2
+    # Then check with clippy
     clippy:
       run: cargo clippy --all-targets -- -D warnings
       glob: "*.rs"
+      priority: 3
 
 pre-push:
   parallel: false
   commands:
-    test:
-      run: cargo test
-    clippy:
-      run: cargo clippy --all-targets -- -D warnings
     build:
       run: cargo build --release
+      priority: 1
+    clippy:
+      run: cargo clippy --all-targets -- -D warnings
+      priority: 2
+    test:
+      run: cargo test
+      priority: 3
