@@ -233,3 +233,7 @@ reason = "Sorting imports"
 [[programs]]
 name = "shellcheck"
 unknown_action = "allow"
+
+[[programs]]
+name = "hadolint"
+unknown_action = "allow"
