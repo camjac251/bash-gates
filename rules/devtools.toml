@@ -225,3 +225,11 @@ if_flags_any = ["--check", "--check-only", "--diff"]
 
 [[programs.ask]]
 reason = "Sorting imports"
+
+# =============================================================================
+# SHELLCHECK (always safe - read-only static analysis)
+# =============================================================================
+
+[[programs]]
+name = "shellcheck"
+unknown_action = "allow"

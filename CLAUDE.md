@@ -227,73 +227,131 @@ Before AST parsing, raw string checks catch dangerous patterns:
 - **flatpak/snap**: `list`/`info` allow, `install`/`remove` ask
 - **zypper/apk**: `search`/`info` allow, `install`/`remove` ask
 
+## Adding a Tool to an Existing Gate
+
+For most tools, just edit the TOML and rebuild - no Rust changes needed.
+
+**Example: Adding shellcheck to devtools**
+
+```toml
+# rules/devtools.toml
+[[programs]]
+name = "shellcheck"
+unknown_action = "allow"  # Always safe (read-only)
+```
+
+Then `cargo build --release`. Done.
+
+**Example: Tool with flag-conditional behavior**
+
+```toml
+# rules/devtools.toml
+[[programs]]
+name = "prettier"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Writing formatted files"
+if_flags_any = ["--write", "-w"]
+```
+
+**Available TOML options:**
+
+| Field | Description |
+|-------|-------------|
+| `name` | Program name |
+| `aliases` | Alternative names (e.g., `["podman"]` for docker) |
+| `unknown_action` | What to do for unknown subcommands: `allow`, `ask`, `skip`, `block` |
+| `[[programs.allow]]` | Rules that allow (with optional conditions) |
+| `[[programs.ask]]` | Rules that ask (requires `reason`) |
+| `[[programs.block]]` | Rules that block (requires `reason`) |
+
+**Rule conditions:**
+
+| Field | Description |
+|-------|-------------|
+| `subcommand` | Match specific subcommand (e.g., `"pr list"`) |
+| `subcommand_prefix` | Match subcommand prefix (e.g., `"describe"` matches `describe-instances`) |
+| `if_flags_any` | Ask/allow only if any of these flags present |
+| `unless_flags` | Allow unless any of these flags present |
+| `if_args_contain` | Block if args contain these values |
+
+**Custom handlers:** If a tool needs complex logic beyond TOML, add to `[[custom_handlers]]`:
+
+```toml
+[[custom_handlers]]
+program = "ruff"
+handler = "check_ruff"
+description = "ruff format asks unless --check or --diff present"
+```
+
+Then implement `check_ruff` in the gate file. The generated gate returns `Skip` for this program, letting the custom handler take over.
+
 ## Adding a New Gate
 
-1. Create `src/gates/new_gate.rs`:
+For a new category of tools (not fitting existing gates):
+
+1. Create `rules/newgate.toml`:
+
+```toml
+[meta]
+name = "newgate"
+description = "New category of tools"
+priority = 50
+
+[[programs]]
+name = "newtool"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating resource"
+```
+
+2. Create `src/gates/newgate.rs` (uses generated gate function):
 
 ```rust
+use crate::generated::rules::check_newgate_gate;
 use crate::models::{CommandInfo, GateResult};
 
-pub fn check_new(cmd: &CommandInfo) -> GateResult {
-    if cmd.program != "newtool" {
-        return GateResult::skip(); // Don't handle - let other gates or unknown handling take over
-    }
-
-    let args = &cmd.args;
-
-    // Read-only
-    if args.first().map(|s| s.as_str()) == Some("list") {
-        return GateResult::allow();
-    }
-
-    // Write
-    if args.first().map(|s| s.as_str()) == Some("create") {
-        return GateResult::ask("newtool: create");
-    }
-
-    GateResult::ask("newtool: Unknown subcommand")
+pub fn check_newgate(cmd: &CommandInfo) -> GateResult {
+    check_newgate_gate(cmd)
 }
-```
 
-2. Register in `gates/mod.rs`:
-```rust
-mod new_gate;
-pub use new_gate::check_new;
-
-pub static GATES: &[(&str, fn(&CommandInfo) -> GateResult)] = &[
-    // ... other gates ...
-    ("new", check_new),
-    ("basics", check_basics), // basics should be last (catch-all for safe commands)
-];
-```
-
-3. Add tests at bottom of file:
-```rust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{CommandInfo, Decision};
-
-    fn cmd(program: &str, args: &[&str]) -> CommandInfo {
-        CommandInfo {
-            program: program.to_string(),
-            args: args.iter().map(|s| s.to_string()).collect(),
-            ..Default::default()
-        }
-    }
+    use crate::gates::test_utils::cmd;
+    use crate::models::Decision;
 
     #[test]
     fn test_newtool_list_allows() {
-        let result = check_new(&cmd("newtool", &["list"]));
+        let result = check_newgate(&cmd("newtool", &["list"]));
         assert_eq!(result.decision, Decision::Allow);
     }
 
     #[test]
-    fn test_non_newtool_skips() {
-        let result = check_new(&cmd("other", &["list"]));
-        assert_eq!(result.decision, Decision::Skip);
+    fn test_newtool_create_asks() {
+        let result = check_newgate(&cmd("newtool", &["create"]));
+        assert_eq!(result.decision, Decision::Ask);
     }
 }
+```
+
+3. Register in `gates/mod.rs`:
+
+```rust
+mod newgate;
+pub use newgate::check_newgate;
+
+pub static GATES: &[(&str, GateCheckFn)] = &[
+    // ... other gates ...
+    ("newgate", check_newgate),
+    ("basics", check_basics), // basics should be last
+];
 ```
 
 ## Key Patterns

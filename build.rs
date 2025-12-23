@@ -528,6 +528,9 @@ fn generate_rust_code(rule_files: &[(String, RuleFile)]) -> String {
     // Generate master check function
     output.push_str(&generate_master_check(rule_files));
 
+    // Generate unified gate functions
+    output.push_str(&generate_gate_functions(rule_files));
+
     output
 }
 
@@ -1223,6 +1226,107 @@ fn generate_master_check(rule_files: &[(String, RuleFile)]) -> String {
 
     output.push_str("\n    None\n");
     output.push_str("}\n");
+
+    output
+}
+
+fn generate_gate_functions(rule_files: &[(String, RuleFile)]) -> String {
+    let mut output = String::new();
+
+    output.push_str("// === Generated Gate Functions ===\n");
+    output.push_str("// These replace manual routing in gate files.\n");
+    output.push_str("// Add tool to TOML, rebuild, done - no Rust changes needed.\n\n");
+
+    for (name, rules) in rule_files {
+        // Skip files with no programs (like basics which only has safe_commands)
+        if rules.programs.is_empty() {
+            continue;
+        }
+
+        let gate_name = name.replace('-', "_");
+
+        // Collect all program names and aliases this gate handles
+        let mut all_names: Vec<&str> = Vec::new();
+        for program in &rules.programs {
+            all_names.push(&program.name);
+            for alias in &program.aliases {
+                all_names.push(alias);
+            }
+        }
+
+        // Build a set of programs with custom handlers
+        let custom_programs: HashSet<&str> = rules
+            .custom_handlers
+            .iter()
+            .map(|h| h.program.as_str())
+            .collect();
+
+        output.push_str(&format!(
+            "/// Generated gate for {} - handles: {}\n",
+            name,
+            all_names.join(", ")
+        ));
+        output.push_str(&format!(
+            "/// Custom handlers needed for: {:?}\n",
+            custom_programs.iter().collect::<Vec<_>>()
+        ));
+        output.push_str(&format!(
+            "pub fn check_{}_gate(cmd: &CommandInfo) -> GateResult {{\n",
+            gate_name
+        ));
+
+        // Match on program name
+        output.push_str("    match cmd.program.as_str() {\n");
+
+        for program in &rules.programs {
+            let fn_name = program.name.replace('-', "_");
+
+            // Collect names to match (program name + aliases)
+            let mut names = vec![format!("\"{}\"", program.name)];
+            for alias in &program.aliases {
+                names.push(format!("\"{}\"", alias));
+            }
+
+            if custom_programs.contains(program.name.as_str()) {
+                // Program has custom handler - skip, caller must handle
+                output.push_str(&format!(
+                    "        {} => GateResult::skip(), // custom handler: {}\n",
+                    names.join(" | "),
+                    rules
+                        .custom_handlers
+                        .iter()
+                        .find(|h| h.program == program.name)
+                        .map(|h| h.handler.as_str())
+                        .unwrap_or("unknown")
+                ));
+            } else {
+                // Pure declarative - call generated function
+                output.push_str(&format!(
+                    "        {} => check_{}_declarative(cmd).unwrap_or_else(GateResult::skip),\n",
+                    names.join(" | "),
+                    fn_name
+                ));
+            }
+        }
+
+        output.push_str("        _ => GateResult::skip(),\n");
+        output.push_str("    }\n");
+        output.push_str("}\n\n");
+
+        // Generate list of programs handled by this gate
+        output.push_str(&format!("/// Programs handled by the {} gate\n", name));
+        output.push_str(&format!(
+            "pub static {}_PROGRAMS: &[&str] = &[\n",
+            gate_name.to_uppercase()
+        ));
+        for program in &rules.programs {
+            output.push_str(&format!("    \"{}\",\n", program.name));
+            for alias in &program.aliases {
+                output.push_str(&format!("    \"{}\",\n", alias));
+            }
+        }
+        output.push_str("];\n\n");
+    }
 
     output
 }

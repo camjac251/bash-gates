@@ -1,9 +1,7 @@
 //! Git command permission gate.
 //!
-//! Uses generated declarative rules with custom handling for:
-//! - Global options parsing (-C, --git-dir, etc.)
-//! - git add special cases (wildcards, --all, .)
-//! - --force-with-lease exception for force push warning
+//! Custom preprocessing for git's global options (-C, --git-dir, etc.),
+//! then delegates to declarative rules.
 
 use crate::generated::rules::check_git_declarative;
 use crate::models::{CommandInfo, GateResult};
@@ -11,7 +9,7 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 /// Git global options that take a value (must skip arg + value)
-static GIT_GLOBAL_OPTS_WITH_VALUE: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+static GLOBAL_OPTS_WITH_VALUE: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
         "-C",
         "-c",
@@ -28,7 +26,7 @@ static GIT_GLOBAL_OPTS_WITH_VALUE: LazyLock<HashSet<&str>> = LazyLock::new(|| {
 });
 
 /// Git global flags (single flags, no value)
-static GIT_GLOBAL_FLAGS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
+static GLOBAL_FLAGS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
     [
         "--bare",
         "--no-replace-objects",
@@ -50,20 +48,19 @@ static GIT_GLOBAL_FLAGS: LazyLock<HashSet<&str>> = LazyLock::new(|| {
 });
 
 /// Skip git global options to find the actual subcommand.
-/// Returns (index, subcommand) where index is the position in args.
-fn extract_subcommand(args: &[String]) -> (Option<usize>, Option<&str>) {
+fn extract_subcommand(args: &[String]) -> Option<(usize, &str)> {
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].as_str();
 
         // Options that take a value: -C <path>, -c <key=value>, etc.
-        if GIT_GLOBAL_OPTS_WITH_VALUE.contains(arg) {
+        if GLOBAL_OPTS_WITH_VALUE.contains(arg) {
             i += 2;
             continue;
         }
 
         // Combined form: --git-dir=<path>
-        if GIT_GLOBAL_OPTS_WITH_VALUE
+        if GLOBAL_OPTS_WITH_VALUE
             .iter()
             .any(|opt| arg.starts_with(&format!("{opt}=")))
         {
@@ -78,33 +75,27 @@ fn extract_subcommand(args: &[String]) -> (Option<usize>, Option<&str>) {
         }
 
         // Single flags without values
-        if GIT_GLOBAL_FLAGS.contains(arg) {
+        if GLOBAL_FLAGS.contains(arg) {
             i += 1;
             continue;
         }
 
-        // Unknown flag starting with -
+        // Unknown flags
         if arg.starts_with('-') {
-            if arg == "--version" || arg == "-v" || arg == "--help" || arg == "-h" {
-                return (Some(i), Some(arg));
+            if matches!(arg, "--version" | "-v" | "--help" | "-h") {
+                return Some((i, arg));
             }
             i += 1;
             continue;
         }
 
         // Found non-flag argument - this is the subcommand
-        return (Some(i), Some(arg));
+        return Some((i, arg));
     }
-
-    (None, None)
+    None
 }
 
 /// Check git command.
-///
-/// Delegates to generated declarative rules with custom handling for:
-/// - Global options parsing to find actual subcommand
-/// - git add special cases
-/// - --force-with-lease exception
 pub fn check_git(cmd: &CommandInfo) -> GateResult {
     if cmd.program != "git" {
         return GateResult::skip();
@@ -115,20 +106,18 @@ pub fn check_git(cmd: &CommandInfo) -> GateResult {
         return GateResult::allow();
     }
 
-    // Extract the actual subcommand, skipping global options
-    let (subcmd_idx, subcommand) = extract_subcommand(args);
+    // Check for --dry-run first (makes any command safe)
+    if args.iter().any(|a| a == "--dry-run" || a == "-n") {
+        return GateResult::allow();
+    }
 
-    let Some(subcommand) = subcommand else {
+    // Extract the actual subcommand, skipping global options
+    let Some((subcmd_idx, subcommand)) = extract_subcommand(args) else {
         return GateResult::allow();
     };
 
-    // Get args after the subcommand
-    let subcmd_args: Vec<String> =
-        subcmd_idx.map_or_else(Vec::new, |idx| args.iter().skip(idx + 1).cloned().collect());
-
     // Build normalized args (subcommand + its args, without global opts)
-    let mut normalized_args: Vec<String> = vec![subcommand.to_string()];
-    normalized_args.extend(subcmd_args.clone());
+    let normalized_args: Vec<String> = args.iter().skip(subcmd_idx).cloned().collect();
 
     // Create normalized command for declarative rules
     let normalized_cmd = CommandInfo {
@@ -140,15 +129,8 @@ pub fn check_git(cmd: &CommandInfo) -> GateResult {
         pipeline_position: cmd.pipeline_position,
     };
 
-    // Check for dry-run flags FIRST (makes commands safe)
-    if args.iter().any(|a| a == "--dry-run" || a == "-n") {
-        return GateResult::allow();
-    }
-
-    // Special case: --force-with-lease should NOT trigger the --force warning
-    // Check this before declarative rules which would warn about --force
+    // Special case: --force-with-lease is safe (don't trigger force push warning)
     if subcommand == "push" && args.iter().any(|a| a == "--force-with-lease") {
-        // It's --force-with-lease (the safe option), just ask normally
         return GateResult::ask("git: Pushing to remote");
     }
 
@@ -174,19 +156,18 @@ pub fn check_git(cmd: &CommandInfo) -> GateResult {
 
 /// Check git add for dangerous patterns.
 fn check_git_add(args: &[String]) -> GateResult {
-    let dangerous = ["-A", "--all", "-a"];
-    if args.iter().any(|a| dangerous.contains(&a.as_str())) {
+    if args
+        .iter()
+        .any(|a| matches!(a.as_str(), "-A" | "--all" | "-a"))
+    {
         return GateResult::ask("git: Staging all files");
     }
-
     if args.iter().any(|a| a == ".") {
         return GateResult::ask("git: Staging directory");
     }
-
     if args.iter().skip(1).any(|a| a.contains('*')) {
         return GateResult::ask("git: Staging with wildcard");
     }
-
     GateResult::ask("git: Staging files")
 }
 
@@ -312,7 +293,6 @@ mod tests {
 
     #[test]
     fn test_force_with_lease_not_flagged_as_force() {
-        // --force-with-lease is the SAFE alternative, shouldn't trigger "Force push" warning
         let safe_force_cmds = [
             &["push", "--force-with-lease"][..],
             &["push", "--force-with-lease", "origin", "main"],
@@ -324,14 +304,12 @@ mod tests {
             let result = check_git(&cmd(args));
             assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
             let reason = result.reason.as_ref().unwrap();
-            // Should NOT contain "Force push" warning since --force-with-lease is safer
             assert!(
                 !reason.contains("Force push"),
                 "Should not warn about force push for {:?}, got: {}",
                 args,
                 reason
             );
-            // Should still ask for push (it's a write operation)
             assert!(
                 reason.contains("Pushing"),
                 "Should mention pushing for {:?}",
@@ -481,14 +459,7 @@ mod tests {
 
     #[test]
     fn test_non_git_skips() {
-        let result = check_git(&CommandInfo {
-            raw: "gh pr list".to_string(),
-            program: "gh".to_string(),
-            args: vec!["pr".to_string(), "list".to_string()],
-            is_subshell: false,
-            is_pipeline: false,
-            pipeline_position: 0,
-        });
+        let result = check_git(&make_cmd("gh", &["pr", "list"]));
         assert_eq!(result.decision, Decision::Skip);
     }
 }
