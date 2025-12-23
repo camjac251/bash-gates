@@ -150,6 +150,7 @@ Before AST parsing, raw string checks catch dangerous patterns:
 | `source ...`, `. script` | ask | Sourcing external script |
 | `xargs rm`, `xargs mv` | ask | xargs to dangerous command |
 | `find . -delete`, `find -exec rm` | ask | Destructive find |
+| `fd -x rm`, `fd --exec rm` | ask | fd executing dangerous command |
 | `$(rm ...)`, `` `rm ...` `` | ask | Dangerous command substitution |
 | `;rm -rf /` | ask | Leading semicolon (injection) |
 | `> file`, `>> file`, `&> file` | ask | Output redirection |
@@ -451,6 +452,7 @@ For `&&`, `||`, `|`, `;` chains, **strictest decision wins**:
 | `$(gh pr create)` | ask | tree-sitter detects subshell |
 | `git clean -fd --dry-run` | allow | Dry-run checked first |
 | `find . -name "*.tmp" \| xargs rm` | ask | xargs pattern check |
+| `fd -t d .venv -x rm -rf {}` | ask | fd exec pattern check |
 | `;rm -rf /` | ask | Leading semicolon check |
 | `rm -rf //` | block | Path normalization catches bypass |
 | `rm -rf /./` | block | Path normalization catches bypass |
