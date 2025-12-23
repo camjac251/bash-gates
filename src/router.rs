@@ -294,15 +294,26 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
 
     // Output redirections (file writes)
     // Matches: > file, >> file, &> file, but not 2> (stderr only)
-    // Simple pattern: space or start followed by > or >>
-    if let Ok(re) = Regex::new(r"(^|[^0-9&])>{1,2}\s*[^>&\s]") {
-        if re.is_match(command_string) {
-            return Some(HookOutput::ask("Output redirection (writes to file)"));
+    // Excludes /dev/null (discarding output, not writing)
+    if let Ok(re) = Regex::new(r"(^|[^0-9&])>{1,2}\s*([^>&\s]+)") {
+        for cap in re.captures_iter(command_string) {
+            if let Some(target) = cap.get(2) {
+                let target_str = target.as_str();
+                // Skip /dev/null - it's just discarding output
+                if target_str != "/dev/null" {
+                    return Some(HookOutput::ask("Output redirection (writes to file)"));
+                }
+            }
         }
     }
-    if let Ok(re) = Regex::new(r"&>\s*[^\s]") {
-        if re.is_match(command_string) {
-            return Some(HookOutput::ask("Output redirection (writes to file)"));
+    if let Ok(re) = Regex::new(r"&>\s*([^\s]+)") {
+        for cap in re.captures_iter(command_string) {
+            if let Some(target) = cap.get(1) {
+                let target_str = target.as_str();
+                if target_str != "/dev/null" {
+                    return Some(HookOutput::ask("Output redirection (writes to file)"));
+                }
+            }
         }
     }
 
@@ -474,6 +485,28 @@ mod tests {
                 assert!(
                     get_reason(&result).contains("redirection"),
                     "Failed for: {cmd}"
+                );
+            }
+        }
+
+        #[test]
+        fn test_dev_null_redirection_allowed() {
+            // Redirecting to /dev/null is just discarding output, not writing
+            for cmd in [
+                "command > /dev/null",
+                "command 2>/dev/null",
+                "command > /dev/null 2>&1",
+                "command &>/dev/null",
+                "command &> /dev/null",
+                "rg pattern 2>/dev/null",
+                "grep foo 2>/dev/null | grep -v bar > /dev/null",
+            ] {
+                let result = check_command(cmd);
+                // Should NOT be flagged for output redirection
+                let reason = get_reason(&result);
+                assert!(
+                    !reason.contains("Output redirection"),
+                    "False positive for: {cmd}"
                 );
             }
         }
