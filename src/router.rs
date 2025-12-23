@@ -208,6 +208,44 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
         }
     }
 
+    // fd with -x/--exec executing dangerous commands
+    if command_string.contains("fd ") || command_string.contains("fd\t") {
+        // Check for -x or --exec flags
+        if command_string.contains(" -x ")
+            || command_string.contains("\t-x ")
+            || command_string.contains(" -x\t")
+            || command_string.contains(" --exec ")
+            || command_string.contains("\t--exec ")
+            || command_string.contains(" --exec\t")
+            || command_string.contains(" -X ")
+            || command_string.contains("\t-X ")
+            || command_string.contains(" -X\t")
+            || command_string.contains(" --exec-batch ")
+            || command_string.contains("\t--exec-batch ")
+            || command_string.contains(" --exec-batch\t")
+        {
+            let dangerous_exec = ["rm", "mv", "chmod", "chown", "dd", "shred"];
+            for cmd in dangerous_exec {
+                // Check for the command following exec flags
+                let patterns = [
+                    format!("-x {cmd}"),
+                    format!("-x\t{cmd}"),
+                    format!("--exec {cmd}"),
+                    format!("--exec\t{cmd}"),
+                    format!("-X {cmd}"),
+                    format!("-X\t{cmd}"),
+                    format!("--exec-batch {cmd}"),
+                    format!("--exec-batch\t{cmd}"),
+                ];
+                for pattern in &patterns {
+                    if command_string.contains(pattern) {
+                        return Some(HookOutput::ask(&format!("fd executing {cmd}")));
+                    }
+                }
+            }
+        }
+    }
+
     // Command substitution with dangerous commands
     let dangerous_in_subst = ["rm ", "rm\t", "mv ", "chmod ", "chown ", "dd "];
 
@@ -360,6 +398,46 @@ mod tests {
                 let result = check_command(cmd);
                 assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
                 assert!(get_reason(&result).contains("find"), "Failed for: {cmd}");
+            }
+        }
+
+        #[test]
+        fn test_fd_exec_dangerous() {
+            for cmd in [
+                "fd -t d .venv -x rm -rf {}",
+                "fd pattern -x rm {}",
+                "fd --exec rm -rf {} .",
+                "fd . ~/projects -x mv {} /tmp",
+                "fd -H .cache -X rm -rf {}",
+                "fd --exec-batch rm {} .",
+                "fd -e tmp -x shred {}",
+            ] {
+                let result = check_command(cmd);
+                assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
+                assert!(
+                    get_reason(&result).contains("fd executing"),
+                    "Failed for: {cmd}"
+                );
+            }
+        }
+
+        #[test]
+        fn test_fd_safe_operations() {
+            // These should NOT trigger the fd exec check
+            // They'll be handled by gates (likely allowed as safe fd operations)
+            for cmd in [
+                "fd -t f pattern",
+                "fd -e rs . src/",
+                "fd -H .gitignore",
+                "fd --type file .",
+            ] {
+                let result = check_command(cmd);
+                // These should not be caught by the raw string check
+                // (they'll pass through to gates)
+                assert!(
+                    !get_reason(&result).contains("fd executing"),
+                    "False positive for: {cmd}"
+                );
             }
         }
 
