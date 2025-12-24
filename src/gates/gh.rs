@@ -138,6 +138,63 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_api_implicit_post_with_field_flag_asks() {
+        // -f flag implies POST (adds field to request body)
+        let result = check_gh(&cmd(&[
+            "api",
+            "repos/owner/repo/pulls/123/comments/456/replies",
+            "-f",
+            "body=test",
+        ]));
+        assert_eq!(result.decision, Decision::Ask);
+        assert!(result.reason.as_ref().unwrap().contains("POST"));
+    }
+
+    #[test]
+    fn test_api_implicit_post_with_field_equals_asks() {
+        // -f=value syntax also implies POST
+        let result = check_gh(&cmd(&[
+            "api",
+            "repos/owner/repo/issues",
+            "-f=title=Bug",
+        ]));
+        assert_eq!(result.decision, Decision::Ask);
+        assert!(result.reason.as_ref().unwrap().contains("POST"));
+    }
+
+    #[test]
+    fn test_api_implicit_post_flags() {
+        // All these flags imply POST
+        for flag in ["-f", "-F", "--field", "--raw-field", "--input"] {
+            let result = check_gh(&cmd(&["api", "repos/owner/repo/issues", flag, "data"]));
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "Failed for flag: {flag}"
+            );
+            assert!(
+                result.reason.as_ref().unwrap().contains("POST"),
+                "Expected POST in reason for {flag}, got: {:?}",
+                result.reason
+            );
+        }
+    }
+
+    #[test]
+    fn test_api_explicit_method_overrides_implicit() {
+        // Explicit -X GET should still allow even with -f flag
+        let result = check_gh(&cmd(&[
+            "api",
+            "-X",
+            "GET",
+            "repos/owner/repo",
+            "-f",
+            "per_page=100",
+        ]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
     // === Non-gh Commands ===
 
     #[test]

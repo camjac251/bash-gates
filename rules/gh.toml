@@ -22,6 +22,8 @@ trigger = "api"
 method_flags = ["-X", "--method"]
 safe_methods = ["GET"]
 default_method = "GET"
+# Flags that implicitly trigger POST (adding fields/data to request body)
+implicit_post_flags = ["-f", "-F", "--field", "--raw-field", "--input"]
 
 # === Blocked Commands ===
 # These are never allowed

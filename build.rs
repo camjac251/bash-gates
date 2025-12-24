@@ -398,6 +398,9 @@ struct ApiRules {
     safe_methods: Vec<String>,
     #[serde(default)]
     default_method: Option<String>,
+    /// Flags that implicitly trigger POST (e.g., -f, --field for gh api)
+    #[serde(default)]
+    implicit_post_flags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1160,19 +1163,49 @@ fn generate_api_rules(name: &str, api: &ApiRules) -> String {
         .map(|m| format!("\"{}\"", m.to_uppercase()))
         .collect();
 
-    output.push_str("        let method = cmd.args.iter()\n");
+    // Check for explicit method flag first
+    output.push_str("        let explicit_method = cmd.args.iter()\n");
     output.push_str("            .position(|a| [");
     output.push_str(&method_flags.join(", "));
     output.push_str("].contains(&a.as_str()))\n");
     output.push_str("            .and_then(|i| cmd.args.get(i + 1))\n");
-    output.push_str("            .map(|s| s.to_uppercase())\n");
-    if let Some(ref default) = api.default_method {
+    output.push_str("            .map(|s| s.to_uppercase());\n");
+
+    // Check for implicit POST flags (e.g., -f, --field for gh api)
+    if !api.implicit_post_flags.is_empty() {
+        let implicit_flags: Vec<String> = api
+            .implicit_post_flags
+            .iter()
+            .map(|f| format!("\"{}\"", escape_rust_string(f)))
+            .collect();
+        output.push_str("        let has_implicit_post = cmd.args.iter().any(|a| {\n");
+        output.push_str("            let arg = a.as_str();\n");
         output.push_str(&format!(
-            "            .unwrap_or_else(|| \"{}\".to_string());\n",
+            "            [{}].iter().any(|f| arg == *f || arg.starts_with(&format!(\"{{}}=\", f)))\n",
+            implicit_flags.join(", ")
+        ));
+        output.push_str("        });\n");
+        output.push_str("        let method = explicit_method.unwrap_or_else(|| {\n");
+        output.push_str("            if has_implicit_post {\n");
+        output.push_str("                \"POST\".to_string()\n");
+        output.push_str("            } else {\n");
+        if let Some(ref default) = api.default_method {
+            output.push_str(&format!(
+                "                \"{}\".to_string()\n",
+                default.to_uppercase()
+            ));
+        } else {
+            output.push_str("                String::new()\n");
+        }
+        output.push_str("            }\n");
+        output.push_str("        });\n");
+    } else if let Some(ref default) = api.default_method {
+        output.push_str(&format!(
+            "        let method = explicit_method.unwrap_or_else(|| \"{}\".to_string());\n",
             default.to_uppercase()
         ));
     } else {
-        output.push_str("            .unwrap_or_default();\n");
+        output.push_str("        let method = explicit_method.unwrap_or_default();\n");
     }
 
     output.push_str(&format!(
