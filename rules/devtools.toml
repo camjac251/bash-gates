@@ -237,3 +237,16 @@ unknown_action = "allow"
 [[programs]]
 name = "hadolint"
 unknown_action = "allow"
+
+# =============================================================================
+# GOLANGCI-LINT (--fix modifies files, otherwise read-only)
+# =============================================================================
+
+[[programs]]
+name = "golangci-lint"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Applying lint fixes"
+if_flags_any = ["--fix"]
+

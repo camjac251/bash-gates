@@ -154,11 +154,7 @@ mod tests {
     #[test]
     fn test_api_implicit_post_with_field_equals_asks() {
         // -f=value syntax also implies POST
-        let result = check_gh(&cmd(&[
-            "api",
-            "repos/owner/repo/issues",
-            "-f=title=Bug",
-        ]));
+        let result = check_gh(&cmd(&["api", "repos/owner/repo/issues", "-f=title=Bug"]));
         assert_eq!(result.decision, Decision::Ask);
         assert!(result.reason.as_ref().unwrap().contains("POST"));
     }
@@ -168,11 +164,7 @@ mod tests {
         // All these flags imply POST
         for flag in ["-f", "-F", "--field", "--raw-field", "--input"] {
             let result = check_gh(&cmd(&["api", "repos/owner/repo/issues", flag, "data"]));
-            assert_eq!(
-                result.decision,
-                Decision::Ask,
-                "Failed for flag: {flag}"
-            );
+            assert_eq!(result.decision, Decision::Ask, "Failed for flag: {flag}");
             assert!(
                 result.reason.as_ref().unwrap().contains("POST"),
                 "Expected POST in reason for {flag}, got: {:?}",

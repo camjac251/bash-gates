@@ -855,6 +855,12 @@ subcommand = "doc"
 
 [[programs.allow]]
 subcommand = "env"
+unless_flags = ["-w", "-u"]
+
+[[programs.ask]]
+subcommand = "env"
+reason = "Modifying Go environment config"
+if_flags_any = ["-w", "-u"]
 
 [[programs.allow]]
 subcommand = "version"
@@ -1167,7 +1173,21 @@ subcommand = "check"
 subcommand = "config"
 
 [[programs.allow]]
-subcommand = "env"
+subcommand = "env info"
+
+[[programs.allow]]
+subcommand = "env list"
+
+[[programs.allow]]
+subcommand = "env activate"
+
+[[programs.ask]]
+subcommand = "env use"
+reason = "Creating/activating Python environment"
+
+[[programs.ask]]
+subcommand = "env remove"
+reason = "Removing Python environment"
 
 [[programs.allow]]
 subcommand = "version"

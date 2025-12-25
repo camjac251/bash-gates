@@ -215,8 +215,8 @@ fn check_go(cmd: &CommandInfo) -> GateResult {
             || has_known_subcommand(
                 cmd,
                 &[
-                    "build", "test", "run", "fmt", "vet", "list", "mod tidy", "version", "--help",
-                    "-h",
+                    "build", "test", "run", "fmt", "vet", "list", "mod tidy", "version", "doc",
+                    "env", "--help", "-h",
                 ],
             )
         {
@@ -283,6 +283,8 @@ fn check_poetry(cmd: &CommandInfo) -> GateResult {
                     "run",
                     "shell",
                     "env list",
+                    "env info",
+                    "env activate",
                     "--version",
                     "-V",
                     "--help",

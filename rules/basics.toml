@@ -101,6 +101,19 @@ safe_commands = [
     "lsblk",
     "lspci",
     "lsusb",
+    "locale",
+    "getconf",
+
+    # GPU/graphics info (read-only only)
+    "vainfo",
+    "vdpauinfo",
+    "glxinfo",
+    "clinfo",
+
+    # Display info (read-only only)
+    "xdpyinfo",
+    "xwininfo",
+
 
     # Network info (read-only)
     "ping",
