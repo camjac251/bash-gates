@@ -5,7 +5,7 @@
 //! - xargs with safe/unsafe target commands
 //! - xargs sh -c 'script' where script contains only safe commands
 
-use crate::generated::rules::{check_conditional_allow, check_safe_command, SAFE_COMMANDS};
+use crate::generated::rules::{SAFE_COMMANDS, check_conditional_allow, check_safe_command};
 use crate::models::{CommandInfo, Decision, GateResult};
 use crate::parser::extract_commands;
 use crate::router::check_single_command;
