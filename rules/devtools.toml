@@ -54,6 +54,7 @@ if_flags_any = ["--commit"]
 
 [[programs]]
 name = "ast-grep"
+aliases = ["sg"]
 unknown_action = "allow"  # Default is search mode
 
 [[programs.ask]]
