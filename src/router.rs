@@ -98,19 +98,32 @@ pub fn check_command(command_string: &str) -> HookOutput {
 /// Check a bash command with settings.json awareness.
 ///
 /// Loads settings from user (~/.claude/settings.json) and project (.claude/settings.json),
-/// then checks the command against those rules first before running gate analysis.
+/// and combines with gate analysis.
 ///
-/// This ensures bash-gates respects user's explicit deny/ask rules and won't
-/// accidentally bypass them with an allow decision.
+/// Priority order:
+/// 1. Gate blocks → deny directly (dangerous commands always blocked)
+/// 2. Settings.json deny/ask → ask (defer to Claude Code)
+/// 3. Settings.json allow → allow
+/// 4. Gate result (allow/ask)
 pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutput {
     if command_string.trim().is_empty() {
         return HookOutput::approve();
     }
 
+    // Run gate analysis first - blocks take priority
+    let gate_result = check_command(command_string);
+
+    // If gates block, deny directly (dangerous commands should never be deferred)
+    if let Some(ref output) = gate_result.hook_specific_output {
+        if output.permission_decision == "deny" {
+            return gate_result;
+        }
+    }
+
     // Load settings.json (user + project)
     let settings = Settings::load(cwd);
 
-    // Check settings.json first - respect user's explicit rules
+    // Check settings.json - respect user's explicit rules
     match settings.check_command(command_string) {
         SettingsDecision::Deny => {
             // User explicitly denied - defer to Claude Code (return ask, CC will deny)
@@ -125,12 +138,12 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
             return HookOutput::allow(Some("Matched settings.json allow rule"));
         }
         SettingsDecision::NoMatch => {
-            // No match - proceed with bash-gates analysis
+            // No match - use gate result
         }
     }
 
-    // Run normal bash-gates analysis
-    check_command(command_string)
+    // Return gate result (allow or ask)
+    gate_result
 }
 
 /// Check raw string patterns before parsing.

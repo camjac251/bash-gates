@@ -28,15 +28,6 @@ pub struct CommandInfo {
     pub program: String,
     /// Arguments after the program
     pub args: Vec<String>,
-    /// True if inside `$()` or backticks (reserved for future use)
-    #[allow(dead_code)]
-    pub is_subshell: bool,
-    /// True if in a pipeline (reserved for future use)
-    #[allow(dead_code)]
-    pub is_pipeline: bool,
-    /// Position in pipeline (reserved for future use)
-    #[allow(dead_code)]
-    pub pipeline_position: usize,
 }
 
 /// Result from a permission gate check

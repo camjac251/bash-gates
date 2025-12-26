@@ -46,39 +46,31 @@ pub fn extract_commands(command_string: &str) -> Vec<CommandInfo> {
 
 fn extract_from_tree(tree: &Tree, source: &str, commands: &mut Vec<CommandInfo>) {
     let mut cursor = tree.walk();
-    visit_node(&mut cursor, source, commands, false, 0);
+    visit_node(&mut cursor, source, commands);
 }
 
-fn visit_node(
-    cursor: &mut TreeCursor,
-    source: &str,
-    commands: &mut Vec<CommandInfo>,
-    in_subshell: bool,
-    pipeline_pos: usize,
-) {
+fn visit_node(cursor: &mut TreeCursor, source: &str, commands: &mut Vec<CommandInfo>) {
     let node = cursor.node();
     let kind = node.kind();
 
     match kind {
         "command" => {
-            if let Some(cmd) = extract_command(cursor, source, in_subshell, pipeline_pos) {
+            if let Some(cmd) = extract_command(cursor, source) {
                 commands.push(cmd);
             }
         }
         "pipeline" => {
             // Visit each command in the pipeline
             if cursor.goto_first_child() {
-                let mut pos = 0;
                 loop {
                     let child = cursor.node();
                     if child.kind() == "command" {
-                        if let Some(cmd) = extract_command(cursor, source, in_subshell, pos) {
+                        if let Some(cmd) = extract_command(cursor, source) {
                             commands.push(cmd);
                         }
-                        pos += 1;
                     } else if child.kind() != "|" {
                         // Recurse into non-pipe children
-                        visit_node(cursor, source, commands, in_subshell, pos);
+                        visit_node(cursor, source, commands);
                     }
                     if !cursor.goto_next_sibling() {
                         break;
@@ -87,36 +79,12 @@ fn visit_node(
                 cursor.goto_parent();
             }
         }
-        "list" | "program" => {
+        "list" | "program" | "subshell" | "command_substitution" | "if_statement"
+        | "while_statement" | "for_statement" | "case_statement" | "compound_statement" => {
             // Visit all children
             if cursor.goto_first_child() {
                 loop {
-                    visit_node(cursor, source, commands, in_subshell, 0);
-                    if !cursor.goto_next_sibling() {
-                        break;
-                    }
-                }
-                cursor.goto_parent();
-            }
-        }
-        "subshell" | "command_substitution" => {
-            // Mark commands inside as being in a subshell
-            if cursor.goto_first_child() {
-                loop {
-                    visit_node(cursor, source, commands, true, 0);
-                    if !cursor.goto_next_sibling() {
-                        break;
-                    }
-                }
-                cursor.goto_parent();
-            }
-        }
-        "if_statement" | "while_statement" | "for_statement" | "case_statement"
-        | "compound_statement" => {
-            // Visit body of control structures
-            if cursor.goto_first_child() {
-                loop {
-                    visit_node(cursor, source, commands, in_subshell, 0);
+                    visit_node(cursor, source, commands);
                     if !cursor.goto_next_sibling() {
                         break;
                     }
@@ -130,7 +98,7 @@ fn visit_node(
                 loop {
                     let child = cursor.node();
                     if child.kind() == "compound_statement" {
-                        visit_node(cursor, source, commands, in_subshell, 0);
+                        visit_node(cursor, source, commands);
                     }
                     if !cursor.goto_next_sibling() {
                         break;
@@ -143,7 +111,7 @@ fn visit_node(
             // For other node types, try to visit children
             if cursor.goto_first_child() {
                 loop {
-                    visit_node(cursor, source, commands, in_subshell, pipeline_pos);
+                    visit_node(cursor, source, commands);
                     if !cursor.goto_next_sibling() {
                         break;
                     }
@@ -154,12 +122,7 @@ fn visit_node(
     }
 }
 
-fn extract_command(
-    cursor: &mut TreeCursor,
-    source: &str,
-    in_subshell: bool,
-    pipeline_pos: usize,
-) -> Option<CommandInfo> {
+fn extract_command(cursor: &mut TreeCursor, source: &str) -> Option<CommandInfo> {
     let node = cursor.node();
     let raw = node.utf8_text(source.as_bytes()).ok()?.to_string();
 
@@ -214,14 +177,7 @@ fn extract_command(
     let program = parts.remove(0);
     let args = parts;
 
-    Some(CommandInfo {
-        raw,
-        program,
-        args,
-        is_subshell: in_subshell,
-        is_pipeline: pipeline_pos > 0,
-        pipeline_position: pipeline_pos,
-    })
+    Some(CommandInfo { raw, program, args })
 }
 
 fn extract_concatenation(cursor: &mut TreeCursor, source: &str) -> Option<String> {
@@ -272,9 +228,6 @@ fn fallback_parse(command_string: &str) -> Vec<CommandInfo> {
         raw: command_string.to_string(),
         program,
         args,
-        is_subshell: false,
-        is_pipeline: command_string.contains('|'),
-        pipeline_position: 0,
     });
 
     commands
@@ -350,7 +303,6 @@ mod tests {
         assert_eq!(cmds.len(), 2);
         assert_eq!(cmds[0].program, "gh");
         assert_eq!(cmds[1].program, "head");
-        assert!(cmds[1].is_pipeline);
     }
 
     #[test]

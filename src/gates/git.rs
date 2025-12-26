@@ -124,9 +124,6 @@ pub fn check_git(cmd: &CommandInfo) -> GateResult {
         program: cmd.program.clone(),
         args: normalized_args.clone(),
         raw: cmd.raw.clone(),
-        is_subshell: cmd.is_subshell,
-        is_pipeline: cmd.is_pipeline,
-        pipeline_position: cmd.pipeline_position,
     };
 
     // Special case: --force-with-lease is safe (don't trigger force push warning)

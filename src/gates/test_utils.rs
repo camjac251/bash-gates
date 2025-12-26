@@ -17,8 +17,5 @@ pub fn cmd(program: &str, args: &[&str]) -> CommandInfo {
         raw: format!("{} {}", program, args.join(" ")),
         program: program.to_string(),
         args: args.iter().map(|s| s.to_string()).collect(),
-        is_subshell: false,
-        is_pipeline: false,
-        pipeline_position: 0,
     }
 }
