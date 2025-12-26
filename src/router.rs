@@ -295,7 +295,8 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     // Output redirections (file writes)
     // Matches: > file, >> file, &> file, but not 2> (stderr only)
     // Excludes /dev/null (discarding output, not writing)
-    if let Ok(re) = Regex::new(r"(^|[^0-9&])>{1,2}\s*([^>&\s]+)") {
+    // Note: [^0-9&=] excludes = to avoid matching => (arrow operators, case statements, regex)
+    if let Ok(re) = Regex::new(r"(^|[^0-9&=])>{1,2}\s*([^>&\s]+)") {
         for cap in re.captures_iter(command_string) {
             if let Some(target) = cap.get(2) {
                 let target_str = target.as_str();
@@ -507,6 +508,25 @@ mod tests {
                 assert!(
                     !reason.contains("Output redirection"),
                     "False positive for: {cmd}"
+                );
+            }
+        }
+
+        #[test]
+        fn test_arrow_operators_not_redirection() {
+            // Arrow operators (=>, ->) in regex patterns or code should not be flagged
+            for cmd in [
+                r#"rg "case.*output_style|output_style.*=>" file.js"#,
+                r#"rg "foo => bar" src/"#,
+                r#"ast-grep -p '$X => $Y' src/"#,
+                r#"grep "=>" file.ts"#,
+                r#"rg "\$\w+\s*=>" src/"#,
+            ] {
+                let result = check_command(cmd);
+                let reason = get_reason(&result);
+                assert!(
+                    !reason.contains("Output redirection"),
+                    "False positive arrow operator for: {cmd}"
                 );
             }
         }
