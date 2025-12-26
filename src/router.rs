@@ -298,8 +298,9 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     // Output redirections (file writes)
     // Matches: > file, >> file, &> file, but not 2> (stderr only)
     // Excludes /dev/null (discarding output, not writing)
-    // Note: [^0-9&=/] excludes = for => (arrow operators) and / for /> (JSX self-closing tags)
-    if let Ok(re) = Regex::new(r"(^|[^0-9&=/])>{1,2}\s*([^>&\s]+)") {
+    // Note: [^0-9&=/$] excludes = for => (arrow operators), / for /> (JSX self-closing tags),
+    //       and $ for ast-grep metavariables like $$>
+    if let Ok(re) = Regex::new(r"(^|[^0-9&=/$])>{1,2}\s*([^>&\s]+)") {
         for cap in re.captures_iter(command_string) {
             if let Some(target) = cap.get(2) {
                 let target_str = target.as_str();
@@ -548,6 +549,23 @@ mod tests {
                 assert!(
                     !reason.contains("Output redirection"),
                     "False positive JSX self-closing tag for: {cmd}"
+                );
+            }
+        }
+
+        #[test]
+        fn test_ast_grep_metavars_not_redirection() {
+            // ast-grep metavariables ending with > (like $$> or $$$>) should not be flagged
+            for cmd in [
+                r#"ast-grep -p '<Button $$>' src/ --json 2>/dev/null"#,
+                r#"sg -p '<div $$$>' src/"#,
+                r#"ast-grep -p '<$TAG $$>' --json src/"#,
+            ] {
+                let result = check_command(cmd);
+                let reason = get_reason(&result);
+                assert!(
+                    !reason.contains("Output redirection"),
+                    "False positive ast-grep metavar for: {cmd}"
                 );
             }
         }
