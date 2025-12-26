@@ -120,9 +120,12 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
             // User wants to be asked - defer to Claude Code
             return HookOutput::ask("Matched settings.json ask rule");
         }
-        SettingsDecision::Allow | SettingsDecision::NoMatch => {
-            // User allows or has no opinion - proceed with bash-gates analysis
-            // Safe to return allow because we've already checked deny rules
+        SettingsDecision::Allow => {
+            // User explicitly allows - return allow immediately
+            return HookOutput::allow(Some("Matched settings.json allow rule"));
+        }
+        SettingsDecision::NoMatch => {
+            // No match - proceed with bash-gates analysis
         }
     }
 
@@ -295,8 +298,8 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     // Output redirections (file writes)
     // Matches: > file, >> file, &> file, but not 2> (stderr only)
     // Excludes /dev/null (discarding output, not writing)
-    // Note: [^0-9&=] excludes = to avoid matching => (arrow operators, case statements, regex)
-    if let Ok(re) = Regex::new(r"(^|[^0-9&=])>{1,2}\s*([^>&\s]+)") {
+    // Note: [^0-9&=/] excludes = for => (arrow operators) and / for /> (JSX self-closing tags)
+    if let Ok(re) = Regex::new(r"(^|[^0-9&=/])>{1,2}\s*([^>&\s]+)") {
         for cap in re.captures_iter(command_string) {
             if let Some(target) = cap.get(2) {
                 let target_str = target.as_str();
@@ -322,7 +325,7 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
 }
 
 /// Check a single command against all gates.
-fn check_single_command(cmd: &crate::models::CommandInfo) -> GateResult {
+pub fn check_single_command(cmd: &crate::models::CommandInfo) -> GateResult {
     let mut strictest = GateResult::skip();
 
     for (_gate_name, gate_func) in GATES {
@@ -527,6 +530,24 @@ mod tests {
                 assert!(
                     !reason.contains("Output redirection"),
                     "False positive arrow operator for: {cmd}"
+                );
+            }
+        }
+
+        #[test]
+        fn test_jsx_self_closing_not_redirection() {
+            // JSX self-closing tags (/>) should not be flagged as redirection
+            for cmd in [
+                r#"sg -p '<input $$PROPS />' src/"#,
+                r#"sg -p '<Input $$$PROPS />' src/"#,
+                r#"ast-grep -p '<Component foo="bar" />' src/"#,
+                r#"rg "<br />" src/"#,
+            ] {
+                let result = check_command(cmd);
+                let reason = get_reason(&result);
+                assert!(
+                    !reason.contains("Output redirection"),
+                    "False positive JSX self-closing tag for: {cmd}"
                 );
             }
         }
