@@ -877,18 +877,20 @@ subcommand = "-h"
 [[programs.allow]]
 subcommand = "--help"
 
-# Safe local commands
+# Safe local commands (no side effects)
 [[programs.allow]]
 subcommand = "build"
-
-[[programs.allow]]
-subcommand = "run"
 
 [[programs.allow]]
 subcommand = "test"
 
 [[programs.allow]]
 subcommand = "fmt"
+
+# go run executes arbitrary code - needs approval
+[[programs.ask]]
+subcommand = "run"
+reason = "Executing Go code"
 
 [[programs.allow]]
 subcommand = "clean"

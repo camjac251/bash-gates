@@ -6,7 +6,7 @@
 //! - xargs sh -c 'script' where script contains only safe commands
 //! - bash/sh/zsh -c 'script' where script is parsed and checked
 
-use crate::generated::rules::{check_conditional_allow, check_safe_command, SAFE_COMMANDS};
+use crate::generated::rules::{SAFE_COMMANDS, check_conditional_allow, check_safe_command};
 use crate::models::{CommandInfo, Decision, GateResult};
 use crate::parser::extract_commands;
 use crate::router::check_single_command;
@@ -167,12 +167,17 @@ pub fn check_basics(cmd: &CommandInfo) -> GateResult {
     let program = cmd.program.as_str();
 
     // Shell with -c flag - parse and check the inner script
-    if matches!(program, "bash" | "sh" | "zsh" | "/bin/bash" | "/bin/sh" | "/bin/zsh") {
+    if matches!(
+        program,
+        "bash" | "sh" | "zsh" | "/bin/bash" | "/bin/sh" | "/bin/zsh"
+    ) {
         if let Some(result) = check_shell_c(cmd) {
             return result;
         }
         // No -c flag or couldn't parse - ask for manual review
-        return GateResult::ask(format!("{program}: Interactive shell or complex invocation"));
+        return GateResult::ask(format!(
+            "{program}: Interactive shell or complex invocation"
+        ));
     }
 
     // sed is special - safe without -i flag
