@@ -142,8 +142,8 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
     // Check settings.json - respect user's explicit rules
     match settings.check_command(command_string) {
         SettingsDecision::Deny => {
-            // User explicitly denied - defer to Claude Code (return ask, CC will deny)
-            return HookOutput::ask("Matched settings.json deny rule");
+            // User explicitly denied - block directly
+            return HookOutput::deny("Matched settings.json deny rule");
         }
         SettingsDecision::Ask => {
             // User wants to be asked - defer to Claude Code

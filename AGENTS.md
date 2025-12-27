@@ -169,7 +169,7 @@ bash-gates combines gate analysis with your Claude Code permission rules. Gate b
 │     └─ gate blocks  → deny directly (dangerous always blocked) │
 │  2. Load settings.json (user + project)                     │
 │  3. Check command against settings.json rules               │
-│     ├─ matches deny  → return ask (defer to CC)             │
+│     ├─ matches deny  → deny directly                        │
 │     ├─ matches ask   → return ask (defer to CC)             │
 │     └─ matches allow → return allow                         │
 │  4. No settings match → use gate result (allow/ask)         │
