@@ -50,9 +50,10 @@ src/
 ├── lib.rs           # Library root
 ├── models.rs        # Serde models (HookInput, HookOutput, Decision)
 ├── parser.rs        # tree-sitter-bash AST parsing → Vec<CommandInfo>
-├── router.rs        # Raw string security checks + gate routing + mise expansion
+├── router.rs        # Raw string security checks + gate routing + task expansion
 ├── settings.rs      # settings.json parsing and pattern matching
 ├── mise.rs          # Mise task file parsing and command extraction
+├── package_json.rs  # package.json script parsing and command extraction
 └── gates/           # 9 specialized permission gates
     ├── mod.rs           # Gate registry
     ├── basics.rs        # Safe shell commands (echo, cat, ls, grep, etc.)
@@ -118,6 +119,43 @@ run = "pnpm dev"
 | `mise nonexistent` | ask | Task not found |
 | `mise run danger` (if run = `rm -rf /`) | deny | Blocked command in task |
 | Circular dependencies | Handled | Uses visited set |
+
+## Package.json Script Expansion (package_json.rs)
+
+When bash-gates sees `npm run <script>`, `pnpm run <script>`, `yarn <script>`, etc., it:
+
+1. Finds `package.json` in cwd or parent directories
+2. Parses JSON and extracts the script's command
+3. Passes the underlying command through the gate engine
+4. Returns the result with context
+
+### Examples
+
+```json
+// package.json
+{
+  "scripts": {
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "dev": "vite",
+    "test": "vitest run"
+  }
+}
+```
+
+| Command | Extracted | Decision |
+|---------|-----------|----------|
+| `pnpm run lint` | `biome check .` | allow |
+| `pnpm run lint:fix` | `biome check --write .` | ask (writes files) |
+| `pnpm run dev` | `vite` | allow |
+| `npm run test` | `vitest run` | allow |
+| `yarn lint` | `biome check .` | allow |
+
+### Shorthand Support
+
+- `pnpm lint` → expands to `pnpm run lint`
+- `yarn test` → expands to `yarn run test`
+- `npm run build` → requires explicit `run`
 
 ## Settings.json Integration (settings.rs)
 

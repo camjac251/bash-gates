@@ -23,6 +23,7 @@ pub mod gates;
 pub mod generated;
 pub mod mise;
 pub mod models;
+pub mod package_json;
 pub mod parser;
 pub mod router;
 pub mod settings;

@@ -5,6 +5,9 @@ use crate::mise::{
     extract_task_commands, find_mise_config, load_mise_config, parse_mise_invocation,
 };
 use crate::models::{Decision, GateResult, HookOutput};
+use crate::package_json::{
+    find_package_json, get_script_command, load_package_json, parse_script_invocation,
+};
 use crate::parser::extract_commands;
 use crate::settings::{Settings, SettingsDecision};
 use regex::Regex;
@@ -118,6 +121,11 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
         return check_mise_task(&task_name, cwd);
     }
 
+    // Check for package.json script invocation (npm run, pnpm run, etc.)
+    if let Some((pm, script_name)) = parse_script_invocation(command_string) {
+        return check_package_script(pm, &script_name, cwd);
+    }
+
     // Run gate analysis first - blocks take priority
     let gate_result = check_command(command_string);
 
@@ -227,6 +235,65 @@ fn check_mise_task(task_name: &str, cwd: &str) -> HookOutput {
 
     // All commands are safe
     HookOutput::allow(Some(&format!("mise {task_name}: All commands safe")))
+}
+
+/// Check a package.json script by expanding it to its underlying command.
+///
+/// Finds package.json, extracts the script's command, and checks it through the gate engine.
+fn check_package_script(pm: &str, script_name: &str, cwd: &str) -> HookOutput {
+    // Find package.json
+    let Some(pkg_path) = find_package_json(cwd) else {
+        // No package.json found - fall back to normal gate check
+        // This handles cases like running in a subdirectory
+        return HookOutput::ask(&format!("{pm} run {script_name}: No package.json found"));
+    };
+
+    // Load and parse package.json
+    let Some(pkg) = load_package_json(&pkg_path) else {
+        return HookOutput::ask(&format!(
+            "{pm} run {script_name}: Failed to parse package.json"
+        ));
+    };
+
+    // Get the script command
+    let Some(script_cmd) = get_script_command(&pkg, script_name) else {
+        return HookOutput::ask(&format!("{pm} run {script_name}: Script not found"));
+    };
+
+    // Check the underlying command through the gate engine
+    let result = check_command(&script_cmd);
+
+    if let Some(ref output) = result.hook_specific_output {
+        match output.permission_decision.as_str() {
+            "deny" => {
+                let reason = output
+                    .permission_decision_reason
+                    .as_deref()
+                    .unwrap_or("Blocked");
+                return HookOutput::deny(&format!("{pm} run {script_name}: {reason}"));
+            }
+            "ask" => {
+                let reason = output
+                    .permission_decision_reason
+                    .as_deref()
+                    .unwrap_or("Requires approval");
+                return HookOutput::ask(&format!("{pm} run {script_name}: {reason}"));
+            }
+            "allow" => {
+                return HookOutput::allow(Some(&format!(
+                    "{pm} run {script_name}: {}",
+                    output
+                        .permission_decision_reason
+                        .as_deref()
+                        .unwrap_or("Safe")
+                )));
+            }
+            _ => {}
+        }
+    }
+
+    // Fallback
+    HookOutput::ask(&format!("{pm} run {script_name}"))
 }
 
 /// Check raw string patterns before parsing.
