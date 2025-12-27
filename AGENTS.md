@@ -77,21 +77,20 @@ src/
 
 ## Settings.json Integration (settings.rs)
 
-bash-gates respects your Claude Code permission rules by checking `settings.json` **before** running gate analysis:
+bash-gates combines gate analysis with your Claude Code permission rules. Gate blocks take priority (dangerous commands always denied), then settings.json is checked:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Decision Flow                             │
 ├─────────────────────────────────────────────────────────────┤
-│  1. Load settings.json (user + project)                     │
-│  2. Check command against settings.json rules               │
-│     ├─ matches deny  → return ask (defer to CC, respects deny) │
-│     ├─ matches ask   → return ask (defer to CC, respects ask)  │
-│     └─ matches allow / no match → proceed to gate analysis  │
-│  3. Run bash-gates analysis                                 │
-│     ├─ dangerous    → deny                                  │
-│     ├─ safe         → allow                                 │
-│     └─ unknown      → ask                                   │
+│  1. Run bash-gates analysis first                           │
+│     └─ gate blocks  → deny directly (dangerous always blocked) │
+│  2. Load settings.json (user + project)                     │
+│  3. Check command against settings.json rules               │
+│     ├─ matches deny  → return ask (defer to CC)             │
+│     ├─ matches ask   → return ask (defer to CC)             │
+│     └─ matches allow → return allow                         │
+│  4. No settings match → use gate result (allow/ask)         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -112,15 +111,9 @@ PreToolUse hooks have **more power** than settings.json:
 - Hook returning `deny` → bypasses settings.json entirely
 - Hook returning `ask` → defers to settings.json
 
-Without settings.json integration, bash-gates could accidentally bypass your explicit deny rules. For example:
-- You have `Bash(cat /dev/zero*)` in deny
-- bash-gates thinks `cat` is safe → returns `allow`
-- Your deny rule is bypassed!
+**Gate blocks always win:** Commands like `rm -rf /` are denied directly, regardless of settings.json. This ensures dangerous commands are always blocked.
 
-With settings.json integration:
-- bash-gates sees your deny rule first
-- Returns `ask` to defer to Claude Code
-- Claude Code applies your deny rule → blocked
+**Settings.json respected for non-blocked commands:** If you have `Bash(cat /dev/zero*)` in deny and a gate would allow `cat`, bash-gates returns `ask` to defer to Claude Code, which then applies your deny rule.
 
 ## Decision Priority
 
@@ -362,8 +355,6 @@ pub static GATES: &[(&str, GateCheckFn)] = &[
 cmd.program        // "gh", "aws", "kubectl"
 cmd.args           // vec!["pr", "list", "--author", "@me"]
 cmd.raw            // Original command string
-cmd.is_subshell    // true if inside $() or ``
-cmd.is_pipeline    // true if in a pipeline
 ```
 
 ### Gate Return Values

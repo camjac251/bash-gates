@@ -79,8 +79,15 @@ fn visit_node(cursor: &mut TreeCursor, source: &str, commands: &mut Vec<CommandI
                 cursor.goto_parent();
             }
         }
-        "list" | "program" | "subshell" | "command_substitution" | "if_statement"
-        | "while_statement" | "for_statement" | "case_statement" | "compound_statement" => {
+        "list"
+        | "program"
+        | "subshell"
+        | "command_substitution"
+        | "if_statement"
+        | "while_statement"
+        | "for_statement"
+        | "case_statement"
+        | "compound_statement" => {
             // Visit all children
             if cursor.goto_first_child() {
                 loop {

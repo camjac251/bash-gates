@@ -178,12 +178,16 @@ mod tests {
     fn test_integration_safe_command_chain() {
         let json = r#"{"tool_name": "Bash", "tool_input": {"command": "git status && git log --oneline -5"}}"#;
         let output = simulate_hook(json);
-        assert!(output.contains("allow"), "Safe chain should allow: {output}");
+        assert!(
+            output.contains("allow"),
+            "Safe chain should allow: {output}"
+        );
     }
 
     #[test]
     fn test_integration_mixed_chain_asks() {
-        let json = r#"{"tool_name": "Bash", "tool_input": {"command": "git status && npm install"}}"#;
+        let json =
+            r#"{"tool_name": "Bash", "tool_input": {"command": "git status && npm install"}}"#;
         let output = simulate_hook(json);
         assert!(output.contains("ask"), "Mixed chain should ask: {output}");
     }
@@ -199,15 +203,22 @@ mod tests {
     fn test_integration_pipeline() {
         let json = r#"{"tool_name": "Bash", "tool_input": {"command": "git log | head -10"}}"#;
         let output = simulate_hook(json);
-        assert!(output.contains("allow"), "Safe pipeline should allow: {output}");
+        assert!(
+            output.contains("allow"),
+            "Safe pipeline should allow: {output}"
+        );
     }
 
     #[test]
     fn test_integration_unknown_command_asks() {
-        let json = r#"{"tool_name": "Bash", "tool_input": {"command": "some_unknown_tool --flag"}}"#;
+        let json =
+            r#"{"tool_name": "Bash", "tool_input": {"command": "some_unknown_tool --flag"}}"#;
         let output = simulate_hook(json);
         assert!(output.contains("ask"), "Unknown should ask: {output}");
-        assert!(output.contains("Unknown command"), "Should mention unknown: {output}");
+        assert!(
+            output.contains("Unknown command"),
+            "Should mention unknown: {output}"
+        );
     }
 
     #[test]
@@ -222,7 +233,10 @@ mod tests {
         // "rm -rf /" as a quoted argument should be safe (it's not executed)
         let json = r#"{"tool_name": "Bash", "tool_input": {"command": "echo \"rm -rf /\""}}"#;
         let output = simulate_hook(json);
-        assert!(output.contains("allow"), "Quoted arg should allow: {output}");
+        assert!(
+            output.contains("allow"),
+            "Quoted arg should allow: {output}"
+        );
     }
 
     #[test]
