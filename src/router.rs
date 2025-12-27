@@ -191,7 +191,8 @@ fn check_mise_task(task_name: &str, cwd: &str) -> HookOutput {
     let mut ask_reasons: Vec<String> = Vec::new();
 
     for cmd_string in &commands {
-        let result = check_command(cmd_string);
+        // Check each extracted command, with package.json expansion support
+        let result = check_command_expanded(cmd_string, cwd);
 
         if let Some(ref output) = result.hook_specific_output {
             match output.permission_decision.as_str() {
@@ -294,6 +295,113 @@ fn check_package_script(pm: &str, script_name: &str, cwd: &str) -> HookOutput {
 
     // Fallback
     HookOutput::ask(&format!("{pm} run {script_name}"))
+}
+
+/// Check a command with package.json script expansion.
+/// Used by mise task expansion to handle commands like "pnpm lint" properly.
+fn check_command_expanded(command_string: &str, cwd: &str) -> HookOutput {
+    if command_string.trim().is_empty() {
+        return HookOutput::approve();
+    }
+
+    // First do raw string security checks
+    if let Some(output) = check_raw_string_patterns(command_string) {
+        return output;
+    }
+
+    // Parse the command with tree-sitter to extract individual commands
+    let commands = extract_commands(command_string);
+
+    if commands.is_empty() {
+        return HookOutput::ask(&format!("Unknown command: {command_string}"));
+    }
+
+    // Check each parsed command, tracking cwd changes from "cd" commands
+    let mut block_reasons: Vec<String> = Vec::new();
+    let mut ask_reasons: Vec<String> = Vec::new();
+    let mut effective_cwd = std::path::PathBuf::from(cwd);
+
+    for cmd in &commands {
+        // Track "cd" commands to update effective cwd
+        if cmd.program == "cd" && !cmd.args.is_empty() {
+            let target = &cmd.args[0];
+            if !target.starts_with('/') {
+                // Relative path
+                effective_cwd.push(target);
+            } else {
+                // Absolute path
+                effective_cwd = std::path::PathBuf::from(target);
+            }
+            continue; // cd itself is always safe
+        }
+
+        let cwd_str = effective_cwd.to_string_lossy();
+        // Try package.json script expansion for this individual command
+        if let Some((pm, script_name)) = parse_script_invocation(&cmd.raw) {
+            let result = check_package_script(pm, &script_name, &cwd_str);
+            if let Some(ref output) = result.hook_specific_output {
+                match output.permission_decision.as_str() {
+                    "deny" => {
+                        block_reasons.push(
+                            output
+                                .permission_decision_reason
+                                .clone()
+                                .unwrap_or_else(|| "Blocked".to_string()),
+                        );
+                    }
+                    "ask" => {
+                        ask_reasons.push(
+                            output
+                                .permission_decision_reason
+                                .clone()
+                                .unwrap_or_else(|| "Requires approval".to_string()),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            // Run through gates
+            let result = check_single_command(cmd);
+            match result.decision {
+                Decision::Block => {
+                    block_reasons.push(result.reason.unwrap_or_else(|| "Blocked".to_string()));
+                }
+                Decision::Ask => {
+                    ask_reasons.push(
+                        result
+                            .reason
+                            .unwrap_or_else(|| "Requires approval".to_string()),
+                    );
+                }
+                Decision::Allow => {}
+                Decision::Skip => {
+                    ask_reasons.push(format!("Unknown command: {}", cmd.program));
+                }
+            }
+        }
+    }
+
+    // Apply priority: block > ask > allow
+    if !block_reasons.is_empty() {
+        let combined = if block_reasons.len() == 1 {
+            block_reasons.remove(0)
+        } else {
+            block_reasons.join("; ")
+        };
+        return HookOutput::deny(&combined);
+    }
+
+    if !ask_reasons.is_empty() {
+        let combined = if ask_reasons.len() == 1 {
+            ask_reasons.remove(0)
+        } else {
+            ask_reasons.join("; ")
+        };
+        return HookOutput::ask(&combined);
+    }
+
+    HookOutput::approve()
 }
 
 /// Check raw string patterns before parsing.
