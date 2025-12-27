@@ -1,7 +1,9 @@
 //! Package manager permission gates (npm, pnpm, yarn, pip, uv, cargo, go, conda).
 //!
 //! Uses declarative rules for most commands.
+//! Also handles package managers invoking dev tools (pnpm biome, npm eslint, etc.)
 
+use crate::gates::devtools::check_devtools;
 use crate::generated::rules::{
     check_bun_declarative, check_cargo_declarative, check_conda_declarative, check_go_declarative,
     check_npm_declarative, check_pip_declarative, check_pipx_declarative, check_pnpm_declarative,
@@ -28,6 +30,11 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_npm(cmd: &CommandInfo) -> GateResult {
+    // Check if npm is invoking a known dev tool (npm eslint, npm prettier, etc.)
+    if let Some(result) = check_invoked_devtool(cmd, "npm") {
+        return result;
+    }
+
     if let Some(result) = check_npm_declarative(cmd) {
         // Don't auto-allow unknown commands
         if !matches!(result.decision, Decision::Allow)
@@ -59,6 +66,11 @@ fn check_npm(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_pnpm(cmd: &CommandInfo) -> GateResult {
+    // Check if pnpm is invoking a known dev tool (pnpm biome, pnpm eslint, etc.)
+    if let Some(result) = check_invoked_devtool(cmd, "pnpm") {
+        return result;
+    }
+
     if let Some(result) = check_pnpm_declarative(cmd) {
         if !matches!(result.decision, Decision::Allow)
             || has_known_subcommand(
@@ -90,6 +102,11 @@ fn check_pnpm(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_yarn(cmd: &CommandInfo) -> GateResult {
+    // Check if yarn is invoking a known dev tool (yarn eslint, yarn prettier, etc.)
+    if let Some(result) = check_invoked_devtool(cmd, "yarn") {
+        return result;
+    }
+
     if let Some(result) = check_yarn_declarative(cmd) {
         if !matches!(result.decision, Decision::Allow)
             || has_known_subcommand(
@@ -329,6 +346,66 @@ fn has_known_subcommand(cmd: &CommandInfo, known: &[&str]) -> bool {
     known.contains(&first) || known.contains(&two_word.as_str())
 }
 
+/// Known dev tools that can be invoked via package managers (pnpm biome, npm eslint, etc.)
+const DEV_TOOLS: &[&str] = &[
+    "biome",
+    "eslint",
+    "prettier",
+    "tsc",
+    "typescript",
+    "tsup",
+    "vite",
+    "vitest",
+    "jest",
+    "mocha",
+    "ava",
+    "esbuild",
+    "rollup",
+    "webpack",
+    "turbo",
+    "nx",
+    "stylelint",
+    "oxlint",
+    "knip",
+    "depcheck",
+    "madge",
+    "size-limit",
+];
+
+/// Check if package manager is invoking a known dev tool.
+/// If so, delegate to devtools gate to determine if it's safe.
+fn check_invoked_devtool(cmd: &CommandInfo, pm_name: &str) -> Option<GateResult> {
+    if cmd.args.is_empty() {
+        return None;
+    }
+
+    let tool = cmd.args[0].as_str();
+    if !DEV_TOOLS.contains(&tool) {
+        return None;
+    }
+
+    // Build a synthetic command for the devtools gate
+    let tool_cmd = CommandInfo {
+        raw: cmd.raw.clone(),
+        program: tool.to_string(),
+        args: cmd.args[1..].to_vec(),
+    };
+
+    let result = check_devtools(&tool_cmd);
+
+    // If devtools gate handles it (not Skip), use that result
+    if result.decision != Decision::Skip {
+        // Prefix the reason with the package manager name
+        return Some(GateResult {
+            decision: result.decision,
+            reason: result.reason.map(|r| format!("{pm_name} {tool}: {r}")),
+        });
+    }
+
+    // For tools devtools doesn't handle, allow by default (read-only tools)
+    Some(GateResult::allow())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,6 +433,45 @@ mod tests {
     fn test_npm_install_asks() {
         let result = check_package_managers(&cmd("npm", &["install"]));
         assert_eq!(result.decision, Decision::Ask);
+    }
+
+    // === devtool invocation (pnpm biome, npm eslint, etc.) ===
+
+    #[test]
+    fn test_pnpm_biome_check_allows() {
+        let result = check_package_managers(&cmd("pnpm", &["biome", "check", "."]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_pnpm_biome_format_write_asks() {
+        let result = check_package_managers(&cmd("pnpm", &["biome", "format", "--write", "."]));
+        assert_eq!(result.decision, Decision::Ask);
+        assert!(result.reason.unwrap().contains("Formatting"));
+    }
+
+    #[test]
+    fn test_pnpm_eslint_allows() {
+        let result = check_package_managers(&cmd("pnpm", &["eslint", "src/"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_pnpm_eslint_fix_asks() {
+        let result = check_package_managers(&cmd("pnpm", &["eslint", "--fix", "src/"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn test_npm_prettier_check_allows() {
+        let result = check_package_managers(&cmd("npm", &["prettier", "--check", "."]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_yarn_tsc_allows() {
+        let result = check_package_managers(&cmd("yarn", &["tsc", "--noEmit"]));
+        assert_eq!(result.decision, Decision::Allow);
     }
 
     // === cargo ===

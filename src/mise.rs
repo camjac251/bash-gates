@@ -256,10 +256,7 @@ mod tests {
 
     #[test]
     fn test_parse_mise_invocation_direct() {
-        assert_eq!(
-            parse_mise_invocation("mise lint"),
-            Some("lint".to_string())
-        );
+        assert_eq!(parse_mise_invocation("mise lint"), Some("lint".to_string()));
         assert_eq!(
             parse_mise_invocation("mise dev:frontend"),
             Some("dev:frontend".to_string())

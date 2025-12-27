@@ -1,7 +1,9 @@
 //! Main router that combines all gates.
 
 use crate::gates::GATES;
-use crate::mise::{extract_task_commands, find_mise_config, load_mise_config, parse_mise_invocation};
+use crate::mise::{
+    extract_task_commands, find_mise_config, load_mise_config, parse_mise_invocation,
+};
 use crate::models::{Decision, GateResult, HookOutput};
 use crate::parser::extract_commands;
 use crate::settings::{Settings, SettingsDecision};
@@ -159,16 +161,12 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
 fn check_mise_task(task_name: &str, cwd: &str) -> HookOutput {
     // Find mise config file
     let Some(config_path) = find_mise_config(cwd) else {
-        return HookOutput::ask(&format!(
-            "mise {task_name}: No mise.toml found"
-        ));
+        return HookOutput::ask(&format!("mise {task_name}: No mise.toml found"));
     };
 
     // Load and parse the config
     let Some(config) = load_mise_config(&config_path) else {
-        return HookOutput::ask(&format!(
-            "mise {task_name}: Failed to parse mise.toml"
-        ));
+        return HookOutput::ask(&format!("mise {task_name}: Failed to parse mise.toml"));
     };
 
     // Extract all commands for this task (including dependencies)
