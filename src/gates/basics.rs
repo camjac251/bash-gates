@@ -4,11 +4,76 @@
 //! - sed/perl with -i flag (delegate to filesystem gate)
 //! - xargs with safe/unsafe target commands
 //! - xargs sh -c 'script' where script contains only safe commands
+//! - bash/sh/zsh -c 'script' where script is parsed and checked
 
-use crate::generated::rules::{SAFE_COMMANDS, check_conditional_allow, check_safe_command};
+use crate::generated::rules::{check_conditional_allow, check_safe_command, SAFE_COMMANDS};
 use crate::models::{CommandInfo, Decision, GateResult};
 use crate::parser::extract_commands;
 use crate::router::check_single_command;
+
+/// Check if a shell -c command is safe by parsing and checking the inner script.
+/// Handles: bash -c 'script', sh -c 'script', zsh -c 'script'
+fn check_shell_c(cmd: &CommandInfo) -> Option<GateResult> {
+    let args = &cmd.args;
+
+    // Need at least -c and a script
+    if args.len() < 2 {
+        return None;
+    }
+
+    // Find -c flag and get the script
+    let mut script: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-c" {
+            if i + 1 < args.len() {
+                script = Some(&args[i + 1]);
+            }
+            break;
+        }
+        i += 1;
+    }
+
+    let script = script?;
+
+    // Parse the script and check each command
+    let inner_commands = extract_commands(script);
+    if inner_commands.is_empty() {
+        return Some(GateResult::allow()); // Empty script is safe
+    }
+
+    // Check each command in the script
+    for inner_cmd in &inner_commands {
+        let result = check_single_command(inner_cmd);
+        match result.decision {
+            Decision::Block => {
+                return Some(GateResult::block(format!(
+                    "Shell script contains blocked command: {}",
+                    result.reason.unwrap_or_else(|| inner_cmd.program.clone())
+                )));
+            }
+            Decision::Ask => {
+                return Some(GateResult::ask(format!(
+                    "Shell script: {}",
+                    result.reason.unwrap_or_else(|| inner_cmd.program.clone())
+                )));
+            }
+            Decision::Skip => {
+                // Unknown command in script
+                return Some(GateResult::ask(format!(
+                    "Shell script contains unknown command: {}",
+                    inner_cmd.program
+                )));
+            }
+            Decision::Allow => {
+                // This command is safe, continue checking others
+            }
+        }
+    }
+
+    // All commands in the script are safe
+    Some(GateResult::allow())
+}
 
 /// Check if xargs is running a safe command
 fn check_xargs(cmd: &CommandInfo) -> GateResult {
@@ -101,6 +166,15 @@ fn check_shell_script_safety(script: &str) -> GateResult {
 pub fn check_basics(cmd: &CommandInfo) -> GateResult {
     let program = cmd.program.as_str();
 
+    // Shell with -c flag - parse and check the inner script
+    if matches!(program, "bash" | "sh" | "zsh" | "/bin/bash" | "/bin/sh" | "/bin/zsh") {
+        if let Some(result) = check_shell_c(cmd) {
+            return result;
+        }
+        // No -c flag or couldn't parse - ask for manual review
+        return GateResult::ask(format!("{program}: Interactive shell or complex invocation"));
+    }
+
     // sed is special - safe without -i flag
     if program == "sed" {
         if cmd
@@ -166,6 +240,53 @@ mod tests {
     fn test_unknown_command_skips() {
         let result = check_basics(&cmd("mamba", &["env", "create"]));
         assert_eq!(result.decision, Decision::Skip);
+    }
+
+    // === bash -c / sh -c / zsh -c ===
+
+    #[test]
+    fn test_bash_c_safe_script_allows() {
+        let result = check_basics(&cmd("bash", &["-c", "echo hello && ls"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_bash_c_loop_allows() {
+        let result = check_basics(&cmd("bash", &["-c", "for i in 1 2 3; do echo $i; done"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_bash_c_unsafe_script_asks() {
+        let result = check_basics(&cmd("bash", &["-c", "rm -rf /tmp/test"]));
+        assert_eq!(result.decision, Decision::Ask);
+        assert!(result.reason.unwrap().contains("rm"));
+    }
+
+    #[test]
+    fn test_sh_c_safe_allows() {
+        let result = check_basics(&cmd("sh", &["-c", "git status"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_zsh_c_safe_allows() {
+        let result = check_basics(&cmd("zsh", &["-c", "echo test | grep test"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_bash_interactive_asks() {
+        // bash without -c should ask (interactive shell)
+        let result = check_basics(&cmd("bash", &[]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn test_bash_c_unknown_command_asks() {
+        let result = check_basics(&cmd("bash", &["-c", "some_unknown_command"]));
+        assert_eq!(result.decision, Decision::Ask);
+        assert!(result.reason.unwrap().contains("unknown"));
     }
 
     #[test]
