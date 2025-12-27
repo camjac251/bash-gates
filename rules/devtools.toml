@@ -251,3 +251,19 @@ unknown_action = "allow"
 reason = "Applying lint fixes"
 if_flags_any = ["--fix"]
 
+# =============================================================================
+# AIR (Go hot-reload - runs/watches files)
+# =============================================================================
+
+[[programs]]
+name = "air"
+unknown_action = "allow"  # Just runs go build/run in watch mode
+
+# =============================================================================
+# ACTIONLINT (GitHub Actions linter - read-only)
+# =============================================================================
+
+[[programs]]
+name = "actionlint"
+unknown_action = "allow"
+

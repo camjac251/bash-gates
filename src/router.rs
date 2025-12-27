@@ -1,6 +1,7 @@
 //! Main router that combines all gates.
 
 use crate::gates::GATES;
+use crate::mise::{extract_task_commands, find_mise_config, load_mise_config, parse_mise_invocation};
 use crate::models::{Decision, GateResult, HookOutput};
 use crate::parser::extract_commands;
 use crate::settings::{Settings, SettingsDecision};
@@ -110,6 +111,11 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
         return HookOutput::approve();
     }
 
+    // Check for mise task invocation and expand to underlying commands
+    if let Some(task_name) = parse_mise_invocation(command_string) {
+        return check_mise_task(&task_name, cwd);
+    }
+
     // Run gate analysis first - blocks take priority
     let gate_result = check_command(command_string);
 
@@ -144,6 +150,85 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
 
     // Return gate result (allow or ask)
     gate_result
+}
+
+/// Check a mise task by expanding it to its underlying commands.
+///
+/// Finds the mise config file, extracts the task's run commands (including dependencies),
+/// and checks each command through the gate engine.
+fn check_mise_task(task_name: &str, cwd: &str) -> HookOutput {
+    // Find mise config file
+    let Some(config_path) = find_mise_config(cwd) else {
+        return HookOutput::ask(&format!(
+            "mise {task_name}: No mise.toml found"
+        ));
+    };
+
+    // Load and parse the config
+    let Some(config) = load_mise_config(&config_path) else {
+        return HookOutput::ask(&format!(
+            "mise {task_name}: Failed to parse mise.toml"
+        ));
+    };
+
+    // Extract all commands for this task (including dependencies)
+    let commands = extract_task_commands(&config, task_name);
+
+    if commands.is_empty() {
+        return HookOutput::ask(&format!(
+            "mise {task_name}: Task not found or has no commands"
+        ));
+    }
+
+    // Check each command through the gate engine
+    let mut block_reasons: Vec<String> = Vec::new();
+    let mut ask_reasons: Vec<String> = Vec::new();
+
+    for cmd_string in &commands {
+        let result = check_command(cmd_string);
+
+        if let Some(ref output) = result.hook_specific_output {
+            match output.permission_decision.as_str() {
+                "deny" => {
+                    if let Some(reason) = &output.permission_decision_reason {
+                        block_reasons.push(format!("mise {task_name}: {reason}"));
+                    } else {
+                        block_reasons.push(format!("mise {task_name}: Blocked"));
+                    }
+                }
+                "ask" => {
+                    if let Some(reason) = &output.permission_decision_reason {
+                        ask_reasons.push(format!("mise {task_name}: {reason}"));
+                    } else {
+                        ask_reasons.push(format!("mise {task_name}: Requires approval"));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Apply priority: block > ask > allow
+    if !block_reasons.is_empty() {
+        let combined = if block_reasons.len() == 1 {
+            block_reasons.remove(0)
+        } else {
+            block_reasons.join("; ")
+        };
+        return HookOutput::deny(&combined);
+    }
+
+    if !ask_reasons.is_empty() {
+        let combined = if ask_reasons.len() == 1 {
+            ask_reasons.remove(0)
+        } else {
+            ask_reasons.join("; ")
+        };
+        return HookOutput::ask(&combined);
+    }
+
+    // All commands are safe
+    HookOutput::allow(Some(&format!("mise {task_name}: All commands safe")))
 }
 
 /// Check raw string patterns before parsing.
@@ -856,5 +941,129 @@ mod tests {
     fn test_echo_quoted_command_allows() {
         let result = check_command(r#"echo "gh pr create""#);
         assert_eq!(get_decision(&result), "allow");
+    }
+
+    // === Mise Task Expansion ===
+
+    mod mise_tasks {
+        use super::*;
+        use crate::mise::{extract_task_commands, parse_mise_invocation, parse_mise_toml_str};
+
+        #[test]
+        fn test_parse_mise_run_task() {
+            assert_eq!(
+                parse_mise_invocation("mise run test"),
+                Some("test".to_string())
+            );
+            assert_eq!(
+                parse_mise_invocation("mise run lint:fix"),
+                Some("lint:fix".to_string())
+            );
+        }
+
+        #[test]
+        fn test_parse_mise_shorthand() {
+            assert_eq!(
+                parse_mise_invocation("mise build"),
+                Some("build".to_string())
+            );
+            assert_eq!(
+                parse_mise_invocation("mise dev:frontend"),
+                Some("dev:frontend".to_string())
+            );
+        }
+
+        #[test]
+        fn test_parse_mise_subcommands_not_tasks() {
+            // These are mise built-in subcommands, not tasks
+            assert_eq!(parse_mise_invocation("mise install"), None);
+            assert_eq!(parse_mise_invocation("mise use node@20"), None);
+            assert_eq!(parse_mise_invocation("mise ls"), None);
+            assert_eq!(parse_mise_invocation("mise exec -- node"), None);
+        }
+
+        #[test]
+        fn test_extract_safe_task_commands() {
+            let toml = r#"
+[tasks.status]
+run = "git status"
+"#;
+            let config = parse_mise_toml_str(toml).unwrap();
+            let commands = extract_task_commands(&config, "status");
+            assert_eq!(commands, vec!["git status"]);
+
+            // The underlying command is safe
+            let result = check_command(&commands[0]);
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_extract_risky_task_commands() {
+            let toml = r#"
+[tasks.deploy]
+run = "npm publish"
+"#;
+            let config = parse_mise_toml_str(toml).unwrap();
+            let commands = extract_task_commands(&config, "deploy");
+
+            // The underlying command requires approval
+            let result = check_command(&commands[0]);
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_extract_blocked_task_commands() {
+            let toml = r#"
+[tasks.danger]
+run = "rm -rf /"
+"#;
+            let config = parse_mise_toml_str(toml).unwrap();
+            let commands = extract_task_commands(&config, "danger");
+
+            // The underlying command is blocked
+            let result = check_command(&commands[0]);
+            assert_eq!(get_decision(&result), "deny");
+        }
+
+        #[test]
+        fn test_task_with_depends_checks_all() {
+            let toml = r#"
+[tasks.build]
+run = "npm run build"
+
+[tasks.test]
+run = "npm run test"
+depends = ["build"]
+
+[tasks.ci]
+run = "npm publish"
+depends = ["test"]
+"#;
+            let config = parse_mise_toml_str(toml).unwrap();
+            let commands = extract_task_commands(&config, "ci");
+
+            // Should include all commands from dependency chain
+            assert_eq!(commands.len(), 3);
+
+            // All npm commands require approval
+            for cmd in &commands {
+                let result = check_command(cmd);
+                assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
+            }
+        }
+
+        #[test]
+        fn test_task_with_dir_prepends_cd() {
+            let toml = r#"
+[tasks."dev:web"]
+dir = "frontend"
+run = "pnpm dev"
+"#;
+            let config = parse_mise_toml_str(toml).unwrap();
+            let commands = extract_task_commands(&config, "dev:web");
+
+            assert_eq!(commands.len(), 1);
+            assert!(commands[0].starts_with("cd frontend &&"));
+        }
     }
 }

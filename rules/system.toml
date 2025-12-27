@@ -304,6 +304,74 @@ handler = "check_psql"
 description = "Parse -c query for SELECT/\\d (allow) vs INSERT/UPDATE/DELETE (ask), -f always asks"
 
 # =============================================================================
+# POSTGRESQL UTILITIES
+# =============================================================================
+
+[[programs]]
+name = "createdb"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Creating database"
+
+[[programs]]
+name = "dropdb"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Dropping database"
+
+[[programs]]
+name = "pg_dump"
+unknown_action = "allow"  # Read-only backup
+
+[[programs]]
+name = "pg_restore"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Restoring database"
+
+# =============================================================================
+# DATABASE MIGRATION TOOLS
+# =============================================================================
+
+[[programs]]
+name = "migrate"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Running database migration"
+
+[[programs]]
+name = "goose"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Running database migration"
+
+[[programs]]
+name = "dbmate"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Running database migration"
+
+[[programs]]
+name = "flyway"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Running database migration"
+
+[[programs]]
+name = "alembic"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Running database migration"
+
+# =============================================================================
 # MYSQL
 # =============================================================================
 

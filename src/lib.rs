@@ -21,6 +21,7 @@
 
 pub mod gates;
 pub mod generated;
+pub mod mise;
 pub mod models;
 pub mod parser;
 pub mod router;

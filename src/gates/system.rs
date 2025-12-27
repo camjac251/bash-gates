@@ -28,6 +28,17 @@ pub fn check_system(cmd: &CommandInfo) -> GateResult {
         "mysql" => check_mysql(cmd),
         "sqlite3" | "mongosh" | "mongo" | "redis-cli" => check_database_generic(cmd),
 
+        // PostgreSQL utilities
+        "createdb" => GateResult::ask("createdb: Creating database"),
+        "dropdb" => GateResult::ask("dropdb: Dropping database"),
+        "pg_dump" => GateResult::allow(), // Read-only backup
+        "pg_restore" => GateResult::ask("pg_restore: Restoring database"),
+
+        // Database migration tools
+        "migrate" | "goose" | "dbmate" | "flyway" | "alembic" => {
+            GateResult::ask(format!("{program}: Running database migration"))
+        }
+
         // Process management
         "kill" => check_kill(cmd),
         "pkill" => check_pkill(cmd),

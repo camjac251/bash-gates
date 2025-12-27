@@ -50,8 +50,9 @@ src/
 ├── lib.rs           # Library root
 ├── models.rs        # Serde models (HookInput, HookOutput, Decision)
 ├── parser.rs        # tree-sitter-bash AST parsing → Vec<CommandInfo>
-├── router.rs        # Raw string security checks + gate routing
+├── router.rs        # Raw string security checks + gate routing + mise expansion
 ├── settings.rs      # settings.json parsing and pattern matching
+├── mise.rs          # Mise task file parsing and command extraction
 └── gates/           # 9 specialized permission gates
     ├── mod.rs           # Gate registry
     ├── basics.rs        # Safe shell commands (echo, cat, ls, grep, etc.)
@@ -68,12 +69,55 @@ src/
 ## How It Works
 
 1. **Input**: JSON from Claude Code's PreToolUse hook (includes `cwd`)
-2. **Settings check**: Load `~/.claude/settings.json` + `.claude/settings.json`, check if command matches deny/ask rules
-3. **Security checks**: Raw string patterns (pipe-to-shell, xargs, redirections)
-4. **Parse**: tree-sitter-bash extracts individual commands from compound statements
-5. **Check**: Each command runs through all gates
-6. **Decide**: Strictest decision wins (block > ask > allow > skip)
-7. **Output**: JSON with `permissionDecision` (allow/ask/deny)
+2. **Mise expansion**: If command is `mise run <task>` or `mise <task>`, expand to underlying commands
+3. **Settings check**: Load `~/.claude/settings.json` + `.claude/settings.json`, check if command matches deny/ask rules
+4. **Security checks**: Raw string patterns (pipe-to-shell, xargs, redirections)
+5. **Parse**: tree-sitter-bash extracts individual commands from compound statements
+6. **Check**: Each command runs through all gates
+7. **Decide**: Strictest decision wins (block > ask > allow > skip)
+8. **Output**: JSON with `permissionDecision` (allow/ask/deny)
+
+## Mise Task Expansion (mise.rs)
+
+When bash-gates sees `mise run <task>` or `mise <task>`, it automatically:
+
+1. Finds the mise config file (`.mise.toml` or `mise.toml`) in cwd or parent directories
+2. Parses the TOML and extracts the task's `run` command
+3. Recursively includes commands from `depends = [...]` tasks
+4. Handles `dir = "..."` by prepending `cd <dir> &&`
+5. Passes all extracted commands through the gate engine
+6. Returns the strictest decision from all commands
+
+### Examples
+
+```bash
+# mise.toml
+[tasks.lint]
+run = "pnpm lint"
+
+[tasks."lint:fix"]
+run = "pnpm lint:fix"
+depends = ["lint"]
+
+[tasks."dev:frontend"]
+dir = "web"
+run = "pnpm dev"
+```
+
+| Command | Extracted | Decision |
+|---------|-----------|----------|
+| `mise run lint` | `pnpm lint` | ask (pnpm) |
+| `mise lint:fix` | `pnpm lint`, `pnpm lint:fix` | ask (both pnpm) |
+| `mise dev:frontend` | `cd web && pnpm dev` | allow (dev is safe) |
+
+### Edge Cases
+
+| Input | Result | Why |
+|-------|--------|-----|
+| `mise install` | Not expanded | Built-in mise subcommand |
+| `mise nonexistent` | ask | Task not found |
+| `mise run danger` (if run = `rm -rf /`) | deny | Blocked command in task |
+| Circular dependencies | Handled | Uses visited set |
 
 ## Settings.json Integration (settings.rs)
 
