@@ -25,6 +25,8 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
         "conda" | "mamba" | "micromamba" => check_conda(cmd),
         "poetry" => check_poetry(cmd),
         "pipx" => check_pipx(cmd),
+        "pdm" => check_pdm(cmd),
+        "hatch" => check_hatch(cmd),
         _ => GateResult::skip(),
     }
 }
@@ -168,6 +170,11 @@ fn check_pip(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_uv(cmd: &CommandInfo) -> GateResult {
+    // Check if uv is running a command (uv run pytest, etc.)
+    if let Some(result) = check_python_run_command(cmd, "uv") {
+        return result;
+    }
+
     if let Some(result) = check_uv_declarative(cmd) {
         if !matches!(result.decision, Decision::Allow)
             || has_known_subcommand(
@@ -290,6 +297,11 @@ fn check_conda(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_poetry(cmd: &CommandInfo) -> GateResult {
+    // Check if poetry is running a command (poetry run pytest, etc.)
+    if let Some(result) = check_python_run_command(cmd, "poetry") {
+        return result;
+    }
+
     if let Some(result) = check_poetry_declarative(cmd) {
         if !matches!(result.decision, Decision::Allow)
             || has_known_subcommand(
@@ -319,6 +331,11 @@ fn check_poetry(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_pipx(cmd: &CommandInfo) -> GateResult {
+    // Check if pipx is running a command (pipx run ruff, etc.)
+    if let Some(result) = check_python_run_command(cmd, "pipx") {
+        return result;
+    }
+
     if let Some(result) = check_pipx_declarative(cmd) {
         if !matches!(result.decision, Decision::Allow)
             || has_known_subcommand(cmd, &["list", "run", "--version", "--help"])
@@ -330,6 +347,62 @@ fn check_pipx(cmd: &CommandInfo) -> GateResult {
         "pipx: {}",
         cmd.args.first().unwrap_or(&"unknown".to_string())
     ))
+}
+
+fn check_pdm(cmd: &CommandInfo) -> GateResult {
+    // Check if pdm is running a command (pdm run pytest, etc.)
+    if let Some(result) = check_python_run_command(cmd, "pdm") {
+        return result;
+    }
+
+    // PDM subcommands
+    if cmd.args.is_empty() {
+        return GateResult::ask("pdm: No subcommand");
+    }
+
+    match cmd.args[0].as_str() {
+        // Read-only
+        "list" | "show" | "info" | "search" | "config" | "self" | "--version" | "-V" | "--help"
+        | "-h" => GateResult::allow(),
+        // Package operations
+        "add" | "remove" | "update" | "sync" | "install" => {
+            GateResult::ask(format!("pdm: {}", cmd.args[0]))
+        }
+        // Build/publish
+        "build" => GateResult::allow(),
+        "publish" => GateResult::ask("pdm: Publishing package"),
+        // Run is handled above
+        "run" => GateResult::allow(),
+        _ => GateResult::ask(format!("pdm: {}", cmd.args[0])),
+    }
+}
+
+fn check_hatch(cmd: &CommandInfo) -> GateResult {
+    // Check if hatch is running a command (hatch run pytest, etc.)
+    if let Some(result) = check_python_run_command(cmd, "hatch") {
+        return result;
+    }
+
+    // Hatch subcommands
+    if cmd.args.is_empty() {
+        return GateResult::ask("hatch: No subcommand");
+    }
+
+    match cmd.args[0].as_str() {
+        // Read-only
+        "version" | "status" | "env" | "config" | "--version" | "-V" | "--help" | "-h" => {
+            GateResult::allow()
+        }
+        // Build/test - generally safe
+        "build" | "test" | "fmt" | "clean" => GateResult::allow(),
+        // Publish
+        "publish" => GateResult::ask("hatch: Publishing package"),
+        // Run is handled above
+        "run" => GateResult::allow(),
+        // Shell opens an interactive shell
+        "shell" => GateResult::ask("hatch: Opening shell"),
+        _ => GateResult::ask(format!("hatch: {}", cmd.args[0])),
+    }
 }
 
 /// Check if command has a known subcommand
@@ -344,6 +417,80 @@ fn has_known_subcommand(cmd: &CommandInfo, known: &[&str]) -> bool {
         String::new()
     };
     known.contains(&first) || known.contains(&two_word.as_str())
+}
+
+/// Check if a Python tool is running a command via "run" subcommand.
+/// Extracts the underlying command and checks it through devtools gate.
+/// Works for: uv run, poetry run, pdm run, pipx run, hatch run
+fn check_python_run_command(cmd: &CommandInfo, pm_name: &str) -> Option<GateResult> {
+    // Must have at least: <pm> run <command>
+    if cmd.args.len() < 2 {
+        return None;
+    }
+
+    // Check if first arg is "run"
+    if cmd.args[0] != "run" {
+        return None;
+    }
+
+    // Skip any flags before the actual command (e.g., uv run --quiet pytest)
+    let mut cmd_start_idx = 1;
+    while cmd_start_idx < cmd.args.len() && cmd.args[cmd_start_idx].starts_with('-') {
+        cmd_start_idx += 1;
+        // Handle flags with values like --python 3.11
+        if cmd_start_idx < cmd.args.len() && !cmd.args[cmd_start_idx].starts_with('-') {
+            // Check if previous flag takes a value
+            let prev_flag = &cmd.args[cmd_start_idx - 1];
+            if matches!(
+                prev_flag.as_str(),
+                "--python" | "-p" | "--with" | "--env" | "-e"
+            ) {
+                cmd_start_idx += 1;
+            }
+        }
+    }
+
+    if cmd_start_idx >= cmd.args.len() {
+        return None;
+    }
+
+    let run_cmd = &cmd.args[cmd_start_idx];
+    let run_args = &cmd.args[cmd_start_idx + 1..];
+
+    // Build a synthetic command for the devtools gate
+    let tool_cmd = CommandInfo {
+        raw: cmd.raw.clone(),
+        program: run_cmd.to_string(),
+        args: run_args.to_vec(),
+    };
+
+    // Try devtools gate first
+    let result = check_devtools(&tool_cmd);
+
+    if result.decision != Decision::Skip {
+        return Some(GateResult {
+            decision: result.decision,
+            reason: result
+                .reason
+                .map(|r| format!("{pm_name} run {run_cmd}: {r}")),
+        });
+    }
+
+    // For Python-specific tools not in devtools, check common patterns
+    match run_cmd.as_str() {
+        // Test runners - safe
+        "pytest" | "py.test" | "unittest" | "nose" | "nose2" | "ward" | "hypothesis" => {
+            Some(GateResult::allow())
+        }
+        // Type checkers - safe
+        "mypy" | "pyright" | "pytype" | "pyre" => Some(GateResult::allow()),
+        // Build tools - safe
+        "build" | "flit" | "hatchling" | "maturin" | "setuptools" => Some(GateResult::allow()),
+        // Documentation - safe
+        "sphinx-build" | "mkdocs" | "pdoc" => Some(GateResult::allow()),
+        // Unknown - let it through (will be caught by basics gate or ask)
+        _ => None,
+    }
 }
 
 /// Known dev tools that can be invoked via package managers (pnpm biome, npm eslint, etc.)
@@ -522,8 +669,27 @@ mod tests {
     // === uv ===
 
     #[test]
-    fn test_uv_run_asks() {
+    fn test_uv_run_python_asks() {
+        // Running arbitrary Python scripts asks
         let result = check_package_managers(&cmd("uv", &["run", "python", "script.py"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn test_uv_run_pytest_allows() {
+        let result = check_package_managers(&cmd("uv", &["run", "pytest"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_uv_run_ruff_check_allows() {
+        let result = check_package_managers(&cmd("uv", &["run", "ruff", "check", "."]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_uv_run_ruff_fix_asks() {
+        let result = check_package_managers(&cmd("uv", &["run", "ruff", "check", "--fix", "."]));
         assert_eq!(result.decision, Decision::Ask);
     }
 
@@ -531,6 +697,54 @@ mod tests {
     fn test_uv_pip_install_asks() {
         let result = check_package_managers(&cmd("uv", &["pip", "install", "requests"]));
         assert_eq!(result.decision, Decision::Ask);
+    }
+
+    // === poetry ===
+
+    #[test]
+    fn test_poetry_run_pytest_allows() {
+        let result = check_package_managers(&cmd("poetry", &["run", "pytest"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_poetry_run_black_check_allows() {
+        let result = check_package_managers(&cmd("poetry", &["run", "black", "--check", "."]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_poetry_run_black_asks() {
+        let result = check_package_managers(&cmd("poetry", &["run", "black", "."]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    // === pdm ===
+
+    #[test]
+    fn test_pdm_run_pytest_allows() {
+        let result = check_package_managers(&cmd("pdm", &["run", "pytest"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_pdm_list_allows() {
+        let result = check_package_managers(&cmd("pdm", &["list"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    // === hatch ===
+
+    #[test]
+    fn test_hatch_run_pytest_allows() {
+        let result = check_package_managers(&cmd("hatch", &["run", "pytest"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_hatch_test_allows() {
+        let result = check_package_managers(&cmd("hatch", &["test"]));
+        assert_eq!(result.decision, Decision::Allow);
     }
 
     // === Non-package-manager ===
