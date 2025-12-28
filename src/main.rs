@@ -91,8 +91,9 @@ fn main() {
         return;
     }
 
-    // Check command with settings.json awareness
-    let output = check_command_with_settings(&command, &hook_input.cwd);
+    // Check command with settings.json awareness and mode detection
+    let output =
+        check_command_with_settings(&command, &hook_input.cwd, &hook_input.permission_mode);
     match serde_json::to_string(&output) {
         Ok(json) => println!("{json}"),
         Err(e) => {

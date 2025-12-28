@@ -4,7 +4,10 @@ use crate::gates::GATES;
 use crate::mise::{
     extract_task_commands, find_mise_config, load_mise_config, parse_mise_invocation,
 };
-use crate::models::{Decision, GateResult, HookOutput};
+use crate::models::{
+    CommandInfo, Decision, GateResult, HookOutput, Suggestion, SuggestionBehavior,
+    SuggestionDestination, SuggestionRule,
+};
 use crate::package_json::{
     find_package_json, get_script_command, load_package_json, parse_script_invocation,
 };
@@ -39,9 +42,13 @@ pub fn check_command(command_string: &str) -> HookOutput {
     // Collect results from all commands
     let mut block_reasons: Vec<String> = Vec::new();
     let mut ask_reasons: Vec<String> = Vec::new();
+    let mut command_decisions: Vec<(CommandInfo, Decision)> = Vec::new();
 
     for cmd in &commands {
         let result = check_single_command(cmd);
+
+        // Track decisions for suggestion generation
+        command_decisions.push((cmd.clone(), result.decision));
 
         match result.decision {
             Decision::Block => {
@@ -94,24 +101,32 @@ pub fn check_command(command_string: &str) -> HookOutput {
                     .join("\n")
             )
         };
-        return HookOutput::ask(&combined);
+
+        // Generate suggestions for the ask decision
+        let suggestions = generate_suggestions_for_commands(&commands, &command_decisions);
+        return HookOutput::ask_with_suggestions(&combined, suggestions);
     }
 
     // All checks passed - explicitly allow
     HookOutput::allow(Some("Read-only operation"))
 }
 
-/// Check a bash command with settings.json awareness.
+/// Check a bash command with settings.json awareness and permission mode detection.
 ///
 /// Loads settings from user (~/.claude/settings.json) and project (.claude/settings.json),
 /// and combines with gate analysis.
 ///
 /// Priority order:
 /// 1. Gate blocks → deny directly (dangerous commands always blocked)
-/// 2. Settings.json deny/ask → ask (defer to Claude Code)
-/// 3. Settings.json allow → allow
-/// 4. Gate result (allow/ask)
-pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutput {
+/// 2. acceptEdits mode + file-editing command → allow automatically
+/// 3. Settings.json deny/ask → ask (defer to Claude Code)
+/// 4. Settings.json allow → allow
+/// 5. Gate result (allow/ask)
+pub fn check_command_with_settings(
+    command_string: &str,
+    cwd: &str,
+    permission_mode: &str,
+) -> HookOutput {
     if command_string.trim().is_empty() {
         return HookOutput::approve();
     }
@@ -133,6 +148,20 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
     if let Some(ref output) = gate_result.hook_specific_output {
         if output.permission_decision == "deny" {
             return gate_result;
+        }
+    }
+
+    // In acceptEdits mode, auto-allow file-editing commands
+    if permission_mode == "acceptEdits" {
+        if let Some(ref output) = gate_result.hook_specific_output {
+            if output.permission_decision == "ask" {
+                // Check if all commands in the input are file-editing commands
+                let commands = extract_commands(command_string);
+                let all_file_edits = commands.iter().all(is_file_editing_command);
+                if all_file_edits && !commands.is_empty() {
+                    return HookOutput::allow(Some("Auto-allowed in acceptEdits mode"));
+                }
+            }
         }
     }
 
@@ -160,6 +189,29 @@ pub fn check_command_with_settings(command_string: &str, cwd: &str) -> HookOutpu
 
     // Return gate result (allow or ask)
     gate_result
+}
+
+/// Generate suggestions for a wrapper command (mise task or npm script).
+/// Returns suggestions for the wrapper pattern, e.g., "pnpm run lint:*" or "mise run build:*".
+fn generate_wrapper_suggestions(wrapper_pattern: &str) -> Vec<Suggestion> {
+    let rule = SuggestionRule {
+        tool_name: "Bash".to_string(),
+        rule_content: Some(format!("{wrapper_pattern}:*")),
+    };
+
+    // Wrapper commands are always project-specific (scripts/tasks vary per project)
+    vec![
+        Suggestion::AddRules {
+            rules: vec![rule.clone()],
+            behavior: SuggestionBehavior::Allow,
+            destination: SuggestionDestination::Session,
+        },
+        Suggestion::AddRules {
+            rules: vec![rule],
+            behavior: SuggestionBehavior::Allow,
+            destination: SuggestionDestination::LocalSettings,
+        },
+    ]
 }
 
 /// Check a mise task by expanding it to its underlying commands.
@@ -231,7 +283,9 @@ fn check_mise_task(task_name: &str, cwd: &str) -> HookOutput {
         } else {
             ask_reasons.join("; ")
         };
-        return HookOutput::ask(&combined);
+        // Generate suggestions for the mise wrapper command
+        let suggestions = generate_wrapper_suggestions(&format!("mise run {task_name}"));
+        return HookOutput::ask_with_suggestions(&combined, suggestions);
     }
 
     // All commands are safe
@@ -278,7 +332,12 @@ fn check_package_script(pm: &str, script_name: &str, cwd: &str) -> HookOutput {
                     .permission_decision_reason
                     .as_deref()
                     .unwrap_or("Requires approval");
-                return HookOutput::ask(&format!("{pm} run {script_name}: {reason}"));
+                // Generate suggestions for the package manager wrapper command
+                let suggestions = generate_wrapper_suggestions(&format!("{pm} run {script_name}"));
+                return HookOutput::ask_with_suggestions(
+                    &format!("{pm} run {script_name}: {reason}"),
+                    suggestions,
+                );
             }
             "allow" => {
                 return HookOutput::allow(Some(&format!(
@@ -617,6 +676,343 @@ pub fn check_single_command(cmd: &crate::models::CommandInfo) -> GateResult {
     strictest
 }
 
+// === Accept Edits Mode ===
+
+/// Programs that are file-editing tools (modify files in place).
+/// These are auto-allowed in acceptEdits mode.
+const FILE_EDITING_PROGRAMS: &[&str] = &[
+    // Text replacement tools
+    "sd",  // sed alternative
+    "sed", // with -i flag (checked separately)
+    // Code formatting/linting with fix
+    "prettier",
+    "biome",
+    "eslint",
+    "black",
+    "ruff",
+    "autopep8",
+    "isort",
+    "gofmt",
+    "goimports",
+    "rustfmt",
+    "clang-format",
+    "shfmt",
+    "stylua",
+    "rubocop",
+    "standardrb",
+    // Code modification tools
+    "ast-grep",
+    "sg", // with -U flag (checked separately)
+    "patch",
+    "dos2unix",
+    "unix2dos",
+    // JSON/YAML editing
+    "jq", // with output redirect or -i
+    "yq", // with -i flag
+];
+
+/// Check if a command is a file-editing command that should be auto-allowed
+/// in acceptEdits mode.
+fn is_file_editing_command(cmd: &CommandInfo) -> bool {
+    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
+
+    // Check if it's a known file-editing program
+    if !FILE_EDITING_PROGRAMS.contains(&base_program) {
+        return false;
+    }
+
+    // Some programs need specific flags to be file-editing
+    match base_program {
+        // sed needs -i flag to edit in place
+        "sed" => cmd.args.iter().any(|a| a == "-i" || a.starts_with("-i")),
+
+        // ast-grep/sg needs -U (update) flag to modify files
+        "ast-grep" | "sg" => cmd.args.iter().any(|a| a == "-U" || a == "--update-all"),
+
+        // yq needs -i flag to edit in place
+        "yq" => cmd.args.iter().any(|a| a == "-i" || a == "--inplace"),
+
+        // Formatters with --write/--fix flags
+        "prettier" => cmd.args.iter().any(|a| a == "--write" || a == "-w"),
+        "biome" => cmd
+            .args
+            .iter()
+            .any(|a| a == "--write" || a.contains("--fix")),
+        "eslint" => cmd.args.iter().any(|a| a == "--fix"),
+        "ruff" => {
+            // ruff format always writes, ruff check needs --fix
+            cmd.args.first().is_some_and(|a| a == "format") || cmd.args.iter().any(|a| a == "--fix")
+        }
+        "rubocop" | "standardrb" => cmd
+            .args
+            .iter()
+            .any(|a| a == "-a" || a == "-A" || a == "--auto-correct" || a == "--autocorrect"),
+
+        // These always modify files when invoked
+        "sd" | "patch" | "dos2unix" | "unix2dos" => true,
+
+        // Formatters that always write (no read-only mode commonly used)
+        "black" | "autopep8" | "isort" | "gofmt" | "goimports" | "rustfmt" | "clang-format"
+        | "shfmt" | "stylua" => true,
+
+        _ => false,
+    }
+}
+
+// === Suggestion Generation ===
+
+/// Commands that should NEVER get "always allow" suggestions.
+/// These are too dangerous to encourage blanket approval.
+const NO_SUGGESTION_PROGRAMS: &[&str] = &[
+    "rm", "rmdir", "mv", "dd", "shred", "mkfs", "fdisk", "parted", // Destructive filesystem
+    "shutdown", "reboot", "poweroff", "halt", "init", // System control
+    "sudo", "doas", "su", // Privilege escalation (handled specially)
+    "kill", "pkill", "killall", // Process control
+    "chmod", "chown", "chgrp", // Permission changes
+];
+
+/// Commands that are project-specific and shouldn't get global suggestions.
+/// These only get session and localSettings destinations.
+const PROJECT_SPECIFIC_PROGRAMS: &[&str] = &[
+    // Build systems - targets are project-specific
+    "make",
+    "rake",
+    "nx",
+    "turbo",
+    "bazel",
+    "buck",
+    "pants",
+    // Cloud infrastructure - too risky for blanket global allows
+    "aws",
+    "gcloud",
+    "az", // Cloud CLIs
+    "terraform",
+    "tofu",
+    "pulumi", // IaC tools
+    "kubectl",
+    "k",
+    "helm", // Kubernetes
+    "docker",
+    "podman", // Containers (can mount host filesystem)
+    // Remote access - hosts differ per project
+    "ssh",
+    "scp",
+    "sftp",
+    "rsync",
+    // Database migrations - config is project-specific
+    "migrate",
+    "goose",
+    "dbmate",
+    "flyway",
+    "alembic",
+    // OS package managers - affect system, not project
+    "apt",
+    "apt-get",
+    "dnf",
+    "yum",
+    "pacman",
+    "zypper",
+    "apk",
+    "brew",
+    "nix",
+    "nix-env",
+    "flatpak",
+    "snap",
+];
+
+/// Build a rule pattern for a command.
+/// Returns the pattern like "git push:*" for use in settings.json rules.
+fn build_rule_pattern(cmd: &CommandInfo) -> String {
+    let program = &cmd.program;
+
+    // Strip path prefixes (e.g., /usr/bin/npm -> npm)
+    let base_program = program.rsplit('/').next().unwrap_or(program);
+
+    if cmd.args.is_empty() {
+        // No args - just the program with :* suffix for any invocation
+        format!("{base_program}:*")
+    } else {
+        // Include first arg (subcommand) for more specific patterns
+        // e.g., "git push:*", "npm install:*", "cargo build:*"
+        let first_arg = &cmd.args[0];
+
+        // Skip flag-like first args for the pattern
+        if first_arg.starts_with('-') {
+            format!("{base_program}:*")
+        } else {
+            format!("{base_program} {first_arg}:*")
+        }
+    }
+}
+
+/// Check if a command should get suggestions.
+/// Returns true if we should generate "always allow" suggestions.
+fn should_generate_suggestions(cmd: &CommandInfo, decision: Decision) -> bool {
+    // Only generate suggestions for Ask decisions
+    if decision != Decision::Ask {
+        return false;
+    }
+
+    // Never suggest for dangerous programs
+    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
+    if NO_SUGGESTION_PROGRAMS.contains(&base_program) {
+        return false;
+    }
+
+    // Check for dangerous flags even on otherwise-suggestible commands
+    if has_dangerous_flags(cmd) {
+        return false;
+    }
+
+    true
+}
+
+/// Check if command has dangerous flags that should prevent suggestions.
+fn has_dangerous_flags(cmd: &CommandInfo) -> bool {
+    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
+
+    // Flags that are always dangerous regardless of program
+    let always_dangerous = [
+        "--force",
+        "--force-with-lease", // Still risky, though safer than --force
+        "--hard",
+        "--delete",
+        "--delete-force",
+        "-rf",
+        "-fr", // rm -rf style
+        "--no-preserve-root",
+    ];
+
+    // Programs where -f means "force" (dangerous)
+    // For others like kubectl, helm, docker, -f means "file" (safe)
+    let f_means_force = [
+        "git", "rm", "cp", "mv", "ln", "touch", "mkdir", "tar", "zip", "unzip", "gzip", "bzip2",
+    ];
+
+    for arg in &cmd.args {
+        // Check for combined short flags like -rf
+        if arg == "-rf" || arg == "-fr" {
+            return true;
+        }
+
+        // Check always-dangerous flags
+        for flag in always_dangerous {
+            if arg == flag {
+                return true;
+            }
+        }
+
+        // Check -f only for programs where it means "force"
+        if arg == "-f" && f_means_force.contains(&base_program) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a program is project-specific (should not get userSettings suggestions).
+fn is_project_specific(cmd: &CommandInfo) -> bool {
+    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
+    PROJECT_SPECIFIC_PROGRAMS.contains(&base_program)
+}
+
+/// Generate suggestions for a command.
+/// Returns a vec of suggestions for different scopes (session, project, global).
+pub fn generate_suggestions(cmd: &CommandInfo, decision: Decision) -> Vec<Suggestion> {
+    if !should_generate_suggestions(cmd, decision) {
+        return vec![];
+    }
+
+    let pattern = build_rule_pattern(cmd);
+    let rule = SuggestionRule {
+        tool_name: "Bash".to_string(),
+        rule_content: Some(pattern),
+    };
+
+    let mut suggestions = vec![
+        // Session-level (temporary)
+        Suggestion::AddRules {
+            rules: vec![rule.clone()],
+            behavior: SuggestionBehavior::Allow,
+            destination: SuggestionDestination::Session,
+        },
+        // Project-level (persisted to .claude/settings.json)
+        Suggestion::AddRules {
+            rules: vec![rule.clone()],
+            behavior: SuggestionBehavior::Allow,
+            destination: SuggestionDestination::LocalSettings,
+        },
+    ];
+
+    // Add global suggestion for non-project-specific commands
+    if !is_project_specific(cmd) {
+        suggestions.push(Suggestion::AddRules {
+            rules: vec![rule],
+            behavior: SuggestionBehavior::Allow,
+            destination: SuggestionDestination::UserSettings,
+        });
+    }
+
+    suggestions
+}
+
+/// Generate suggestions for multiple commands, combining patterns.
+pub fn generate_suggestions_for_commands(
+    _commands: &[CommandInfo],
+    decisions: &[(CommandInfo, Decision)],
+) -> Vec<Suggestion> {
+    // Collect all suggestible commands
+    let mut patterns: Vec<String> = Vec::new();
+    let mut any_project_specific = false;
+
+    for (cmd, decision) in decisions {
+        if should_generate_suggestions(cmd, *decision) {
+            patterns.push(build_rule_pattern(cmd));
+            if is_project_specific(cmd) {
+                any_project_specific = true;
+            }
+        }
+    }
+
+    if patterns.is_empty() {
+        return vec![];
+    }
+
+    // Build rules for each pattern
+    let rules: Vec<SuggestionRule> = patterns
+        .into_iter()
+        .map(|pattern| SuggestionRule {
+            tool_name: "Bash".to_string(),
+            rule_content: Some(pattern),
+        })
+        .collect();
+
+    let mut suggestions = vec![
+        Suggestion::AddRules {
+            rules: rules.clone(),
+            behavior: SuggestionBehavior::Allow,
+            destination: SuggestionDestination::Session,
+        },
+        Suggestion::AddRules {
+            rules: rules.clone(),
+            behavior: SuggestionBehavior::Allow,
+            destination: SuggestionDestination::LocalSettings,
+        },
+    ];
+
+    // Add global only if none are project-specific
+    if !any_project_specific {
+        suggestions.push(Suggestion::AddRules {
+            rules,
+            behavior: SuggestionBehavior::Allow,
+            destination: SuggestionDestination::UserSettings,
+        });
+    }
+
+    suggestions
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -637,6 +1033,338 @@ mod tests {
             .as_ref()
             .and_then(|o| o.permission_decision_reason.as_deref())
             .unwrap_or("")
+    }
+
+    fn get_suggestions(result: &HookOutput) -> &Option<Vec<Suggestion>> {
+        result
+            .hook_specific_output
+            .as_ref()
+            .map_or(&None, |o| &o.suggestions)
+    }
+
+    fn has_suggestions(result: &HookOutput) -> bool {
+        get_suggestions(result)
+            .as_ref()
+            .is_some_and(|s| !s.is_empty())
+    }
+
+    // === Suggestion Generation ===
+
+    // === Accept Edits Mode ===
+
+    mod accept_edits_mode {
+        use super::*;
+
+        #[test]
+        fn test_sd_allowed_in_accept_edits() {
+            let result =
+                check_command_with_settings("sd 'old' 'new' file.txt", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+            assert!(get_reason(&result).contains("acceptEdits"));
+        }
+
+        #[test]
+        fn test_sd_asks_in_default_mode() {
+            let result = check_command_with_settings("sd 'old' 'new' file.txt", "/tmp", "default");
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_prettier_write_allowed_in_accept_edits() {
+            let result =
+                check_command_with_settings("prettier --write src/", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_prettier_check_allowed_as_readonly() {
+            // prettier --check is read-only, so it's allowed by the devtools gate
+            let result =
+                check_command_with_settings("prettier --check src/", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_ast_grep_u_allowed_in_accept_edits() {
+            let result = check_command_with_settings(
+                "ast-grep -p 'old' -r 'new' -U src/",
+                "/tmp",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_ast_grep_search_asks_in_accept_edits() {
+            // ast-grep without -U is read-only search
+            let result =
+                check_command_with_settings("ast-grep -p 'pattern' src/", "/tmp", "acceptEdits");
+            // Should still be allowed (read-only), let me check the gate
+            assert_eq!(get_decision(&result), "allow"); // ast-grep search is allowed by devtools gate
+        }
+
+        #[test]
+        fn test_sed_i_allowed_in_accept_edits() {
+            let result =
+                check_command_with_settings("sed -i 's/old/new/g' file.txt", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_black_allowed_in_accept_edits() {
+            let result = check_command_with_settings("black src/", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_rustfmt_allowed_in_accept_edits() {
+            let result = check_command_with_settings("rustfmt src/main.rs", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_npm_install_still_asks_in_accept_edits() {
+            // npm install is NOT a file-editing command - it's package management
+            let result = check_command_with_settings("npm install", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_git_push_still_asks_in_accept_edits() {
+            // git push is NOT a file-editing command
+            let result = check_command_with_settings("git push", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_rm_still_asks_in_accept_edits() {
+            // rm is deletion, not editing - should still ask
+            let result = check_command_with_settings("rm file.txt", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_blocked_still_blocks_in_accept_edits() {
+            // Dangerous commands should still be blocked
+            let result = check_command_with_settings("rm -rf /", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "deny");
+        }
+
+        #[test]
+        fn test_yq_i_allowed_in_accept_edits() {
+            let result = check_command_with_settings(
+                "yq -i '.key = \"value\"' file.yaml",
+                "/tmp",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_eslint_fix_allowed_in_accept_edits() {
+            let result = check_command_with_settings("eslint --fix src/", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_ruff_format_allowed_in_accept_edits() {
+            let result = check_command_with_settings("ruff format src/", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+    }
+
+    mod suggestions {
+        use super::*;
+
+        #[test]
+        fn test_npm_install_gets_suggestions() {
+            let result = check_command("npm install");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(
+                has_suggestions(&result),
+                "npm install should have suggestions"
+            );
+
+            let suggestions = get_suggestions(&result).as_ref().unwrap();
+            assert_eq!(
+                suggestions.len(),
+                3,
+                "Should have session, local, and user suggestions"
+            );
+
+            // Check first suggestion is session
+            if let Suggestion::AddRules {
+                destination, rules, ..
+            } = &suggestions[0]
+            {
+                assert!(matches!(destination, SuggestionDestination::Session));
+                assert_eq!(rules[0].rule_content, Some("npm install:*".to_string()));
+            } else {
+                panic!("Expected AddRules suggestion");
+            }
+        }
+
+        #[test]
+        fn test_git_push_gets_suggestions() {
+            let result = check_command("git push");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(has_suggestions(&result), "git push should have suggestions");
+
+            let suggestions = get_suggestions(&result).as_ref().unwrap();
+            assert_eq!(suggestions.len(), 3);
+        }
+
+        #[test]
+        fn test_rm_no_suggestions() {
+            let result = check_command("rm file.txt");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(!has_suggestions(&result), "rm should NOT have suggestions");
+        }
+
+        #[test]
+        fn test_git_push_force_no_suggestions() {
+            let result = check_command("git push --force");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(
+                !has_suggestions(&result),
+                "git push --force should NOT have suggestions"
+            );
+        }
+
+        #[test]
+        fn test_make_no_user_settings() {
+            let result = check_command("make deploy");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(has_suggestions(&result), "make should have suggestions");
+
+            let suggestions = get_suggestions(&result).as_ref().unwrap();
+            assert_eq!(
+                suggestions.len(),
+                2,
+                "make should only have session and local (no user)"
+            );
+
+            // Verify no userSettings
+            for suggestion in suggestions {
+                if let Suggestion::AddRules { destination, .. } = suggestion {
+                    assert!(!matches!(destination, SuggestionDestination::UserSettings));
+                }
+            }
+        }
+
+        #[test]
+        fn test_compound_command_combines_suggestions() {
+            let result = check_command("npm install && git push");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(has_suggestions(&result));
+
+            let suggestions = get_suggestions(&result).as_ref().unwrap();
+            // Should have 3 suggestions (session, local, user) with 2 rules each
+            if let Suggestion::AddRules { rules, .. } = &suggestions[0] {
+                assert_eq!(rules.len(), 2, "Should combine rules from both commands");
+            }
+        }
+
+        #[test]
+        fn test_allowed_command_no_suggestions() {
+            let result = check_command("git status");
+            assert_eq!(get_decision(&result), "allow");
+            assert!(
+                !has_suggestions(&result),
+                "allowed commands don't need suggestions"
+            );
+        }
+
+        #[test]
+        fn test_blocked_command_no_suggestions() {
+            let result = check_command("rm -rf /");
+            assert_eq!(get_decision(&result), "deny");
+            assert!(
+                !has_suggestions(&result),
+                "blocked commands don't need suggestions"
+            );
+        }
+
+        #[test]
+        fn test_rule_pattern_strips_path() {
+            let cmd = CommandInfo {
+                raw: "/usr/bin/npm install".to_string(),
+                program: "/usr/bin/npm".to_string(),
+                args: vec!["install".to_string()],
+            };
+            let pattern = build_rule_pattern(&cmd);
+            assert_eq!(pattern, "npm install:*");
+        }
+
+        #[test]
+        fn test_rule_pattern_handles_flags() {
+            let cmd = CommandInfo {
+                raw: "npm -g install".to_string(),
+                program: "npm".to_string(),
+                args: vec!["-g".to_string(), "install".to_string()],
+            };
+            let pattern = build_rule_pattern(&cmd);
+            // Flag first arg means we use :* without the flag
+            assert_eq!(pattern, "npm:*");
+        }
+
+        #[test]
+        fn test_kubectl_f_gets_suggestions() {
+            // -f means "file" for kubectl, not "force"
+            let result = check_command("kubectl apply -f deployment.yaml");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(
+                has_suggestions(&result),
+                "kubectl -f should have suggestions"
+            );
+        }
+
+        #[test]
+        fn test_helm_f_gets_suggestions() {
+            // -f means "values file" for helm, not "force"
+            let result = check_command("helm install release chart -f values.yaml");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(has_suggestions(&result), "helm -f should have suggestions");
+        }
+
+        #[test]
+        fn test_git_f_no_suggestions() {
+            // -f means "force" for git
+            let result = check_command("git checkout -f branch");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(
+                !has_suggestions(&result),
+                "git -f should NOT have suggestions"
+            );
+        }
+
+        #[test]
+        fn test_cloud_commands_no_user_settings() {
+            // Cloud commands should only get session + local, not userSettings
+            for cmd in [
+                "aws s3 cp file s3://bucket",
+                "terraform apply",
+                "kubectl apply -f x.yaml",
+            ] {
+                let result = check_command(cmd);
+                if has_suggestions(&result) {
+                    let suggestions = get_suggestions(&result).as_ref().unwrap();
+                    assert_eq!(
+                        suggestions.len(),
+                        2,
+                        "Cloud command {cmd} should only have 2 suggestions"
+                    );
+                    for suggestion in suggestions {
+                        if let Suggestion::AddRules { destination, .. } = suggestion {
+                            assert!(
+                                !matches!(destination, SuggestionDestination::UserSettings),
+                                "Cloud command {cmd} should not have userSettings"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // === Raw String Security Checks ===

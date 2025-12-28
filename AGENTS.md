@@ -69,14 +69,15 @@ src/
 
 ## How It Works
 
-1. **Input**: JSON from Claude Code's PreToolUse hook (includes `cwd`)
+1. **Input**: JSON from Claude Code's PreToolUse hook (includes `cwd`, `permission_mode`)
 2. **Mise expansion**: If command is `mise run <task>` or `mise <task>`, expand to underlying commands
 3. **Settings check**: Load `~/.claude/settings.json` + `.claude/settings.json`, check if command matches deny/ask rules
-4. **Security checks**: Raw string patterns (pipe-to-shell, xargs, redirections)
-5. **Parse**: tree-sitter-bash extracts individual commands from compound statements
-6. **Check**: Each command runs through all gates
-7. **Decide**: Strictest decision wins (block > ask > allow > skip)
-8. **Output**: JSON with `permissionDecision` (allow/ask/deny)
+4. **Accept Edits Mode**: If `permission_mode` is `acceptEdits` and command is file-editing, auto-allow
+5. **Security checks**: Raw string patterns (pipe-to-shell, xargs, redirections)
+6. **Parse**: tree-sitter-bash extracts individual commands from compound statements
+7. **Check**: Each command runs through all gates
+8. **Decide**: Strictest decision wins (block > ask > allow > skip)
+9. **Output**: JSON with `permissionDecision` (allow/ask/deny) and `suggestions` for ask decisions
 
 ## Mise Task Expansion (mise.rs)
 
@@ -196,6 +197,84 @@ PreToolUse hooks have **more power** than settings.json:
 **Gate blocks always win:** Commands like `rm -rf /` are denied directly, regardless of settings.json. This ensures dangerous commands are always blocked.
 
 **Settings.json respected for non-blocked commands:** If you have `Bash(cat /dev/zero*)` in deny and a gate would allow `cat`, bash-gates returns `ask` to defer to Claude Code, which then applies your deny rule.
+
+## Suggestions (router.rs)
+
+When bash-gates returns `ask`, it includes suggestions that enable "Yes, and always allow..." in Claude Code:
+
+```json
+{
+  "permissionDecision": "ask",
+  "permissionDecisionReason": "npm: Installing packages",
+  "suggestions": [
+    { "type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "npm install:*"}], "behavior": "allow", "destination": "session" },
+    { "type": "addRules", "rules": [...], "destination": "localSettings" },
+    { "type": "addRules", "rules": [...], "destination": "userSettings" }
+  ]
+}
+```
+
+### Suggestion Destinations
+
+| Destination | Scope | Persisted |
+|-------------|-------|-----------|
+| `session` | This session only | No |
+| `localSettings` | This project | Yes (`.claude/settings.json`) |
+| `userSettings` | All projects | Yes (`~/.claude/settings.json`) |
+
+### No Suggestions For
+
+| Category | Programs |
+|----------|----------|
+| Dangerous | `rm`, `mv`, `chmod`, `sudo`, `kill`, `dd`, `shred` |
+| Dangerous flags | `--force`, `--hard`, `-rf`, `--delete` |
+| Project-specific (no userSettings) | `make`, `aws`, `gcloud`, `terraform`, `kubectl`, `docker`, `ssh`, `apt`, `brew` |
+
+### -f Flag Context-Aware
+
+The `-f` flag is only treated as dangerous for programs where it means "force":
+
+| Program | `-f` meaning | Suggestions? |
+|---------|--------------|--------------|
+| `git checkout -f` | force | No |
+| `rm -f file` | force | No |
+| `kubectl apply -f x.yaml` | file | Yes |
+| `helm install -f values.yaml` | values file | Yes |
+| `docker build -f Dockerfile` | file | Yes |
+
+## Accept Edits Mode (router.rs)
+
+When `permission_mode` is `acceptEdits`, file-editing commands are auto-allowed:
+
+```bash
+# Auto-allowed in acceptEdits mode
+sd 'old' 'new' file.txt           # Text replacement
+prettier --write src/             # Code formatting
+ast-grep -p 'old' -r 'new' -U .   # Code refactoring
+sed -i 's/foo/bar/g' file.txt     # In-place sed
+black src/                        # Python formatting
+eslint --fix src/                 # Linting with fix
+yq -i '.key = "value"' file.yaml  # YAML editing
+rustfmt src/main.rs               # Rust formatting
+```
+
+### File-Editing Programs
+
+| Category | Programs |
+|----------|----------|
+| Text replacement | `sd`, `sed -i`, `patch`, `dos2unix` |
+| Formatters | `prettier --write`, `black`, `rustfmt`, `gofmt`, `clang-format`, `shfmt`, `stylua` |
+| Linters with fix | `eslint --fix`, `biome --fix`, `ruff format`, `rubocop -a` |
+| Code refactoring | `ast-grep -U`, `sg -U` |
+| Data editing | `yq -i` |
+
+### Still Requires Approval (even in acceptEdits)
+
+- Package managers: `npm install`, `cargo add`
+- Git operations: `git push`, `git commit`
+- Deletions: `rm file.txt`
+- Network: `curl -X POST`, `ssh`
+- Blocked commands: `rm -rf /` still denied
 
 ## Decision Priority
 
@@ -487,21 +566,29 @@ cargo test -- --ignored
 echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | ./target/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"allow",...}}
 
-# Ask (known risky)
+# Ask with suggestions (known risky)
 echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages"}}
+# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages","suggestions":[...]}}
 
 # Ask (unknown command)
 echo '{"tool_name": "Bash", "tool_input": {"command": "mamba install numpy"}}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"Unknown command: mamba"}}
+# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"conda: Installing packages","suggestions":[...]}}
 
 # Block (dangerous)
 echo '{"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}' | ./target/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"deny",...}}
 
-# Ask (respects settings.json deny rule) - if you have Bash(cat /dev/zero*) in deny
-echo '{"tool_name": "Bash", "tool_input": {"command": "cat /dev/zero"}, "cwd": "/home/user"}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"Matched settings.json deny rule"}}
+# Accept Edits Mode - auto-allow file editing
+echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new file.txt"}, "permission_mode": "acceptEdits"}' | ./target/release/bash-gates
+# → {"hookSpecificOutput":{"permissionDecision":"allow","permissionDecisionReason":"Auto-allowed in acceptEdits mode"}}
+
+# Accept Edits Mode - still asks for non-file-editing
+echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}, "permission_mode": "acceptEdits"}' | ./target/release/bash-gates
+# → {"hookSpecificOutput":{"permissionDecision":"ask",...}}
+
+# kubectl -f gets suggestions (context-aware -f handling)
+echo '{"tool_name": "Bash", "tool_input": {"command": "kubectl apply -f deployment.yaml"}}' | ./target/release/bash-gates
+# → {"hookSpecificOutput":{"permissionDecision":"ask","suggestions":[...]}} (2 suggestions, no userSettings)
 ```
 
 ## Compound Commands
