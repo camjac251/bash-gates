@@ -151,23 +151,28 @@ pub fn check_command_with_settings(
         }
     }
 
-    // In acceptEdits mode, auto-allow file-editing commands (unless targeting sensitive paths)
+    // Load settings.json (user + project) - needed for both acceptEdits check and rule matching
+    let settings = Settings::load(cwd);
+
+    // In acceptEdits mode, auto-allow file-editing commands that:
+    // - Are file-editing commands
+    // - Don't target sensitive paths (system files, credentials)
+    // - Don't target paths outside allowed directories (cwd + additionalDirectories)
     if permission_mode == "acceptEdits" {
         if let Some(ref output) = gate_result.hook_specific_output {
             if output.permission_decision == "ask" {
-                // Check if all commands in the input are file-editing commands
                 let commands = extract_commands(command_string);
                 let all_file_edits = commands.iter().all(is_file_editing_command);
                 let any_sensitive = commands.iter().any(targets_sensitive_path);
-                if all_file_edits && !commands.is_empty() && !any_sensitive {
+                let allowed_dirs = settings.allowed_directories(cwd);
+                let any_outside =
+                    commands.iter().any(|cmd| targets_outside_allowed_dirs(cmd, &allowed_dirs));
+                if all_file_edits && !commands.is_empty() && !any_sensitive && !any_outside {
                     return HookOutput::allow(Some("Auto-allowed in acceptEdits mode"));
                 }
             }
         }
     }
-
-    // Load settings.json (user + project)
-    let settings = Settings::load(cwd);
 
     // Check settings.json - respect user's explicit rules
     match settings.check_command(command_string) {
@@ -791,6 +796,117 @@ fn targets_sensitive_path(cmd: &CommandInfo) -> bool {
     false
 }
 
+/// Check if a command targets paths outside the allowed directories.
+/// This prevents acceptEdits mode from modifying files outside the project.
+/// Allowed directories include cwd and any additionalDirectories from settings.json.
+fn targets_outside_allowed_dirs(cmd: &CommandInfo, allowed_dirs: &[String]) -> bool {
+    // Normalize all allowed directories - remove trailing slashes
+    let normalized_dirs: Vec<String> = allowed_dirs
+        .iter()
+        .map(|d| d.trim_end_matches('/').to_string())
+        .collect();
+
+    for arg in &cmd.args {
+        // Skip flags
+        if arg.starts_with('-') {
+            continue;
+        }
+
+        // Skip empty args
+        if arg.is_empty() {
+            continue;
+        }
+
+        // Tilde paths - expand and check against allowed dirs
+        if arg.starts_with("~/") || arg == "~" {
+            let expanded = if let Some(home) = dirs::home_dir() {
+                if arg == "~" {
+                    home.to_string_lossy().to_string()
+                } else {
+                    home.join(&arg[2..]).to_string_lossy().to_string()
+                }
+            } else {
+                continue; // Can't expand, skip
+            };
+            if !is_under_any_dir(&expanded, &normalized_dirs) {
+                return true;
+            }
+            continue;
+        }
+
+        // Absolute paths must be under one of the allowed directories
+        if arg.starts_with('/') {
+            let resolved = resolve_path(arg);
+            if !is_under_any_dir(&resolved, &normalized_dirs) {
+                return true;
+            }
+        }
+
+        // Relative paths with .. that escape cwd (first allowed dir)
+        // Note: relative paths are relative to cwd, not other allowed dirs
+        if arg.contains("..") {
+            let mut depth: i32 = 0;
+            let mut min_depth: i32 = 0;
+            for part in arg.split('/') {
+                if part == ".." {
+                    depth -= 1;
+                    min_depth = min_depth.min(depth);
+                } else if !part.is_empty() && part != "." {
+                    depth += 1;
+                }
+            }
+            // If we ever go negative, we're escaping cwd
+            if min_depth < 0 {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Resolve a path by canonicalizing . and .. components.
+fn resolve_path(path: &str) -> String {
+    use std::path::Path;
+
+    let path = Path::new(path);
+    let mut components = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::RootDir => components.push("/".to_string()),
+            std::path::Component::Normal(s) => {
+                if let Some(s) = s.to_str() {
+                    components.push(s.to_string());
+                }
+            }
+            std::path::Component::ParentDir => {
+                if components.len() > 1 {
+                    components.pop();
+                }
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::Prefix(_) => {}
+        }
+    }
+    if components.len() == 1 {
+        "/".to_string()
+    } else {
+        components.join("/").replacen("//", "/", 1)
+    }
+}
+
+/// Check if a path is under any of the allowed directories.
+fn is_under_any_dir(path: &str, allowed_dirs: &[String]) -> bool {
+    let path_normalized = path.trim_end_matches('/');
+    for dir in allowed_dirs {
+        // Must either equal the dir exactly OR start with dir/
+        if path_normalized == dir || path_normalized.starts_with(&format!("{}/", dir)) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Programs that are file-editing tools (modify files in place).
 /// These are auto-allowed in acceptEdits mode (unless targeting sensitive paths).
 const FILE_EDITING_PROGRAMS: &[&str] = &[
@@ -1369,6 +1485,197 @@ mod tests {
         fn test_ruff_format_allowed_in_accept_edits() {
             let result = check_command_with_settings("ruff format src/", "/tmp", "acceptEdits");
             assert_eq!(get_decision(&result), "allow");
+        }
+
+        // === Outside CWD Tests ===
+
+        #[test]
+        fn test_absolute_path_outside_cwd_asks() {
+            // sd editing a file outside cwd should ask, not auto-allow
+            let result =
+                check_command_with_settings("sd 'old' 'new' /etc/config", "/home/user/project", "acceptEdits");
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_absolute_path_inside_cwd_allows() {
+            // sd editing a file inside cwd should be auto-allowed
+            let result = check_command_with_settings(
+                "sd 'old' 'new' /home/user/project/file.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_tilde_path_asks() {
+            // Tilde paths are outside cwd
+            let result =
+                check_command_with_settings("sd 'old' 'new' ~/file.txt", "/home/user/project", "acceptEdits");
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_parent_escape_asks() {
+            // ../.. escapes cwd
+            let result =
+                check_command_with_settings("sd 'old' 'new' ../../file.txt", "/home/user/project", "acceptEdits");
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_parent_escape_deep_asks() {
+            // Even deeper escapes
+            let result = check_command_with_settings(
+                "sd 'old' 'new' foo/../../../bar.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_parent_within_cwd_allows() {
+            // foo/../bar stays within cwd
+            let result = check_command_with_settings(
+                "sd 'old' 'new' foo/../bar.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_relative_path_allows() {
+            // Plain relative paths are fine
+            let result =
+                check_command_with_settings("sd 'old' 'new' src/file.txt", "/home/user/project", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_dot_relative_allows() {
+            // ./foo is still within cwd
+            let result =
+                check_command_with_settings("sd 'old' 'new' ./file.txt", "/home/user/project", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_absolute_with_traversal_outside_asks() {
+            // Absolute path with .. that resolves outside cwd
+            let result = check_command_with_settings(
+                "sd 'old' 'new' /home/user/project/../other/file.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_similar_prefix_dir_asks() {
+            // /home/user/projectX is NOT inside /home/user/project
+            let result = check_command_with_settings(
+                "sd 'old' 'new' /home/user/projectX/file.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
+        fn test_exact_cwd_path_allows() {
+            // Exact cwd path should be allowed
+            let result = check_command_with_settings(
+                "rustfmt /home/user/project",
+                "/home/user/project",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "allow");
+        }
+    }
+
+    mod additional_directories {
+        use super::*;
+        use crate::models::CommandInfo;
+
+        fn cmd(program: &str, args: &[&str]) -> CommandInfo {
+            CommandInfo {
+                program: program.to_string(),
+                args: args.iter().map(|s| s.to_string()).collect(),
+                raw: format!(
+                    "{} {}",
+                    program,
+                    args.iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+            }
+        }
+
+        #[test]
+        fn test_path_in_additional_dir_allowed() {
+            let allowed = vec![
+                "/home/user/project".to_string(),
+                "/home/user/other-project".to_string(),
+            ];
+            // Path in additional directory should be allowed
+            let result =
+                targets_outside_allowed_dirs(&cmd("sd", &["old", "new", "/home/user/other-project/file.txt"]), &allowed);
+            assert!(!result, "Path in additional directory should be allowed");
+        }
+
+        #[test]
+        fn test_path_outside_all_dirs_rejected() {
+            let allowed = vec![
+                "/home/user/project".to_string(),
+                "/home/user/other-project".to_string(),
+            ];
+            // Path outside all allowed directories should be rejected
+            let result =
+                targets_outside_allowed_dirs(&cmd("sd", &["old", "new", "/tmp/file.txt"]), &allowed);
+            assert!(result, "Path outside all allowed directories should be rejected");
+        }
+
+        #[test]
+        fn test_tilde_path_in_additional_dir() {
+            // If ~/projects is in allowed dirs, ~/projects/foo should be allowed
+            let home = dirs::home_dir().unwrap().to_string_lossy().to_string();
+            let allowed = vec![
+                "/home/user/project".to_string(),
+                format!("{}/projects", home),
+            ];
+            let result =
+                targets_outside_allowed_dirs(&cmd("sd", &["old", "new", "~/projects/file.txt"]), &allowed);
+            assert!(!result, "Tilde path in additional directory should be allowed");
+        }
+
+        #[test]
+        fn test_tilde_path_outside_all_dirs() {
+            let allowed = vec!["/home/user/project".to_string()];
+            let result =
+                targets_outside_allowed_dirs(&cmd("sd", &["old", "new", "~/other/file.txt"]), &allowed);
+            assert!(result, "Tilde path outside allowed directories should be rejected");
+        }
+
+        #[test]
+        fn test_multiple_allowed_dirs_any_match() {
+            let allowed = vec![
+                "/home/user/project1".to_string(),
+                "/home/user/project2".to_string(),
+                "/home/user/project3".to_string(),
+            ];
+            // Path in any of the allowed directories should work
+            assert!(!targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "/home/user/project2/src/file.txt"]),
+                &allowed
+            ));
+            assert!(!targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "/home/user/project3/file.txt"]),
+                &allowed
+            ));
         }
     }
 

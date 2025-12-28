@@ -168,7 +168,7 @@ bash-gates combines gate analysis with your Claude Code permission rules. Gate b
 ├─────────────────────────────────────────────────────────────┤
 │  1. Run bash-gates analysis first                           │
 │     └─ gate blocks  → deny directly (dangerous always blocked) │
-│  2. Load settings.json (user + project)                     │
+│  2. Load settings.json (all locations, merged)              │
 │  3. Check command against settings.json rules               │
 │     ├─ matches deny  → deny directly                        │
 │     ├─ matches ask   → return ask (defer to CC)             │
@@ -176,6 +176,17 @@ bash-gates combines gate analysis with your Claude Code permission rules. Gate b
 │  4. No settings match → use gate result (allow/ask)         │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Settings File Locations
+
+Settings are loaded from all Claude Code settings files (merged, higher priority overrides):
+
+| Priority | Location | Description |
+|----------|----------|-------------|
+| 1 (highest) | `/etc/claude-code/managed-settings.json` | Enterprise managed (Linux) |
+| 2 | `.claude/settings.local.json` | Local project (not committed) |
+| 3 | `.claude/settings.json` | Shared project (committed) |
+| 4 (lowest) | `~/.claude/settings.json` | User settings |
 
 ### Pattern Matching
 
@@ -244,7 +255,24 @@ The `-f` flag is only treated as dangerous for programs where it means "force":
 
 ## Accept Edits Mode (router.rs)
 
-When `permission_mode` is `acceptEdits`, file-editing commands are auto-allowed:
+When `permission_mode` is `acceptEdits`, file-editing commands are auto-allowed if:
+1. The command is a known file-editing program (formatters, linters, text replacement)
+2. The target files are within allowed directories (cwd + `additionalDirectories` from settings.json)
+3. The target files are not sensitive system paths or credentials
+
+### Additional Directories
+
+The `additionalDirectories` setting from `~/.claude/settings.json` or `.claude/settings.json` is respected:
+
+```json
+{
+  "permissions": {
+    "additionalDirectories": ["~/other-project", "/tmp/workspace"]
+  }
+}
+```
+
+Files in these directories are treated as "within project" for acceptEdits mode.
 
 ```bash
 # Auto-allowed in acceptEdits mode
@@ -274,6 +302,8 @@ rustfmt src/main.rs               # Rust formatting
 - Git operations: `git push`, `git commit`
 - Deletions: `rm file.txt`
 - Network: `curl -X POST`, `ssh`
+- Paths outside cwd: `sd 'a' 'b' /other/project/file.txt`, `prettier --write ~/file.js`
+- Parent directory escapes: `sd 'a' 'b' ../../file.txt`
 - Blocked commands: `rm -rf /` still denied
 
 ## Decision Priority
@@ -584,6 +614,10 @@ echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new file.txt"}, "p
 
 # Accept Edits Mode - still asks for non-file-editing
 echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}, "permission_mode": "acceptEdits"}' | ./target/release/bash-gates
+# → {"hookSpecificOutput":{"permissionDecision":"ask",...}}
+
+# Accept Edits Mode - asks for paths outside cwd
+echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new /other/file.txt"}, "permission_mode": "acceptEdits", "cwd": "/home/user/project"}' | ./target/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"ask",...}}
 
 # kubectl -f gets suggestions (context-aware -f handling)

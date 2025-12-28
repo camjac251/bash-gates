@@ -15,6 +15,8 @@ pub struct Permissions {
     pub deny: Vec<String>,
     #[serde(default)]
     pub ask: Vec<String>,
+    #[serde(default, rename = "additionalDirectories")]
+    pub additional_directories: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -32,11 +34,19 @@ pub enum SettingsDecision {
 }
 
 impl Settings {
-    /// Load and merge settings from user + project locations.
+    /// Load and merge settings from all locations.
+    ///
+    /// Settings precedence (highest to lowest):
+    /// 1. Managed settings (`/etc/claude-code/managed-settings.json` on Linux)
+    /// 2. Local project settings (`.claude/settings.local.json`)
+    /// 3. Shared project settings (`.claude/settings.json`)
+    /// 4. User settings (`~/.claude/settings.json`)
+    ///
+    /// We load in reverse order and merge, so higher priority settings override.
     pub fn load(cwd: &str) -> Self {
         let mut merged = Settings::default();
 
-        // Load user settings (~/.claude/settings.json)
+        // 4. User settings (~/.claude/settings.json) - lowest priority
         if let Some(home) = dirs::home_dir() {
             let user_path = home.join(".claude/settings.json");
             if let Ok(s) = Self::load_file(&user_path) {
@@ -44,10 +54,34 @@ impl Settings {
             }
         }
 
-        // Load project settings (.claude/settings.json relative to cwd)
+        // 3. Shared project settings (.claude/settings.json)
         if !cwd.is_empty() {
             let project_path = Path::new(cwd).join(".claude/settings.json");
             if let Ok(s) = Self::load_file(&project_path) {
+                merged.merge(s);
+            }
+        }
+
+        // 2. Local project settings (.claude/settings.local.json)
+        if !cwd.is_empty() {
+            let local_path = Path::new(cwd).join(".claude/settings.local.json");
+            if let Ok(s) = Self::load_file(&local_path) {
+                merged.merge(s);
+            }
+        }
+
+        // 1. Enterprise managed settings - highest priority
+        #[cfg(target_os = "linux")]
+        {
+            let managed_path = Path::new("/etc/claude-code/managed-settings.json");
+            if let Ok(s) = Self::load_file(managed_path) {
+                merged.merge(s);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let managed_path = Path::new("/Library/Application Support/ClaudeCode/managed-settings.json");
+            if let Ok(s) = Self::load_file(managed_path) {
                 merged.merge(s);
             }
         }
@@ -65,6 +99,35 @@ impl Settings {
         self.permissions.allow.extend(other.permissions.allow);
         self.permissions.deny.extend(other.permissions.deny);
         self.permissions.ask.extend(other.permissions.ask);
+        self.permissions
+            .additional_directories
+            .extend(other.permissions.additional_directories);
+    }
+
+    /// Get all allowed directories (cwd + additionalDirectories from settings).
+    /// Expands ~ to home directory.
+    pub fn allowed_directories(&self, cwd: &str) -> Vec<String> {
+        let mut dirs = vec![cwd.to_string()];
+        for dir in &self.permissions.additional_directories {
+            // Expand ~ to home directory
+            let expanded = if let Some(suffix) = dir.strip_prefix("~/") {
+                if let Some(home) = dirs::home_dir() {
+                    home.join(suffix).to_string_lossy().to_string()
+                } else {
+                    dir.clone()
+                }
+            } else if dir == "~" {
+                if let Some(home) = dirs::home_dir() {
+                    home.to_string_lossy().to_string()
+                } else {
+                    dir.clone()
+                }
+            } else {
+                dir.clone()
+            };
+            dirs.push(expanded);
+        }
+        dirs
     }
 
     /// Check command against settings rules.
@@ -177,6 +240,7 @@ mod tests {
                 deny: vec!["Bash(rm -rf /)".to_string()],
                 ask: vec!["Bash(rm:*)".to_string()],
                 allow: vec!["Bash(ls:*)".to_string()],
+                additional_directories: vec![],
             },
         };
 
@@ -197,6 +261,7 @@ mod tests {
                 deny: vec!["Bash(cat /dev/zero*)".to_string()], // glob pattern
                 ask: vec![],
                 allow: vec!["Bash(cat:*)".to_string()],
+                additional_directories: vec![],
             },
         };
 
