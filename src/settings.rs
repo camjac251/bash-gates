@@ -80,7 +80,8 @@ impl Settings {
         }
         #[cfg(target_os = "macos")]
         {
-            let managed_path = Path::new("/Library/Application Support/ClaudeCode/managed-settings.json");
+            let managed_path =
+                Path::new("/Library/Application Support/ClaudeCode/managed-settings.json");
             if let Ok(s) = Self::load_file(managed_path) {
                 merged.merge(s);
             }

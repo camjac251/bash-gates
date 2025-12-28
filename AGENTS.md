@@ -291,8 +291,8 @@ rustfmt src/main.rs               # Rust formatting
 | Category | Programs |
 |----------|----------|
 | Text replacement | `sd`, `sed -i`, `patch`, `dos2unix` |
-| Formatters | `prettier --write`, `black`, `rustfmt`, `gofmt`, `clang-format`, `shfmt`, `stylua` |
-| Linters with fix | `eslint --fix`, `biome --fix`, `ruff format`, `rubocop -a` |
+| Formatters | `prettier --write`, `black`, `rustfmt`, `go fmt`, `gofmt -w`, `clang-format`, `shfmt`, `stylua` |
+| Linters with fix | `eslint --fix`, `biome --fix`, `ruff format`, `rubocop -a`, `golangci-lint --fix` |
 | Code refactoring | `ast-grep -U`, `sg -U` |
 | Data editing | `yq -i` |
 
@@ -367,7 +367,7 @@ Before AST parsing, raw string checks catch dangerous patterns:
 - **gcloud**: `list`/`describe` allow, `create`/`delete`/`deploy` ask
 - **terraform/tofu**: `plan`/`show` allow, `apply`/`destroy` ask
 - **kubectl**: `get`/`describe`/`logs` allow, `apply`/`delete`/`exec` ask, `delete ns kube-system` block
-- **docker**: `ps`/`images`/`logs` allow, `run`/`build`/`push` ask
+- **docker**: `ps`/`images`/`logs` allow, `run`/`build`/`push` ask; `compose` subcommands supported (handles flags like `-f`)
 - **podman**: `ps`/`images`/`logs`/`pod ps` allow, `run`/`build`/`push`/`play` ask
 - **az**: `list`/`show` allow, `create`/`delete`/`start`/`stop`/`restart` ask
 - **helm**: `list`/`get`/`show`/`template` allow, `install`/`upgrade`/`uninstall` ask
@@ -386,13 +386,14 @@ Before AST parsing, raw string checks catch dangerous patterns:
 - **Block**: `rm -rf /`, `rm -rf ~`, path traversal attempts (`//`, `/../`)
 
 ### devtools.rs - Developer Tools
-- **Allow**: `ast-grep` (search), `jq`, `yq`, `semgrep`, `sad` (preview), `black --check`
-- **Ask**: `sd`, `ast-grep -U`, `yq -i`, `semgrep --autofix`, `sad --commit`, `black`
+- **Allow**: `ast-grep` (search), `jq`, `yq`, `semgrep`, `sad` (preview), `black --check`, `gofmt` (no -w), `golangci-lint` (no --fix)
+- **Ask**: `sd`, `ast-grep -U`, `yq -i`, `semgrep --autofix`, `sad --commit`, `black`, `gofmt -w`, `golangci-lint --fix`
 
 ### package_managers.rs - Package Managers
-- **Allow**: `list`, `show`, `test`, `build`, `run`, `check`, `lint`, `dev`
-- **Ask**: `install`, `add`, `remove`, `publish`, `init`
-- Covers: npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, mamba, poetry, pipx
+- **Allow**: `list`, `show`, `test`, `build`, `check`, `lint`, `dev`
+- **Ask**: `install`, `add`, `remove`, `publish`, `init`, `run` (executes scripts), `fmt` (modifies files)
+- Covers: npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, mamba, poetry, pipx, mise
+- **mise**: `ls`/`doctor`/`reshim`/`exec` allow, `install`/`use`/`upgrade` ask (task expansion handled separately)
 
 ### system.rs - System Commands
 - **Database**: `psql -l`/`mysql SHOW` allow, `psql -c INSERT`/`psql -f` ask

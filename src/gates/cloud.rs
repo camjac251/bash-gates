@@ -26,12 +26,7 @@ pub fn check_cloud(cmd: &CommandInfo) -> GateResult {
         }),
         "terraform" | "tofu" => check_terraform(cmd),
         "kubectl" | "k" => check_kubectl(cmd),
-        "docker" => check_docker_declarative(cmd).unwrap_or_else(|| {
-            GateResult::ask(format!(
-                "docker: {}",
-                cmd.args.first().unwrap_or(&"unknown".to_string())
-            ))
-        }),
+        "docker" => check_docker(cmd),
         "podman" => check_podman_declarative(cmd).unwrap_or_else(|| {
             GateResult::ask(format!(
                 "podman: {}",
@@ -178,6 +173,67 @@ fn check_terraform(cmd: &CommandInfo) -> GateResult {
     check_terraform_declarative(cmd).unwrap_or_else(|| {
         GateResult::ask(format!(
             "terraform: {}",
+            args.first().unwrap_or(&"unknown".to_string())
+        ))
+    })
+}
+
+/// docker compose needs custom handling because flags can appear between
+/// "compose" and the actual subcommand (e.g., docker compose -f x.yml config).
+fn check_docker(cmd: &CommandInfo) -> GateResult {
+    let args = &cmd.args;
+
+    // Handle docker compose subcommand
+    if args.first().map(String::as_str) == Some("compose") {
+        // Find the actual compose subcommand (skip flags)
+        let mut subcommand: Option<&str> = None;
+        let mut i = 1;
+        while i < args.len() {
+            let arg = args[i].as_str();
+            // Skip flags
+            if arg.starts_with('-') {
+                i += 1;
+                // Skip flag values for known flags that take values
+                if i < args.len()
+                    && matches!(
+                        arg,
+                        "-f" | "--file"
+                            | "-p"
+                            | "--project-name"
+                            | "--project-directory"
+                            | "--profile"
+                            | "--env-file"
+                    )
+                {
+                    i += 1;
+                }
+                continue;
+            }
+            subcommand = Some(arg);
+            break;
+        }
+
+        if let Some(subcmd) = subcommand {
+            // Check compose subcommand permissions
+            return match subcmd {
+                // Read-only
+                "ps" | "logs" | "config" | "images" | "ls" | "version" | "top" | "events" => {
+                    GateResult::allow()
+                }
+                // Write commands
+                "up" | "down" | "start" | "stop" | "restart" | "build" | "pull" | "push"
+                | "exec" | "run" | "rm" | "create" | "kill" | "pause" | "unpause" | "scale"
+                | "attach" | "cp" => GateResult::ask(format!("docker compose: {}", subcmd)),
+                _ => GateResult::ask(format!("docker compose: {}", subcmd)),
+            };
+        }
+        return GateResult::ask("docker: compose");
+    }
+
+    // Use declarative rules for other docker commands
+    check_docker_declarative(cmd).unwrap_or_else(|| {
+        GateResult::ask(format!(
+            "docker: {}",
             args.first().unwrap_or(&"unknown".to_string())
         ))
     })

@@ -355,3 +355,15 @@ unknown_action = "allow"
 name = "oxlint"
 unknown_action = "allow"
 
+# =============================================================================
+# GOFMT (Go formatter)
+# =============================================================================
+
+[[programs]]
+name = "gofmt"
+unknown_action = "allow"
+
+# -w writes files, needs approval
+[[programs.ask]]
+reason = "Formatting files"
+if_flags_any = ["-w"]

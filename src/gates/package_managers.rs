@@ -6,8 +6,8 @@
 use crate::gates::devtools::check_devtools;
 use crate::generated::rules::{
     check_bun_declarative, check_cargo_declarative, check_conda_declarative, check_go_declarative,
-    check_npm_declarative, check_pip_declarative, check_pipx_declarative, check_pnpm_declarative,
-    check_poetry_declarative, check_uv_declarative, check_yarn_declarative,
+    check_mise_declarative, check_npm_declarative, check_pip_declarative, check_pipx_declarative,
+    check_pnpm_declarative, check_poetry_declarative, check_uv_declarative, check_yarn_declarative,
 };
 use crate::models::{CommandInfo, Decision, GateResult};
 
@@ -29,6 +29,7 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
         "pipx" => check_pipx(cmd),
         "pdm" => check_pdm(cmd),
         "hatch" => check_hatch(cmd),
+        "mise" => check_mise(cmd),
         _ => GateResult::skip(),
     }
 }
@@ -405,6 +406,76 @@ fn check_hatch(cmd: &CommandInfo) -> GateResult {
         "shell" => GateResult::ask("hatch: Opening shell"),
         _ => GateResult::ask(format!("hatch: {}", cmd.args[0])),
     }
+}
+
+fn check_mise(cmd: &CommandInfo) -> GateResult {
+    // mise exec <command> - check the underlying command
+    if !cmd.args.is_empty() && (cmd.args[0] == "exec" || cmd.args[0] == "x") {
+        if cmd.args.len() >= 2 {
+            // Find where the command starts (after exec and any flags)
+            let mut cmd_start = 1;
+            while cmd_start < cmd.args.len() {
+                let arg = &cmd.args[cmd_start];
+                // Skip flags (but -- ends flag processing)
+                if arg == "--" {
+                    cmd_start += 1;
+                    break;
+                }
+                if arg.starts_with('-') {
+                    cmd_start += 1;
+                    continue;
+                }
+                break;
+            }
+
+            if cmd_start < cmd.args.len() {
+                // Check if executing a known dev tool
+                let tool_cmd = CommandInfo {
+                    program: cmd.args[cmd_start].clone(),
+                    args: cmd.args[cmd_start + 1..].to_vec(),
+                    raw: cmd.raw.clone(),
+                };
+                let result = check_devtools(&tool_cmd);
+                if !matches!(result.decision, Decision::Skip) {
+                    return result;
+                }
+            }
+        }
+        return GateResult::allow();
+    }
+
+    // Use declarative rules for other mise commands
+    if let Some(result) = check_mise_declarative(cmd) {
+        if !matches!(result.decision, Decision::Allow)
+            || has_known_subcommand(
+                cmd,
+                &[
+                    "ls",
+                    "list",
+                    "current",
+                    "where",
+                    "which",
+                    "env",
+                    "version",
+                    "doctor",
+                    "reshim",
+                    "trust",
+                    "exec",
+                    "--version",
+                    "-V",
+                    "--help",
+                    "-h",
+                ],
+            )
+        {
+            return result;
+        }
+    }
+
+    GateResult::ask(format!(
+        "mise: {}",
+        cmd.args.first().unwrap_or(&"".to_string())
+    ))
 }
 
 /// Check if command has a known subcommand

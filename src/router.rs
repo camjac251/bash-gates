@@ -165,8 +165,9 @@ pub fn check_command_with_settings(
                 let all_file_edits = commands.iter().all(is_file_editing_command);
                 let any_sensitive = commands.iter().any(targets_sensitive_path);
                 let allowed_dirs = settings.allowed_directories(cwd);
-                let any_outside =
-                    commands.iter().any(|cmd| targets_outside_allowed_dirs(cmd, &allowed_dirs));
+                let any_outside = commands
+                    .iter()
+                    .any(|cmd| targets_outside_allowed_dirs(cmd, &allowed_dirs));
                 if all_file_edits && !commands.is_empty() && !any_sensitive && !any_outside {
                     return HookOutput::allow(Some("Auto-allowed in acceptEdits mode"));
                 }
@@ -921,8 +922,10 @@ const FILE_EDITING_PROGRAMS: &[&str] = &[
     "ruff",
     "autopep8",
     "isort",
-    "gofmt",
-    "goimports",
+    "go",            // go fmt modifies files
+    "gofmt",         // with -w flag
+    "goimports",     // with -w flag
+    "golangci-lint", // with --fix flag
     "rustfmt",
     "clang-format",
     "shfmt",
@@ -987,6 +990,12 @@ fn is_file_editing_command(cmd: &CommandInfo) -> bool {
 
         // Formatters that output to stdout by default - need -w flag
         "gofmt" | "goimports" | "shfmt" => cmd.args.iter().any(|a| a == "-w"),
+
+        // go fmt always modifies files (runs gofmt -l -w internally)
+        "go" => cmd.args.first().is_some_and(|a| a == "fmt"),
+
+        // golangci-lint with --fix modifies files
+        "golangci-lint" => cmd.args.iter().any(|a| a == "--fix"),
 
         // clang-format outputs to stdout by default - needs -i flag
         "clang-format" => cmd.args.iter().any(|a| a == "-i"),
@@ -1492,8 +1501,11 @@ mod tests {
         #[test]
         fn test_absolute_path_outside_cwd_asks() {
             // sd editing a file outside cwd should ask, not auto-allow
-            let result =
-                check_command_with_settings("sd 'old' 'new' /etc/config", "/home/user/project", "acceptEdits");
+            let result = check_command_with_settings(
+                "sd 'old' 'new' /etc/config",
+                "/home/user/project",
+                "acceptEdits",
+            );
             assert_eq!(get_decision(&result), "ask");
         }
 
@@ -1511,16 +1523,22 @@ mod tests {
         #[test]
         fn test_tilde_path_asks() {
             // Tilde paths are outside cwd
-            let result =
-                check_command_with_settings("sd 'old' 'new' ~/file.txt", "/home/user/project", "acceptEdits");
+            let result = check_command_with_settings(
+                "sd 'old' 'new' ~/file.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
             assert_eq!(get_decision(&result), "ask");
         }
 
         #[test]
         fn test_parent_escape_asks() {
             // ../.. escapes cwd
-            let result =
-                check_command_with_settings("sd 'old' 'new' ../../file.txt", "/home/user/project", "acceptEdits");
+            let result = check_command_with_settings(
+                "sd 'old' 'new' ../../file.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
             assert_eq!(get_decision(&result), "ask");
         }
 
@@ -1549,16 +1567,22 @@ mod tests {
         #[test]
         fn test_relative_path_allows() {
             // Plain relative paths are fine
-            let result =
-                check_command_with_settings("sd 'old' 'new' src/file.txt", "/home/user/project", "acceptEdits");
+            let result = check_command_with_settings(
+                "sd 'old' 'new' src/file.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
             assert_eq!(get_decision(&result), "allow");
         }
 
         #[test]
         fn test_dot_relative_allows() {
             // ./foo is still within cwd
-            let result =
-                check_command_with_settings("sd 'old' 'new' ./file.txt", "/home/user/project", "acceptEdits");
+            let result = check_command_with_settings(
+                "sd 'old' 'new' ./file.txt",
+                "/home/user/project",
+                "acceptEdits",
+            );
             assert_eq!(get_decision(&result), "allow");
         }
 
@@ -1622,8 +1646,10 @@ mod tests {
                 "/home/user/other-project".to_string(),
             ];
             // Path in additional directory should be allowed
-            let result =
-                targets_outside_allowed_dirs(&cmd("sd", &["old", "new", "/home/user/other-project/file.txt"]), &allowed);
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "/home/user/other-project/file.txt"]),
+                &allowed,
+            );
             assert!(!result, "Path in additional directory should be allowed");
         }
 
@@ -1634,9 +1660,14 @@ mod tests {
                 "/home/user/other-project".to_string(),
             ];
             // Path outside all allowed directories should be rejected
-            let result =
-                targets_outside_allowed_dirs(&cmd("sd", &["old", "new", "/tmp/file.txt"]), &allowed);
-            assert!(result, "Path outside all allowed directories should be rejected");
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "/tmp/file.txt"]),
+                &allowed,
+            );
+            assert!(
+                result,
+                "Path outside all allowed directories should be rejected"
+            );
         }
 
         #[test]
@@ -1647,17 +1678,27 @@ mod tests {
                 "/home/user/project".to_string(),
                 format!("{}/projects", home),
             ];
-            let result =
-                targets_outside_allowed_dirs(&cmd("sd", &["old", "new", "~/projects/file.txt"]), &allowed);
-            assert!(!result, "Tilde path in additional directory should be allowed");
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "~/projects/file.txt"]),
+                &allowed,
+            );
+            assert!(
+                !result,
+                "Tilde path in additional directory should be allowed"
+            );
         }
 
         #[test]
         fn test_tilde_path_outside_all_dirs() {
             let allowed = vec!["/home/user/project".to_string()];
-            let result =
-                targets_outside_allowed_dirs(&cmd("sd", &["old", "new", "~/other/file.txt"]), &allowed);
-            assert!(result, "Tilde path outside allowed directories should be rejected");
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "~/other/file.txt"]),
+                &allowed,
+            );
+            assert!(
+                result,
+                "Tilde path outside allowed directories should be rejected"
+            );
         }
 
         #[test]

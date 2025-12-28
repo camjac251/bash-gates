@@ -884,8 +884,10 @@ subcommand = "build"
 [[programs.allow]]
 subcommand = "test"
 
-[[programs.allow]]
+# go fmt modifies files - needs approval
+[[programs.ask]]
 subcommand = "fmt"
+reason = "Formatting files"
 
 # go run executes arbitrary code - needs approval
 [[programs.ask]]
@@ -1331,3 +1333,177 @@ reason = "Modifying PATH"
 [[programs.ask]]
 subcommand = "run"
 reason = "Running application"
+
+# =============================================================================
+# MISE (Runtime Version Manager)
+# =============================================================================
+
+[[programs]]
+name = "mise"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "ls"
+
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "current"
+
+[[programs.allow]]
+subcommand = "where"
+
+[[programs.allow]]
+subcommand = "which"
+
+[[programs.allow]]
+subcommand = "env"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "doctor"
+
+[[programs.allow]]
+subcommand = "plugins"
+
+[[programs.allow]]
+subcommand = "settings"
+
+[[programs.allow]]
+subcommand = "alias"
+
+[[programs.allow]]
+subcommand = "bin-paths"
+
+[[programs.allow]]
+subcommand = "completion"
+
+[[programs.allow]]
+subcommand = "direnv"
+
+[[programs.allow]]
+subcommand = "outdated"
+
+# Safe local commands
+[[programs.allow]]
+subcommand = "reshim"
+
+[[programs.allow]]
+subcommand = "trust"
+
+[[programs.allow]]
+subcommand = "exec"
+
+# mise run/tasks handled separately in mise.rs for task expansion
+# but register them here for unknown tasks fallback
+[[programs.ask]]
+subcommand = "run"
+reason = "Running mise task"
+
+[[programs.ask]]
+subcommand = "task"
+reason = "Task operation"
+
+[[programs.ask]]
+subcommand = "tasks"
+reason = "Task operation"
+
+# Risky commands (modify toolchain)
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing tool versions"
+
+[[programs.ask]]
+subcommand = "i"
+reason = "Installing tool versions"
+
+[[programs.ask]]
+subcommand = "use"
+reason = "Setting tool version"
+
+[[programs.ask]]
+subcommand = "u"
+reason = "Setting tool version"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Upgrading tools"
+
+[[programs.ask]]
+subcommand = "up"
+reason = "Upgrading tools"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Uninstalling tools"
+
+[[programs.ask]]
+subcommand = "prune"
+reason = "Pruning unused versions"
+
+[[programs.ask]]
+subcommand = "sync"
+reason = "Syncing tool versions"
+
+[[programs.ask]]
+subcommand = "activate"
+reason = "Activating mise in shell"
+
+[[programs.ask]]
+subcommand = "deactivate"
+reason = "Deactivating mise"
+
+[[programs.ask]]
+subcommand = "implode"
+reason = "Removing mise installation"
+
+[[programs.ask]]
+subcommand = "self-update"
+reason = "Updating mise itself"
+
+[[programs.ask]]
+subcommand = "plugins install"
+reason = "Installing plugin"
+
+[[programs.ask]]
+subcommand = "plugins add"
+reason = "Installing plugin"
+
+[[programs.ask]]
+subcommand = "plugins remove"
+reason = "Removing plugin"
+
+[[programs.ask]]
+subcommand = "plugins update"
+reason = "Updating plugins"
+
+[[programs.ask]]
+subcommand = "cache"
+reason = "Cache operation"
+
+[[programs.ask]]
+subcommand = "link"
+reason = "Linking tool version"
+
+[[programs.ask]]
+subcommand = "registry"
+reason = "Registry operation"

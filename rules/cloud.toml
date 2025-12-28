@@ -654,6 +654,88 @@ subcommand = "system df"
 [[programs.allow]]
 subcommand = "system info"
 
+# docker compose (new docker CLI plugin, equivalent to docker-compose)
+[[programs.allow]]
+subcommand = "compose ps"
+
+[[programs.allow]]
+subcommand = "compose logs"
+
+[[programs.allow]]
+subcommand = "compose config"
+
+[[programs.allow]]
+subcommand = "compose images"
+
+[[programs.allow]]
+subcommand = "compose ls"
+
+[[programs.allow]]
+subcommand = "compose version"
+
+[[programs.allow]]
+subcommand = "compose top"
+
+[[programs.ask]]
+subcommand = "compose up"
+reason = "Compose: Starting services"
+
+[[programs.ask]]
+subcommand = "compose down"
+reason = "Compose: Stopping services"
+
+[[programs.ask]]
+subcommand = "compose start"
+reason = "Compose: Starting services"
+
+[[programs.ask]]
+subcommand = "compose stop"
+reason = "Compose: Stopping services"
+
+[[programs.ask]]
+subcommand = "compose restart"
+reason = "Compose: Restarting services"
+
+[[programs.ask]]
+subcommand = "compose build"
+reason = "Compose: Building images"
+
+[[programs.ask]]
+subcommand = "compose pull"
+reason = "Compose: Pulling images"
+
+[[programs.ask]]
+subcommand = "compose push"
+reason = "Compose: Pushing images"
+
+[[programs.ask]]
+subcommand = "compose exec"
+reason = "Compose: Executing in container"
+
+[[programs.ask]]
+subcommand = "compose run"
+reason = "Compose: Running command"
+
+[[programs.ask]]
+subcommand = "compose rm"
+reason = "Compose: Removing containers"
+
+[[programs.ask]]
+subcommand = "compose create"
+reason = "Compose: Creating containers"
+
+[[programs.ask]]
+subcommand = "compose kill"
+reason = "Compose: Killing containers"
+
+[[programs.ask]]
+subcommand = "compose pause"
+reason = "Compose: Pausing containers"
+
+[[programs.ask]]
+subcommand = "compose unpause"
+reason = "Compose: Unpausing containers"
+
 # Write commands
 [[programs.ask]]
 subcommand = "run"
