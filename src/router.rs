@@ -133,12 +133,12 @@ pub fn check_command_with_settings(
 
     // Check for mise task invocation and expand to underlying commands
     if let Some(task_name) = parse_mise_invocation(command_string) {
-        return check_mise_task(&task_name, cwd);
+        return check_mise_task(&task_name, command_string, cwd);
     }
 
     // Check for package.json script invocation (npm run, pnpm run, etc.)
     if let Some((pm, script_name)) = parse_script_invocation(command_string) {
-        return check_package_script(pm, &script_name, cwd);
+        return check_package_script(pm, &script_name, command_string, cwd);
     }
 
     // Run gate analysis first - blocks take priority
@@ -151,14 +151,15 @@ pub fn check_command_with_settings(
         }
     }
 
-    // In acceptEdits mode, auto-allow file-editing commands
+    // In acceptEdits mode, auto-allow file-editing commands (unless targeting sensitive paths)
     if permission_mode == "acceptEdits" {
         if let Some(ref output) = gate_result.hook_specific_output {
             if output.permission_decision == "ask" {
                 // Check if all commands in the input are file-editing commands
                 let commands = extract_commands(command_string);
                 let all_file_edits = commands.iter().all(is_file_editing_command);
-                if all_file_edits && !commands.is_empty() {
+                let any_sensitive = commands.iter().any(targets_sensitive_path);
+                if all_file_edits && !commands.is_empty() && !any_sensitive {
                     return HookOutput::allow(Some("Auto-allowed in acceptEdits mode"));
                 }
             }
@@ -192,22 +193,36 @@ pub fn check_command_with_settings(
 }
 
 /// Generate suggestions for a wrapper command (mise task or npm script).
-/// Returns suggestions for the wrapper pattern, e.g., "pnpm run lint:*" or "mise run build:*".
-fn generate_wrapper_suggestions(wrapper_pattern: &str) -> Vec<Suggestion> {
-    let rule = SuggestionRule {
+/// Returns suggestions for both canonical and shorthand patterns if they differ.
+/// - `canonical_pattern`: The normalized form, e.g., "pnpm run lint" or "mise run build"
+/// - `original_pattern`: The original invocation form, e.g., "pnpm lint" or "mise build"
+fn generate_wrapper_suggestions(
+    canonical_pattern: &str,
+    original_pattern: &str,
+) -> Vec<Suggestion> {
+    let mut rules = vec![SuggestionRule {
         tool_name: "Bash".to_string(),
-        rule_content: Some(format!("{wrapper_pattern}:*")),
-    };
+        rule_content: Some(format!("{canonical_pattern}:*")),
+    }];
+
+    // If original differs from canonical (shorthand form), add that pattern too
+    // This ensures "pnpm lint" gets both "pnpm run lint:*" and "pnpm lint:*"
+    if original_pattern != canonical_pattern {
+        rules.push(SuggestionRule {
+            tool_name: "Bash".to_string(),
+            rule_content: Some(format!("{original_pattern}:*")),
+        });
+    }
 
     // Wrapper commands are always project-specific (scripts/tasks vary per project)
     vec![
         Suggestion::AddRules {
-            rules: vec![rule.clone()],
+            rules: rules.clone(),
             behavior: SuggestionBehavior::Allow,
             destination: SuggestionDestination::Session,
         },
         Suggestion::AddRules {
-            rules: vec![rule],
+            rules,
             behavior: SuggestionBehavior::Allow,
             destination: SuggestionDestination::LocalSettings,
         },
@@ -218,7 +233,9 @@ fn generate_wrapper_suggestions(wrapper_pattern: &str) -> Vec<Suggestion> {
 ///
 /// Finds the mise config file, extracts the task's run commands (including dependencies),
 /// and checks each command through the gate engine.
-fn check_mise_task(task_name: &str, cwd: &str) -> HookOutput {
+/// - `task_name`: The task name (e.g., "lint", "build:prod")
+/// - `original_cmd`: The original command string (e.g., "mise lint" or "mise run lint")
+fn check_mise_task(task_name: &str, original_cmd: &str, cwd: &str) -> HookOutput {
     // Find mise config file
     let Some(config_path) = find_mise_config(cwd) else {
         return HookOutput::ask(&format!("mise {task_name}: No mise.toml found"));
@@ -284,7 +301,14 @@ fn check_mise_task(task_name: &str, cwd: &str) -> HookOutput {
             ask_reasons.join("; ")
         };
         // Generate suggestions for the mise wrapper command
-        let suggestions = generate_wrapper_suggestions(&format!("mise run {task_name}"));
+        // Extract original pattern from the original command (handles "mise lint" vs "mise run lint")
+        let original_pattern = original_cmd
+            .split_whitespace()
+            .take(2)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let suggestions =
+            generate_wrapper_suggestions(&format!("mise run {task_name}"), &original_pattern);
         return HookOutput::ask_with_suggestions(&combined, suggestions);
     }
 
@@ -295,7 +319,10 @@ fn check_mise_task(task_name: &str, cwd: &str) -> HookOutput {
 /// Check a package.json script by expanding it to its underlying command.
 ///
 /// Finds package.json, extracts the script's command, and checks it through the gate engine.
-fn check_package_script(pm: &str, script_name: &str, cwd: &str) -> HookOutput {
+/// - `pm`: The package manager name (e.g., "pnpm", "npm")
+/// - `script_name`: The script name (e.g., "lint", "build")
+/// - `original_cmd`: The original command string (e.g., "pnpm lint" or "pnpm run lint")
+fn check_package_script(pm: &str, script_name: &str, original_cmd: &str, cwd: &str) -> HookOutput {
     // Find package.json
     let Some(pkg_path) = find_package_json(cwd) else {
         // No package.json found - fall back to normal gate check
@@ -333,7 +360,16 @@ fn check_package_script(pm: &str, script_name: &str, cwd: &str) -> HookOutput {
                     .as_deref()
                     .unwrap_or("Requires approval");
                 // Generate suggestions for the package manager wrapper command
-                let suggestions = generate_wrapper_suggestions(&format!("{pm} run {script_name}"));
+                // Extract original pattern from the original command (handles "pnpm lint" vs "pnpm run lint")
+                let original_pattern = original_cmd
+                    .split_whitespace()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let suggestions = generate_wrapper_suggestions(
+                    &format!("{pm} run {script_name}"),
+                    &original_pattern,
+                );
                 return HookOutput::ask_with_suggestions(
                     &format!("{pm} run {script_name}: {reason}"),
                     suggestions,
@@ -397,7 +433,7 @@ fn check_command_expanded(command_string: &str, cwd: &str) -> HookOutput {
         let cwd_str = effective_cwd.to_string_lossy();
         // Try package.json script expansion for this individual command
         if let Some((pm, script_name)) = parse_script_invocation(&cmd.raw) {
-            let result = check_package_script(pm, &script_name, &cwd_str);
+            let result = check_package_script(pm, &script_name, &cmd.raw, &cwd_str);
             if let Some(ref output) = result.hook_specific_output {
                 match output.permission_decision.as_str() {
                     "deny" => {
@@ -678,8 +714,85 @@ pub fn check_single_command(cmd: &crate::models::CommandInfo) -> GateResult {
 
 // === Accept Edits Mode ===
 
+/// Check if a command targets sensitive paths that should not be auto-allowed.
+/// Returns true if any argument looks like a sensitive system path.
+fn targets_sensitive_path(cmd: &CommandInfo) -> bool {
+    // Sensitive path prefixes - system directories
+    const SENSITIVE_PREFIXES: &[&str] = &[
+        "/etc/", "/usr/", "/bin/", "/sbin/", "/var/", "/opt/", "/boot/", "/root/", "/lib/",
+        "/lib64/", "/proc/", "/sys/",
+    ];
+
+    // Sensitive path patterns - user config/credentials
+    const SENSITIVE_PATTERNS: &[&str] = &[
+        "/.ssh/",
+        "/.gnupg/",
+        "/.aws/",
+        "/.kube/",
+        "/.config/gh/",
+        "/.docker/",
+        "/.npmrc",
+        "/.netrc",
+        "/.gitconfig",
+        "/.git/hooks/",
+        "/.bashrc",
+        "/.zshrc",
+        "/.profile",
+        "/.bash_profile",
+    ];
+
+    // Lock files that affect dependency resolution
+    const LOCK_FILES: &[&str] = &[
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "Cargo.lock",
+        "poetry.lock",
+        "Pipfile.lock",
+        "composer.lock",
+        "Gemfile.lock",
+    ];
+
+    for arg in &cmd.args {
+        // Skip flags
+        if arg.starts_with('-') {
+            continue;
+        }
+
+        // Expand ~ to detect home directory paths
+        let expanded = if arg.starts_with("~/") {
+            format!("/home/user{}", &arg[1..])
+        } else {
+            arg.clone()
+        };
+
+        // Check sensitive prefixes
+        for prefix in SENSITIVE_PREFIXES {
+            if expanded.starts_with(prefix) {
+                return true;
+            }
+        }
+
+        // Check sensitive patterns (anywhere in path)
+        for pattern in SENSITIVE_PATTERNS {
+            if expanded.contains(pattern) || arg.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check lock files (exact filename match at end of path)
+        for lock_file in LOCK_FILES {
+            if arg.ends_with(lock_file) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Programs that are file-editing tools (modify files in place).
-/// These are auto-allowed in acceptEdits mode.
+/// These are auto-allowed in acceptEdits mode (unless targeting sensitive paths).
 const FILE_EDITING_PROGRAMS: &[&str] = &[
     // Text replacement tools
     "sd",  // sed alternative
@@ -706,8 +819,7 @@ const FILE_EDITING_PROGRAMS: &[&str] = &[
     "patch",
     "dos2unix",
     "unix2dos",
-    // JSON/YAML editing
-    "jq", // with output redirect or -i
+    // YAML editing
     "yq", // with -i flag
 ];
 
@@ -720,6 +832,9 @@ fn is_file_editing_command(cmd: &CommandInfo) -> bool {
     if !FILE_EDITING_PROGRAMS.contains(&base_program) {
         return false;
     }
+
+    // Helper to check for read-only flags
+    let has_readonly_flag = |flags: &[&str]| cmd.args.iter().any(|a| flags.contains(&a.as_str()));
 
     // Some programs need specific flags to be file-editing
     match base_program {
@@ -737,7 +852,7 @@ fn is_file_editing_command(cmd: &CommandInfo) -> bool {
         "biome" => cmd
             .args
             .iter()
-            .any(|a| a == "--write" || a.contains("--fix")),
+            .any(|a| a == "--write" || a == "--fix" || a == "--fix-unsafe"),
         "eslint" => cmd.args.iter().any(|a| a == "--fix"),
         "ruff" => {
             // ruff format always writes, ruff check needs --fix
@@ -748,12 +863,32 @@ fn is_file_editing_command(cmd: &CommandInfo) -> bool {
             .iter()
             .any(|a| a == "-a" || a == "-A" || a == "--auto-correct" || a == "--autocorrect"),
 
-        // These always modify files when invoked
-        "sd" | "patch" | "dos2unix" | "unix2dos" => true,
+        // These always modify files when invoked (sd has no dry-run mode)
+        "sd" | "dos2unix" | "unix2dos" => true,
 
-        // Formatters that always write (no read-only mode commonly used)
-        "black" | "autopep8" | "isort" | "gofmt" | "goimports" | "rustfmt" | "clang-format"
-        | "shfmt" | "stylua" => true,
+        // patch has --dry-run mode
+        "patch" => !has_readonly_flag(&["--dry-run"]),
+
+        // Formatters that output to stdout by default - need -w flag
+        "gofmt" | "goimports" | "shfmt" => cmd.args.iter().any(|a| a == "-w"),
+
+        // clang-format outputs to stdout by default - needs -i flag
+        "clang-format" => cmd.args.iter().any(|a| a == "-i"),
+
+        // autopep8 outputs to stdout by default - needs -i or --in-place
+        "autopep8" => cmd.args.iter().any(|a| a == "-i" || a == "--in-place"),
+
+        // black writes by default but has --check/--diff modes
+        "black" => !has_readonly_flag(&["--check", "--diff"]),
+
+        // isort writes by default but has --check/--check-only/--diff modes
+        "isort" => !has_readonly_flag(&["--check", "--check-only", "--diff"]),
+
+        // rustfmt writes by default but has --check mode
+        "rustfmt" => !has_readonly_flag(&["--check"]),
+
+        // stylua writes by default but has --check mode
+        "stylua" => !has_readonly_flag(&["--check"]),
 
         _ => false,
     }
@@ -764,10 +899,11 @@ fn is_file_editing_command(cmd: &CommandInfo) -> bool {
 /// Commands that should NEVER get "always allow" suggestions.
 /// These are too dangerous to encourage blanket approval.
 const NO_SUGGESTION_PROGRAMS: &[&str] = &[
-    "rm", "rmdir", "mv", "dd", "shred", "mkfs", "fdisk", "parted", // Destructive filesystem
+    "rm", "rmdir", "mv", "dd", "shred", "mkfs", "fdisk", "parted",
+    "truncate", // Destructive filesystem
     "shutdown", "reboot", "poweroff", "halt", "init", // System control
-    "sudo", "doas", "su", // Privilege escalation (handled specially)
-    "kill", "pkill", "killall", // Process control
+    "sudo", "doas", "su", "pkexec", // Privilege escalation
+    "kill", "pkill", "killall", "skill", "slay", "xkill", // Process control
     "chmod", "chown", "chgrp", // Permission changes
 ];
 
@@ -782,6 +918,20 @@ const PROJECT_SPECIFIC_PROGRAMS: &[&str] = &[
     "bazel",
     "buck",
     "pants",
+    "just", // justfile task runner
+    // JVM build tools - project-specific build files
+    "gradle",
+    "gradlew",
+    "mvn",
+    "ant",
+    "sbt",
+    "lein", // Clojure
+    // Other language build/package tools with project-specific configs
+    "composer", // PHP
+    "bundle",   // Ruby
+    "mix",      // Elixir
+    "dotnet",   // .NET
+    "swift",    // Swift package manager
     // Cloud infrastructure - too risky for blanket global allows
     "aws",
     "gcloud",
@@ -799,6 +949,13 @@ const PROJECT_SPECIFIC_PROGRAMS: &[&str] = &[
     "scp",
     "sftp",
     "rsync",
+    // Database clients - connection strings/hosts are project-specific
+    "psql",
+    "mysql",
+    "mongo",
+    "mongosh",
+    "redis-cli",
+    "sqlite3",
     // Database migrations - config is project-specific
     "migrate",
     "goose",
@@ -830,19 +987,49 @@ fn build_rule_pattern(cmd: &CommandInfo) -> String {
 
     if cmd.args.is_empty() {
         // No args - just the program with :* suffix for any invocation
-        format!("{base_program}:*")
-    } else {
-        // Include first arg (subcommand) for more specific patterns
-        // e.g., "git push:*", "npm install:*", "cargo build:*"
-        let first_arg = &cmd.args[0];
+        return format!("{base_program}:*");
+    }
 
-        // Skip flag-like first args for the pattern
-        if first_arg.starts_with('-') {
-            format!("{base_program}:*")
-        } else {
-            format!("{base_program} {first_arg}:*")
+    // Programs with two-level subcommand hierarchies (e.g., "gh pr create", "aws s3 cp")
+    // For these, include both subcommand levels to avoid overly permissive patterns
+    // Example: "gh pr create:*" instead of "gh pr:*" (which would allow gh pr close)
+    const TWO_LEVEL_SUBCOMMAND_PROGRAMS: &[&str] = &[
+        "gh",      // gh pr create, gh issue list, gh repo clone
+        "aws",     // aws s3 cp, aws ec2 describe-instances
+        "gcloud",  // gcloud compute instances create
+        "az",      // az vm create, az storage blob upload
+        "kubectl", // kubectl get pods, kubectl apply -f
+        "docker",  // docker container run, docker image build
+        "podman",  // podman container run, podman image build
+    ];
+
+    // Get the first non-flag arg
+    let first_arg_idx = cmd.args.iter().position(|a| !a.starts_with('-'));
+    let Some(first_idx) = first_arg_idx else {
+        // All args are flags
+        return format!("{base_program}:*");
+    };
+
+    let first_arg = &cmd.args[first_idx];
+
+    // For two-level subcommand programs, try to include second subcommand
+    if TWO_LEVEL_SUBCOMMAND_PROGRAMS.contains(&base_program) {
+        // Look for second non-flag arg
+        let second_arg_idx = cmd.args[first_idx + 1..]
+            .iter()
+            .position(|a| !a.starts_with('-'))
+            .map(|i| i + first_idx + 1);
+
+        if let Some(second_idx) = second_arg_idx {
+            let second_arg = &cmd.args[second_idx];
+            // Only include if it looks like a subcommand (not a file path or argument)
+            if !second_arg.contains('/') && !second_arg.contains('.') {
+                return format!("{base_program} {first_arg} {second_arg}:*");
+            }
         }
     }
+
+    format!("{base_program} {first_arg}:*")
 }
 
 /// Check if a command should get suggestions.
@@ -872,27 +1059,34 @@ fn has_dangerous_flags(cmd: &CommandInfo) -> bool {
     let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
 
     // Flags that are always dangerous regardless of program
+    // Note: --force-with-lease is intentionally excluded - it's a SAFETY mechanism
+    // that prevents force push if remote has been updated since last fetch
     let always_dangerous = [
         "--force",
-        "--force-with-lease", // Still risky, though safer than --force
         "--hard",
         "--delete",
+        "--del", // rsync alias for --delete-during
         "--delete-force",
-        "-rf",
-        "-fr", // rm -rf style
         "--no-preserve-root",
     ];
 
     // Programs where -f means "force" (dangerous)
-    // For others like kubectl, helm, docker, -f means "file" (safe)
+    // For others like kubectl, helm, docker, tar, -f means "file" (safe)
+    // Note: tar/zip/unzip -f means "file/archive", touch/mkdir have no -f flag
     let f_means_force = [
-        "git", "rm", "cp", "mv", "ln", "touch", "mkdir", "tar", "zip", "unzip", "gzip", "bzip2",
+        "git", "rm", "cp", "mv", "ln", "gzip", "bzip2", "xz", "zstd", "lz4", "pigz",
     ];
 
     for arg in &cmd.args {
-        // Check for combined short flags like -rf
-        if arg == "-rf" || arg == "-fr" {
-            return true;
+        // Check for combined short flags containing both 'r' and 'f' (like -rf, -rfv, -Rf, -fR)
+        // This catches rm -rf style flags in any order with any additional flags
+        if arg.starts_with('-') && !arg.starts_with("--") && arg.len() > 1 {
+            let chars: Vec<char> = arg.chars().skip(1).collect();
+            let has_r = chars.iter().any(|&c| c == 'r' || c == 'R');
+            let has_f = chars.contains(&'f');
+            if has_r && has_f {
+                return true;
+            }
         }
 
         // Check always-dangerous flags
@@ -904,6 +1098,11 @@ fn has_dangerous_flags(cmd: &CommandInfo) -> bool {
 
         // Check -f only for programs where it means "force"
         if arg == "-f" && f_means_force.contains(&base_program) {
+            return true;
+        }
+
+        // Check -D for git branch (force delete without merge check)
+        if arg == "-D" && base_program == "git" {
             return true;
         }
     }
@@ -1304,7 +1503,19 @@ mod tests {
                 args: vec!["-g".to_string(), "install".to_string()],
             };
             let pattern = build_rule_pattern(&cmd);
-            // Flag first arg means we use :* without the flag
+            // Skips leading flags to find actual subcommand
+            assert_eq!(pattern, "npm install:*");
+        }
+
+        #[test]
+        fn test_rule_pattern_all_flags() {
+            let cmd = CommandInfo {
+                raw: "npm -g -v".to_string(),
+                program: "npm".to_string(),
+                args: vec!["-g".to_string(), "-v".to_string()],
+            };
+            let pattern = build_rule_pattern(&cmd);
+            // All flags means generic pattern
             assert_eq!(pattern, "npm:*");
         }
 
@@ -1336,6 +1547,98 @@ mod tests {
                 !has_suggestions(&result),
                 "git -f should NOT have suggestions"
             );
+        }
+
+        #[test]
+        fn test_git_force_with_lease_gets_suggestions() {
+            // --force-with-lease is a SAFETY mechanism, should get suggestions
+            let result = check_command("git push --force-with-lease");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(
+                has_suggestions(&result),
+                "git --force-with-lease should have suggestions (it's safer than --force)"
+            );
+        }
+
+        #[test]
+        fn test_git_force_delete_no_suggestions() {
+            // -D means force delete without merge check
+            let result = check_command("git branch -D feature");
+            assert_eq!(get_decision(&result), "ask");
+            assert!(
+                !has_suggestions(&result),
+                "git -D should NOT have suggestions"
+            );
+        }
+
+        #[test]
+        fn test_combined_rf_variants_no_suggestions() {
+            // Various -rf combinations should block suggestions
+            for cmd in [
+                "rm -rf /tmp/foo",
+                "rm -rfv /tmp/foo",
+                "rm -Rf /tmp/foo",
+                "rm -fR /tmp/foo",
+                "rm -rfi /tmp/foo",
+            ] {
+                let result = check_command(cmd);
+                assert!(
+                    !has_suggestions(&result),
+                    "{cmd} should NOT have suggestions"
+                );
+            }
+        }
+
+        #[test]
+        fn test_two_level_subcommand_patterns() {
+            // gh pr create should generate "gh pr create:*" not "gh pr:*"
+            let cmd = CommandInfo {
+                raw: "gh pr create".to_string(),
+                program: "gh".to_string(),
+                args: vec!["pr".to_string(), "create".to_string()],
+            };
+            let pattern = build_rule_pattern(&cmd);
+            assert_eq!(pattern, "gh pr create:*");
+
+            // aws s3 cp should generate "aws s3 cp:*"
+            let cmd = CommandInfo {
+                raw: "aws s3 cp file s3://bucket/".to_string(),
+                program: "aws".to_string(),
+                args: vec![
+                    "s3".to_string(),
+                    "cp".to_string(),
+                    "file".to_string(),
+                    "s3://bucket/".to_string(),
+                ],
+            };
+            let pattern = build_rule_pattern(&cmd);
+            assert_eq!(pattern, "aws s3 cp:*");
+
+            // kubectl get pods should generate "kubectl get pods:*"
+            let cmd = CommandInfo {
+                raw: "kubectl get pods".to_string(),
+                program: "kubectl".to_string(),
+                args: vec!["get".to_string(), "pods".to_string()],
+            };
+            let pattern = build_rule_pattern(&cmd);
+            assert_eq!(pattern, "kubectl get pods:*");
+        }
+
+        #[test]
+        fn test_two_level_with_file_path_falls_back() {
+            // kubectl apply -f file.yaml - second arg is a file, should fall back
+            let cmd = CommandInfo {
+                raw: "kubectl apply -f deployment.yaml".to_string(),
+                program: "kubectl".to_string(),
+                args: vec![
+                    "apply".to_string(),
+                    "-f".to_string(),
+                    "deployment.yaml".to_string(),
+                ],
+            };
+            let pattern = build_rule_pattern(&cmd);
+            // deployment.yaml has a dot, so treated as file, falls back to single level
+            assert_eq!(pattern, "kubectl apply:*");
         }
 
         #[test]

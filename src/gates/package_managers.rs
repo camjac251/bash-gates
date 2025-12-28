@@ -13,7 +13,9 @@ use crate::models::{CommandInfo, Decision, GateResult};
 
 /// Check package manager commands.
 pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
-    match cmd.program.as_str() {
+    // Strip path prefix to handle /usr/bin/npm etc.
+    let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
+    match program {
         "npm" => check_npm(cmd),
         "pnpm" => check_pnpm(cmd),
         "yarn" => check_yarn(cmd),

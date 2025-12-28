@@ -58,6 +58,22 @@ fn visit_node(cursor: &mut TreeCursor, source: &str, commands: &mut Vec<CommandI
             if let Some(cmd) = extract_command(cursor, source) {
                 commands.push(cmd);
             }
+            // Also check for nested substitutions within command arguments
+            if cursor.goto_first_child() {
+                loop {
+                    let child = cursor.node();
+                    if matches!(
+                        child.kind(),
+                        "command_substitution" | "process_substitution"
+                    ) {
+                        visit_node(cursor, source, commands);
+                    }
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+                cursor.goto_parent();
+            }
         }
         "pipeline" => {
             // Visit each command in the pipeline
@@ -83,6 +99,7 @@ fn visit_node(cursor: &mut TreeCursor, source: &str, commands: &mut Vec<CommandI
         | "program"
         | "subshell"
         | "command_substitution"
+        | "process_substitution" // <(...) and >(...) - must inspect contents
         | "if_statement"
         | "while_statement"
         | "for_statement"
@@ -378,6 +395,32 @@ mod tests {
     fn test_nested_subshell() {
         let cmds = extract_commands("echo $(echo $(git status))");
         assert!(!cmds.is_empty());
+    }
+
+    #[test]
+    fn test_process_substitution() {
+        // Process substitution <(...) should extract inner commands
+        let cmds = extract_commands("diff <(cat file1) <(cat file2)");
+        // Should find: diff, cat (twice)
+        let programs: Vec<_> = cmds.iter().map(|c| c.program.as_str()).collect();
+        assert!(
+            programs.contains(&"diff") && programs.contains(&"cat"),
+            "Expected diff and cat, got: {:?}",
+            programs
+        );
+    }
+
+    #[test]
+    fn test_process_substitution_dangerous() {
+        // Process substitution with dangerous command should be extracted
+        let cmds = extract_commands("echo <(rm -rf /)");
+        // Should find both echo and rm
+        let programs: Vec<_> = cmds.iter().map(|c| c.program.as_str()).collect();
+        assert!(
+            programs.contains(&"rm"),
+            "Expected rm to be extracted from process substitution, got: {:?}",
+            programs
+        );
     }
 
     #[test]

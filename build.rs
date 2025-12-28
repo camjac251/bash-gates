@@ -553,7 +553,9 @@ fn generate_safe_commands(commands: &[&str]) -> String {
 
     output.push_str("/// Check if a command is in the safe commands list\n");
     output.push_str("pub fn check_safe_command(cmd: &CommandInfo) -> Option<GateResult> {\n");
-    output.push_str("    if SAFE_COMMANDS.contains(cmd.program.as_str()) {\n");
+    output.push_str("    // Strip path prefix to handle /usr/bin/cat etc.\n");
+    output.push_str("    let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);\n");
+    output.push_str("    if SAFE_COMMANDS.contains(program) {\n");
     output.push_str("        Some(GateResult::allow())\n");
     output.push_str("    } else {\n");
     output.push_str("        None\n");
@@ -612,9 +614,9 @@ fn generate_conditional_rules(rules: &[&ConditionalRule]) -> String {
 
     output.push_str("/// Check conditional allow rules\n");
     output.push_str("pub fn check_conditional_allow(cmd: &CommandInfo) -> Option<GateResult> {\n");
-    output.push_str(
-        "    if let Some((flags, action)) = CONDITIONAL_ALLOW.get(cmd.program.as_str()) {\n",
-    );
+    output.push_str("    // Strip path prefix to handle /usr/bin/sed etc.\n");
+    output.push_str("    let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);\n");
+    output.push_str("    if let Some((flags, action)) = CONDITIONAL_ALLOW.get(program) {\n");
     output.push_str(
         "        let has_flag = cmd.args.iter().any(|arg| flags.contains(&arg.as_str()));\n",
     );

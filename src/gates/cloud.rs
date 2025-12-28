@@ -13,7 +13,9 @@ use crate::models::{CommandInfo, GateResult};
 
 /// Route to appropriate cloud provider gate.
 pub fn check_cloud(cmd: &CommandInfo) -> GateResult {
-    match cmd.program.as_str() {
+    // Strip path prefix to handle /usr/bin/aws etc.
+    let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
+    match program {
         "aws" => check_aws(cmd),
         "gcloud" => check_gcloud(cmd),
         "az" => check_az_declarative(cmd).unwrap_or_else(|| {

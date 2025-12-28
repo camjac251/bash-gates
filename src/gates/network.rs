@@ -11,7 +11,9 @@ use crate::models::{CommandInfo, GateResult};
 
 /// Check network commands.
 pub fn check_network(cmd: &CommandInfo) -> GateResult {
-    match cmd.program.as_str() {
+    // Strip path prefix to handle /usr/bin/curl etc.
+    let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
+    match program {
         "curl" => check_curl(cmd),
         "wget" => check_wget(cmd),
         "ssh" => check_ssh(cmd),

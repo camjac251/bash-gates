@@ -20,7 +20,8 @@ use crate::models::{CommandInfo, Decision, GateResult};
 
 /// Check system-level commands.
 pub fn check_system(cmd: &CommandInfo) -> GateResult {
-    let program = cmd.program.as_str();
+    // Strip path prefix to handle /usr/bin/psql etc.
+    let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
 
     match program {
         // Database CLIs - custom SQL parsing

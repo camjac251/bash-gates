@@ -114,15 +114,16 @@ fn check_xargs(cmd: &CommandInfo) -> GateResult {
     };
 
     let target_cmd = &args[idx];
+    // Strip path prefix to handle /usr/bin/cat etc.
+    let target_base = target_cmd.rsplit('/').next().unwrap_or(target_cmd);
 
     // Case 1: Direct safe command (xargs cat, xargs rg, etc.)
-    if SAFE_COMMANDS.contains(target_cmd.as_str()) {
+    if SAFE_COMMANDS.contains(&target_base) {
         return GateResult::allow();
     }
 
     // Case 2: Shell with -c (xargs sh -c 'script')
-    let shells = ["sh", "bash", "zsh", "/bin/sh", "/bin/bash", "/bin/zsh"];
-    if shells.contains(&target_cmd.as_str()) {
+    if matches!(target_base, "sh" | "bash" | "zsh") {
         // Look for -c flag and script
         if idx + 2 < args.len() && args[idx + 1] == "-c" {
             let script = &args[idx + 2];
@@ -164,13 +165,11 @@ fn check_shell_script_safety(script: &str) -> GateResult {
 
 /// Commands that are safe only with certain conditions
 pub fn check_basics(cmd: &CommandInfo) -> GateResult {
-    let program = cmd.program.as_str();
+    // Strip path prefix to handle /usr/bin/sed etc.
+    let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
 
     // Shell with -c flag - parse and check the inner script
-    if matches!(
-        program,
-        "bash" | "sh" | "zsh" | "/bin/bash" | "/bin/sh" | "/bin/zsh"
-    ) {
+    if matches!(program, "bash" | "sh" | "zsh") {
         if let Some(result) = check_shell_c(cmd) {
             return result;
         }

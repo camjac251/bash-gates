@@ -13,7 +13,8 @@ use crate::models::{CommandInfo, Decision, GateResult};
 
 /// Check filesystem commands.
 pub fn check_filesystem(cmd: &CommandInfo) -> GateResult {
-    let program = cmd.program.as_str();
+    // Strip path prefix to handle /usr/bin/rm etc.
+    let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
     let args = &cmd.args;
 
     match program {
