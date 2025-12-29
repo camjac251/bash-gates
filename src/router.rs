@@ -133,12 +133,12 @@ pub fn check_command_with_settings(
 
     // Check for mise task invocation and expand to underlying commands
     if let Some(task_name) = parse_mise_invocation(command_string) {
-        return check_mise_task(&task_name, command_string, cwd);
+        return check_mise_task(&task_name, command_string, cwd, permission_mode);
     }
 
     // Check for package.json script invocation (npm run, pnpm run, etc.)
     if let Some((pm, script_name)) = parse_script_invocation(command_string) {
-        return check_package_script(pm, &script_name, command_string, cwd);
+        return check_package_script(pm, &script_name, command_string, cwd, permission_mode);
     }
 
     // Run gate analysis first - blocks take priority
@@ -241,7 +241,13 @@ fn generate_wrapper_suggestions(
 /// and checks each command through the gate engine.
 /// - `task_name`: The task name (e.g., "lint", "build:prod")
 /// - `original_cmd`: The original command string (e.g., "mise lint" or "mise run lint")
-fn check_mise_task(task_name: &str, original_cmd: &str, cwd: &str) -> HookOutput {
+/// - `permission_mode`: The permission mode (e.g., "default", "acceptEdits")
+fn check_mise_task(
+    task_name: &str,
+    original_cmd: &str,
+    cwd: &str,
+    permission_mode: &str,
+) -> HookOutput {
     // Find mise config file
     let Some(config_path) = find_mise_config(cwd) else {
         return HookOutput::ask(&format!("mise {task_name}: No mise.toml found"));
@@ -267,7 +273,7 @@ fn check_mise_task(task_name: &str, original_cmd: &str, cwd: &str) -> HookOutput
 
     for cmd_string in &commands {
         // Check each extracted command, with package.json expansion support
-        let result = check_command_expanded(cmd_string, cwd);
+        let result = check_command_expanded(cmd_string, cwd, permission_mode);
 
         if let Some(ref output) = result.hook_specific_output {
             match output.permission_decision.as_str() {
@@ -328,7 +334,14 @@ fn check_mise_task(task_name: &str, original_cmd: &str, cwd: &str) -> HookOutput
 /// - `pm`: The package manager name (e.g., "pnpm", "npm")
 /// - `script_name`: The script name (e.g., "lint", "build")
 /// - `original_cmd`: The original command string (e.g., "pnpm lint" or "pnpm run lint")
-fn check_package_script(pm: &str, script_name: &str, original_cmd: &str, cwd: &str) -> HookOutput {
+/// - `permission_mode`: The permission mode (e.g., "default", "acceptEdits")
+fn check_package_script(
+    pm: &str,
+    script_name: &str,
+    original_cmd: &str,
+    cwd: &str,
+    permission_mode: &str,
+) -> HookOutput {
     // Find package.json
     let Some(pkg_path) = find_package_json(cwd) else {
         // No package.json found - fall back to normal gate check
@@ -361,6 +374,23 @@ fn check_package_script(pm: &str, script_name: &str, original_cmd: &str, cwd: &s
                 return HookOutput::deny(&format!("{pm} run {script_name}: {reason}"));
             }
             "ask" => {
+                // In acceptEdits mode, check if the underlying command is a file-editing command
+                if permission_mode == "acceptEdits" {
+                    let commands = extract_commands(&script_cmd);
+                    let settings = Settings::load(cwd);
+                    let allowed_dirs = settings.allowed_directories(cwd);
+                    let all_file_edits = commands.iter().all(is_file_editing_command);
+                    let any_sensitive = commands.iter().any(targets_sensitive_path);
+                    let any_outside = commands
+                        .iter()
+                        .any(|cmd| targets_outside_allowed_dirs(cmd, &allowed_dirs));
+                    if all_file_edits && !commands.is_empty() && !any_sensitive && !any_outside {
+                        return HookOutput::allow(Some(&format!(
+                            "{pm} run {script_name}: Auto-allowed in acceptEdits mode"
+                        )));
+                    }
+                }
+
                 let reason = output
                     .permission_decision_reason
                     .as_deref()
@@ -400,7 +430,7 @@ fn check_package_script(pm: &str, script_name: &str, original_cmd: &str, cwd: &s
 
 /// Check a command with package.json script expansion.
 /// Used by mise task expansion to handle commands like "pnpm lint" properly.
-fn check_command_expanded(command_string: &str, cwd: &str) -> HookOutput {
+fn check_command_expanded(command_string: &str, cwd: &str, permission_mode: &str) -> HookOutput {
     if command_string.trim().is_empty() {
         return HookOutput::approve();
     }
@@ -439,7 +469,8 @@ fn check_command_expanded(command_string: &str, cwd: &str) -> HookOutput {
         let cwd_str = effective_cwd.to_string_lossy();
         // Try package.json script expansion for this individual command
         if let Some((pm, script_name)) = parse_script_invocation(&cmd.raw) {
-            let result = check_package_script(pm, &script_name, &cmd.raw, &cwd_str);
+            let result =
+                check_package_script(pm, &script_name, &cmd.raw, &cwd_str, permission_mode);
             if let Some(ref output) = result.hook_specific_output {
                 match output.permission_decision.as_str() {
                     "deny" => {
@@ -469,6 +500,17 @@ fn check_command_expanded(command_string: &str, cwd: &str) -> HookOutput {
                     block_reasons.push(result.reason.unwrap_or_else(|| "Blocked".to_string()));
                 }
                 Decision::Ask => {
+                    // In acceptEdits mode, check if this is a file-editing command
+                    if permission_mode == "acceptEdits" && is_file_editing_command(cmd) {
+                        let settings = Settings::load(&cwd_str);
+                        let allowed_dirs = settings.allowed_directories(&cwd_str);
+                        if !targets_sensitive_path(cmd)
+                            && !targets_outside_allowed_dirs(cmd, &allowed_dirs)
+                        {
+                            // Auto-allow file-editing command in acceptEdits mode
+                            continue;
+                        }
+                    }
                     ask_reasons.push(
                         result
                             .reason

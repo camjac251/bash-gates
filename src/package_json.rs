@@ -103,6 +103,15 @@ pub fn parse_script_invocation(command: &str) -> Option<(&'static str, String)> 
                     "start",
                     "build",
                     "dev",
+                    // Common scripts that are also TOML-allowed subcommands
+                    // These should go through the gate, not script expansion
+                    "lint",
+                    "check",
+                    "typecheck",
+                    "format",
+                    "tsc",
+                    "prettier",
+                    "eslint",
                     // Flags
                     "-v",
                     "--version",
@@ -155,14 +164,21 @@ mod tests {
 
     #[test]
     fn test_parse_script_invocation_pnpm_shorthand() {
-        // pnpm allows running scripts without "run"
+        // pnpm allows running scripts without "run" (for non-builtin script names)
+        // Note: lint, check, typecheck, format, tsc are now treated as builtin commands
+        // so they go through the gate path, not script expansion
         assert_eq!(
             parse_script_invocation("pnpm lint"),
-            Some(("pnpm", "lint".to_string()))
+            None // lint is now a builtin, goes through gate
         );
         assert_eq!(
             parse_script_invocation("pnpm typecheck"),
-            Some(("pnpm", "typecheck".to_string()))
+            None // typecheck is now a builtin
+        );
+        // Custom scripts are still expanded
+        assert_eq!(
+            parse_script_invocation("pnpm my-custom-script"),
+            Some(("pnpm", "my-custom-script".to_string()))
         );
     }
 
@@ -181,9 +197,12 @@ mod tests {
             parse_script_invocation("yarn run test"),
             Some(("yarn", "test".to_string()))
         );
+        // lint is now a builtin command, goes through gate
+        assert_eq!(parse_script_invocation("yarn lint"), None);
+        // Custom scripts are still expanded
         assert_eq!(
-            parse_script_invocation("yarn lint"),
-            Some(("yarn", "lint".to_string()))
+            parse_script_invocation("yarn my-custom-script"),
+            Some(("yarn", "my-custom-script".to_string()))
         );
     }
 
