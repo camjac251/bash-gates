@@ -92,6 +92,12 @@ if_flags_any = ["--post-data", "--post-file"]
 [[programs.ask]]
 reason = "Downloading"
 
+# Note: Custom handler checks spider mode and dangerous download patterns
+[[custom_handlers]]
+program = "wget"
+handler = "check_wget"
+description = "Allow --spider (read-only), ask for downloads (-O, -r, -m, --post-*)"
+
 # =============================================================================
 # SSH
 # =============================================================================
@@ -140,6 +146,12 @@ flags_any = ["-n", "--dry-run"]
 [[programs.ask]]
 reason = "File sync"
 
+# Note: Custom handler checks dry-run flag
+[[custom_handlers]]
+program = "rsync"
+handler = "check_rsync"
+description = "Allow --dry-run/-n (preview mode), ask for actual syncs"
+
 # =============================================================================
 # NETCAT (nc, ncat, netcat)
 # =============================================================================
@@ -161,6 +173,12 @@ if_flags_any = ["-l"]
 
 [[programs.ask]]
 reason = "Network connection"
+
+# Note: Custom handler blocks -e (reverse shell) and asks for -l (listen)
+[[custom_handlers]]
+program = "nc"
+handler = "check_netcat"
+description = "Block -e (reverse shell risk), ask for -l (listen mode), ask for connections"
 
 # =============================================================================
 # HTTPIE (http, https, xh)

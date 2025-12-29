@@ -155,6 +155,7 @@ program = "sed"
 description = "sed is safe without -i flag (in-place edit)"
 unless_flags = ["-i", "--in-place"]
 on_flag_present = "ask"
+accept_edits_auto_allow = true
 
 # =============================================================================
 # PERL (always asks - can execute arbitrary code via -e, system(), etc.)

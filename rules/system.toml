@@ -303,6 +303,7 @@ program = "psql"
 handler = "check_psql"
 description = "Parse -c query for SELECT/\\d (allow) vs INSERT/UPDATE/DELETE (ask), -f always asks"
 
+
 # =============================================================================
 # POSTGRESQL UTILITIES
 # =============================================================================
@@ -424,11 +425,8 @@ reason = "Database session"
 name = "redis-cli"
 unknown_action = "ask"
 
-# Note: Custom handler checks first arg for read commands
-[[custom_handlers]]
-program = "redis-cli"
-handler = "check_redis"
-description = "Allow GET/MGET/HGET/KEYS/INFO/PING, ask for SET/DEL/FLUSHDB"
+# Note: redis-cli always asks - no custom handler implemented yet
+# Future: Could check first arg for read commands (GET/MGET/HGET/KEYS/INFO/PING)
 
 # =============================================================================
 # PROCESS MANAGEMENT
@@ -445,12 +443,24 @@ if_flags_any = ["-0"]
 [[programs.ask]]
 reason = "Terminating process(es)"
 
+# Note: Custom handler also allows -l/-L (list signals)
+[[custom_handlers]]
+program = "kill"
+handler = "check_kill"
+description = "Allow -0 (check process exists) and -l/-L (list signals)"
+
 [[programs]]
 name = "pkill"
 unknown_action = "ask"
 
 [[programs.ask]]
 reason = "Terminating process(es)"
+
+# Note: Custom handler also allows -0 (check pattern exists)
+[[custom_handlers]]
+program = "pkill"
+handler = "check_pkill"
+description = "Allow -0 (just checks if matching processes exist, no signal sent)"
 
 [[programs]]
 name = "killall"
@@ -972,6 +982,12 @@ reason = "Isolating target"
 subcommand = "edit"
 reason = "Editing unit"
 
+# Note: Custom handler checks read-only operations before falling back to declarative
+[[custom_handlers]]
+program = "systemctl"
+handler = "check_systemctl"
+description = "Check for read-only ops (status, list-units, is-active, etc.) before declarative rules"
+
 # =============================================================================
 # SERVICE
 # =============================================================================
@@ -984,11 +1000,8 @@ unknown_action = "ask"
 [[programs.allow]]
 if_flags_any = ["--status-all"]
 
-# Note: Custom handler checks for "service <name> status"
-[[custom_handlers]]
-program = "service"
-handler = "check_service"
-description = "Allow 'service <name> status', ask for other actions"
+# Note: service always asks - no custom handler implemented yet
+# Future: Could allow 'service <name> status' (read-only)
 
 # =============================================================================
 # CRONTAB
@@ -1004,6 +1017,12 @@ if_flags_any = ["-l"]
 
 [[programs.ask]]
 reason = "Modifying scheduled tasks"
+
+# Note: Custom handler checks -l flag
+[[custom_handlers]]
+program = "crontab"
+handler = "check_crontab"
+description = "Allow -l (list scheduled tasks), ask for other operations"
 
 # =============================================================================
 # APT / APT-GET / APT-CACHE
@@ -1142,6 +1161,12 @@ default_allow = true
 
 # apt-cache is always read-only
 
+# Note: Custom handler checks read-only subcommands before falling back to declarative
+[[custom_handlers]]
+program = "apt"
+handler = "check_apt"
+description = "Check for read-only subcommands (list, search, show, etc.) before declarative rules"
+
 # =============================================================================
 # DNF / YUM
 # =============================================================================
@@ -1259,6 +1284,12 @@ reason = "Swapping packages"
 [[programs.ask]]
 subcommand = "distro-sync"
 reason = "Syncing distribution"
+
+# Note: Custom handler checks read-only subcommands before falling back to declarative
+[[custom_handlers]]
+program = "dnf"
+handler = "check_dnf"
+description = "Check for read-only subcommands (list, info, search, etc.) before declarative rules"
 
 # =============================================================================
 # PACMAN / YAY / PARU
@@ -1458,6 +1489,12 @@ reason = "Removing unused"
 [[programs.ask]]
 subcommand = "services"
 reason = "Managing services"
+
+# Note: Custom handler checks read-only subcommands before falling back to declarative
+[[custom_handlers]]
+program = "brew"
+handler = "check_brew"
+description = "Check for read-only subcommands (list, info, search, etc.) before declarative rules"
 
 # =============================================================================
 # ZYPPER (openSUSE)

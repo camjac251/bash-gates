@@ -211,4 +211,20 @@ priority = 100
 [[custom_handlers]]
 program = "xargs"
 handler = "check_xargs"
-description = "Allow xargs only when target command is in safe_commands list"
+description = "Allow xargs only when target command is in safe_commands list, also handles xargs sh -c 'script'"
+
+# bash/sh/zsh -c 'script' needs custom handling to parse and check the inner script
+[[custom_handlers]]
+program = "bash"
+handler = "check_shell_c"
+description = "Parse bash -c 'script' and check each command in script is safe"
+
+[[custom_handlers]]
+program = "sh"
+handler = "check_shell_c"
+description = "Parse sh -c 'script' and check each command in script is safe"
+
+[[custom_handlers]]
+program = "zsh"
+handler = "check_shell_c"
+description = "Parse zsh -c 'script' and check each command in script is safe"

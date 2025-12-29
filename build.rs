@@ -158,7 +158,10 @@ fn validate_program_rules(path: &Path, program: &ProgramRules) {
                 );
             }
             allow_cmds.insert(key);
-        } else if rule.subcommand_prefix.is_none() && rule.if_flags_any.is_empty() {
+        } else if rule.subcommand_prefix.is_none()
+            && rule.action_prefix.is_none()
+            && rule.if_flags_any.is_empty()
+        {
             // This is a bare allow rule with no conditions - it's valid
             if allow_cmds.contains("") {
                 panic!("{}: {}: duplicate bare allow rule", file_name, prog_name);
@@ -195,7 +198,11 @@ fn validate_program_rules(path: &Path, program: &ProgramRules) {
         }
 
         // Track bare ask rules (no subcommand, no prefix, no flags - matches any invocation)
-        if parts.is_empty() && rule.subcommand_prefix.is_none() && rule.if_flags_any.is_empty() {
+        if parts.is_empty()
+            && rule.subcommand_prefix.is_none()
+            && rule.action_prefix.is_none()
+            && rule.if_flags_any.is_empty()
+        {
             if has_bare_ask {
                 panic!("{}: {}: duplicate bare ask rule", file_name, prog_name);
             }
@@ -205,7 +212,11 @@ fn validate_program_rules(path: &Path, program: &ProgramRules) {
 
         // Only check for duplicates on simple asks (no flags or prefix)
         // Flagged/prefixed asks can have the same subcommand as they have different conditions
-        if !parts.is_empty() && rule.if_flags_any.is_empty() && rule.subcommand_prefix.is_none() {
+        if !parts.is_empty()
+            && rule.if_flags_any.is_empty()
+            && rule.subcommand_prefix.is_none()
+            && rule.action_prefix.is_none()
+        {
             let key = parts.join(" ");
             if ask_cmds.contains(&key) {
                 panic!(
@@ -338,6 +349,11 @@ struct AllowRule {
     subcommands: Vec<String>,
     #[serde(default)]
     subcommand_prefix: Option<String>,
+    /// Check if args[1] (the "action" in commands like `aws <service> <action>`)
+    /// starts with this prefix. Useful for AWS-style commands where the action
+    /// is the second argument regardless of which service is used.
+    #[serde(default)]
+    action_prefix: Option<String>,
     #[serde(default)]
     unless_flags: Vec<String>,
     #[serde(default)]
@@ -355,6 +371,11 @@ struct AskRule {
     subcommands: Vec<String>,
     #[serde(default)]
     subcommand_prefix: Option<String>,
+    /// Check if args[1] (the "action" in commands like `aws <service> <action>`)
+    /// starts with this prefix. Useful for AWS-style commands where the action
+    /// is the second argument regardless of which service is used.
+    #[serde(default)]
+    action_prefix: Option<String>,
     reason: String,
     #[serde(default)]
     #[allow(dead_code)] // Used in TOML but not in Gemini export (inherits default ask)
@@ -363,6 +384,10 @@ struct AskRule {
     if_flags: Vec<String>,
     #[serde(default)]
     if_flags_any: Vec<String>,
+    /// If true, this ask rule should be auto-allowed in acceptEdits mode
+    /// (when the command targets files within the allowed directories).
+    #[serde(default)]
+    accept_edits_auto_allow: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -416,6 +441,9 @@ struct ConditionalRule {
     on_flag_present: OnFlagAction,
     #[serde(default)]
     description: Option<String>,
+    /// If true, this conditional ask should be auto-allowed in acceptEdits mode
+    #[serde(default)]
+    accept_edits_auto_allow: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -533,6 +561,9 @@ fn generate_rust_code(rule_files: &[(String, RuleFile)]) -> String {
 
     // Generate unified gate functions
     output.push_str(&generate_gate_functions(rule_files));
+
+    // Generate file-editing detection code
+    output.push_str(&generate_file_editing_code(rule_files));
 
     output
 }
@@ -655,6 +686,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
         .iter()
         .filter(|r| {
             r.subcommand_prefix.is_none()
+                && r.action_prefix.is_none()
                 && r.unless_flags.is_empty()
                 && r.unless_args_contain.is_empty()
         })
@@ -667,7 +699,10 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
         .ask
         .iter()
         .filter(|r| {
-            r.subcommand_prefix.is_none() && r.if_flags.is_empty() && r.if_flags_any.is_empty()
+            r.subcommand_prefix.is_none()
+                && r.action_prefix.is_none()
+                && r.if_flags.is_empty()
+                && r.if_flags_any.is_empty()
         })
         .map(|r| (r.subcommand_parts().join(" "), r.reason.clone()))
         .filter(|(s, _)| !s.is_empty())
@@ -677,6 +712,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
     let bare_ask: Option<&AskRule> = program.ask.iter().find(|r| {
         r.subcommand_parts().is_empty()
             && r.subcommand_prefix.is_none()
+            && r.action_prefix.is_none()
             && r.if_flags_any.is_empty()
     });
 
@@ -899,15 +935,19 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
         output.push('\n');
     }
 
-    // Check complex asks (with flags)
+    // Check complex asks (with flags or prefixes)
     let complex_asks: Vec<&AskRule> = program
         .ask
         .iter()
-        .filter(|r| !r.if_flags_any.is_empty() || r.subcommand_prefix.is_some())
+        .filter(|r| {
+            !r.if_flags_any.is_empty()
+                || r.subcommand_prefix.is_some()
+                || r.action_prefix.is_some()
+        })
         .collect();
 
     if !complex_asks.is_empty() {
-        output.push_str("    // Check ask rules with flag conditions\n");
+        output.push_str("    // Check ask rules with flag/prefix conditions\n");
         for ask in complex_asks {
             if !ask.if_flags_any.is_empty() {
                 let parts = ask.subcommand_parts();
@@ -963,6 +1003,20 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                 ));
                 output.push_str("    }\n");
             }
+            // Handle action_prefix - checks if args[1] starts with prefix
+            // Useful for AWS-style commands: aws <service> <action>
+            if let Some(ref prefix) = ask.action_prefix {
+                output.push_str(&format!(
+                    "    if cmd.args.get(1).is_some_and(|a| a.starts_with(\"{}\")) {{\n",
+                    escape_rust_string(prefix)
+                ));
+                output.push_str(&format!(
+                    "        return Some(GateResult::ask(\"{}: {}\"));\n",
+                    name,
+                    escape_rust_string(&ask.reason)
+                ));
+                output.push_str("    }\n");
+            }
         }
         output.push('\n');
     }
@@ -983,6 +1037,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
         .iter()
         .filter(|r| {
             r.subcommand_prefix.is_some()
+                || r.action_prefix.is_some()
                 || !r.unless_flags.is_empty()
                 || !r.if_flags_any.is_empty()
         })
@@ -1015,6 +1070,17 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                         escape_rust_string(prefix)
                     ));
                 }
+                output.push_str("        return Some(GateResult::allow());\n");
+                output.push_str("    }\n");
+            }
+
+            // Handle action_prefix - checks if args[1] starts with prefix
+            // Useful for AWS-style commands: aws <service> <action>
+            if let Some(ref prefix) = allow.action_prefix {
+                output.push_str(&format!(
+                    "    if cmd.args.get(1).is_some_and(|a| a.starts_with(\"{}\")) {{\n",
+                    escape_rust_string(prefix)
+                ));
                 output.push_str("        return Some(GateResult::allow());\n");
                 output.push_str("    }\n");
             }
@@ -1367,6 +1433,195 @@ fn generate_gate_functions(rule_files: &[(String, RuleFile)]) -> String {
 }
 
 // ============================================================================
+// File Editing Detection Code Generation
+// ============================================================================
+
+/// Represents a file-editing rule extracted from TOML
+#[derive(Debug)]
+struct FileEditingRule {
+    program: String,
+    aliases: Vec<String>,
+    subcommand: Option<String>,
+    if_flags_any: Vec<String>,
+    // True if this is a bare ask with accept_edits_auto_allow (no subcommand or flags needed)
+    is_bare: bool,
+}
+
+fn generate_file_editing_code(rule_files: &[(String, RuleFile)]) -> String {
+    let mut output = String::new();
+
+    output.push_str("// ============================================================================\n");
+    output.push_str("// File Editing Detection (generated from accept_edits_auto_allow rules)\n");
+    output.push_str("// ============================================================================\n\n");
+
+    // Collect all file-editing rules from TOML
+    let mut rules: Vec<FileEditingRule> = Vec::new();
+    let mut programs_set: HashSet<String> = HashSet::new();
+
+    for (_, rule_file) in rule_files {
+        // Collect from ask rules
+        for program in &rule_file.programs {
+            for ask in &program.ask {
+                if ask.accept_edits_auto_allow {
+                    let rule = FileEditingRule {
+                        program: program.name.clone(),
+                        aliases: program.aliases.clone(),
+                        subcommand: ask.subcommand.clone(),
+                        if_flags_any: ask.if_flags_any.clone(),
+                        is_bare: ask.subcommand.is_none()
+                            && ask.subcommand_prefix.is_none()
+                            && ask.if_flags_any.is_empty(),
+                    };
+                    programs_set.insert(program.name.clone());
+                    for alias in &program.aliases {
+                        programs_set.insert(alias.clone());
+                    }
+                    rules.push(rule);
+                }
+            }
+        }
+
+        // Collect from conditional_allow rules (these have unless_flags that trigger ask)
+        for cond in &rule_file.conditional_allow {
+            if cond.accept_edits_auto_allow && cond.on_flag_present == OnFlagAction::Ask {
+                let rule = FileEditingRule {
+                    program: cond.program.clone(),
+                    aliases: cond.aliases.clone(),
+                    subcommand: None,
+                    if_flags_any: cond.unless_flags.clone(),
+                    is_bare: false,
+                };
+                programs_set.insert(cond.program.clone());
+                for alias in &cond.aliases {
+                    programs_set.insert(alias.clone());
+                }
+                rules.push(rule);
+            }
+        }
+    }
+
+    // Generate static list of file-editing programs
+    let mut programs: Vec<&str> = programs_set.iter().map(String::as_str).collect();
+    programs.sort();
+
+    output.push_str("/// Programs that have file-editing rules (generated from accept_edits_auto_allow)\n");
+    output.push_str("pub static FILE_EDITING_PROGRAMS: LazyLock<HashSet<&str>> = LazyLock::new(|| {\n");
+    output.push_str("    [\n");
+    for prog in &programs {
+        output.push_str(&format!("        \"{}\",\n", escape_rust_string(prog)));
+    }
+    output.push_str("    ].into_iter().collect()\n");
+    output.push_str("});\n\n");
+
+    // Generate the check function
+    output.push_str("/// Check if a command is a file-editing command (generated from accept_edits_auto_allow rules)\n");
+    output.push_str("/// Returns true if the command should be auto-allowed in acceptEdits mode.\n");
+    output.push_str("pub fn is_file_editing_command(cmd: &CommandInfo) -> bool {\n");
+    output.push_str("    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);\n");
+    output.push_str("    \n");
+    output.push_str("    // Quick check: is this a known file-editing program?\n");
+    output.push_str("    if !FILE_EDITING_PROGRAMS.contains(base_program) {\n");
+    output.push_str("        return false;\n");
+    output.push_str("    }\n\n");
+
+    // Group rules by program for efficient matching
+    let mut rules_by_program: std::collections::HashMap<String, Vec<&FileEditingRule>> =
+        std::collections::HashMap::new();
+    for rule in &rules {
+        rules_by_program
+            .entry(rule.program.clone())
+            .or_default()
+            .push(rule);
+        for alias in &rule.aliases {
+            rules_by_program
+                .entry(alias.clone())
+                .or_default()
+                .push(rule);
+        }
+    }
+
+    // Generate match statement
+    output.push_str("    match base_program {\n");
+
+    // Sort programs for deterministic output
+    let mut sorted_programs: Vec<&String> = rules_by_program.keys().collect();
+    sorted_programs.sort();
+
+    for prog in sorted_programs {
+        let prog_rules = &rules_by_program[prog];
+        output.push_str(&format!("        \"{}\" => {{\n", escape_rust_string(prog)));
+
+        // Group by condition type for cleaner code
+        let bare_rules: Vec<_> = prog_rules.iter().filter(|r| r.is_bare).collect();
+        let flag_rules: Vec<_> = prog_rules
+            .iter()
+            .filter(|r| !r.if_flags_any.is_empty())
+            .collect();
+        let subcommand_rules: Vec<_> = prog_rules
+            .iter()
+            .filter(|r| r.subcommand.is_some() && r.if_flags_any.is_empty())
+            .collect();
+
+        // Bare rules (always file-editing for this program)
+        if !bare_rules.is_empty() {
+            output.push_str("            // Bare rule: always file-editing\n");
+            output.push_str("            true\n");
+        } else {
+            let mut conditions: Vec<String> = Vec::new();
+
+            // Flag-based rules
+            for rule in &flag_rules {
+                let flags: Vec<String> = rule
+                    .if_flags_any
+                    .iter()
+                    .map(|f| format!("\"{}\"", escape_rust_string(f)))
+                    .collect();
+                if let Some(ref subcmd) = rule.subcommand {
+                    conditions.push(format!(
+                        "(cmd.args.first().is_some_and(|a| a == \"{}\") && cmd.args.iter().any(|a| [{}].contains(&a.as_str())))",
+                        escape_rust_string(subcmd),
+                        flags.join(", ")
+                    ));
+                } else {
+                    conditions.push(format!(
+                        "cmd.args.iter().any(|a| [{}].contains(&a.as_str()))",
+                        flags.join(", ")
+                    ));
+                }
+            }
+
+            // Subcommand-only rules (no flags required)
+            for rule in &subcommand_rules {
+                if let Some(ref subcmd) = rule.subcommand {
+                    conditions.push(format!(
+                        "cmd.args.first().is_some_and(|a| a == \"{}\")",
+                        escape_rust_string(subcmd)
+                    ));
+                }
+            }
+
+            if conditions.is_empty() {
+                output.push_str("            false\n");
+            } else if conditions.len() == 1 {
+                output.push_str(&format!("            {}\n", conditions[0]));
+            } else {
+                output.push_str("            ");
+                output.push_str(&conditions.join("\n                || "));
+                output.push('\n');
+            }
+        }
+
+        output.push_str("        }\n");
+    }
+
+    output.push_str("        _ => false,\n");
+    output.push_str("    }\n");
+    output.push_str("}\n\n");
+
+    output
+}
+
+// ============================================================================
 // TOML Policy Generation
 // ============================================================================
 
@@ -1559,6 +1814,26 @@ fn generate_toml_policy(rule_files: &[(String, RuleFile)]) -> String {
                         output.push_str("decision = \"allow\"\n");
                         output.push_str(&format!("priority = {}\n\n", priority::ALLOW + 10)); // Higher priority than base allow
                     }
+                    continue;
+                }
+
+                // Handle action_prefix - allow when 2nd arg (action) starts with prefix
+                // Used for AWS-style commands: aws <service> <action>
+                if let Some(ref prefix) = allow.action_prefix {
+                    output.push_str(&format!(
+                        "# {}: allow when action starts with {}\n",
+                        program.name, prefix
+                    ));
+                    output.push_str("[[rule]]\n");
+                    output.push_str("toolName = \"run_shell_command\"\n");
+                    // Match: program <anything> <prefix>...
+                    output.push_str(&format!(
+                        "commandRegex = \"{}\\\\s+\\\\S+\\\\s+{}[^\\\\s]*\"\n",
+                        regex_escape(&program.name),
+                        regex_escape(prefix)
+                    ));
+                    output.push_str("decision = \"allow\"\n");
+                    output.push_str(&format!("priority = {}\n\n", priority::ALLOW));
                     continue;
                 }
 

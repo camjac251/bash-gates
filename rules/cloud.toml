@@ -49,6 +49,126 @@ subcommand = "sts get-session-token"
 [[programs.allow]]
 subcommand = "configure list"
 
+# Read-only action prefixes (args[1] starts with these)
+# These match patterns like: aws ec2 describe-instances, aws iam list-users
+[[programs.allow]]
+action_prefix = "describe"
+
+[[programs.allow]]
+action_prefix = "list"
+
+[[programs.allow]]
+action_prefix = "get"
+
+[[programs.allow]]
+action_prefix = "head"
+
+[[programs.allow]]
+action_prefix = "query"
+
+[[programs.allow]]
+action_prefix = "scan"
+
+[[programs.allow]]
+action_prefix = "filter"
+
+# Write action prefixes - require approval
+[[programs.ask]]
+action_prefix = "create"
+reason = "Creating resources"
+
+[[programs.ask]]
+action_prefix = "delete"
+reason = "Deleting resources"
+
+[[programs.ask]]
+action_prefix = "put"
+reason = "Writing resources"
+
+[[programs.ask]]
+action_prefix = "update"
+reason = "Updating resources"
+
+[[programs.ask]]
+action_prefix = "modify"
+reason = "Modifying resources"
+
+[[programs.ask]]
+action_prefix = "remove"
+reason = "Removing resources"
+
+[[programs.ask]]
+action_prefix = "run"
+reason = "Running resources"
+
+[[programs.ask]]
+action_prefix = "start"
+reason = "Starting resources"
+
+[[programs.ask]]
+action_prefix = "stop"
+reason = "Stopping resources"
+
+[[programs.ask]]
+action_prefix = "terminate"
+reason = "Terminating resources"
+
+[[programs.ask]]
+action_prefix = "reboot"
+reason = "Rebooting resources"
+
+[[programs.ask]]
+action_prefix = "attach"
+reason = "Attaching resources"
+
+[[programs.ask]]
+action_prefix = "detach"
+reason = "Detaching resources"
+
+[[programs.ask]]
+action_prefix = "associate"
+reason = "Associating resources"
+
+[[programs.ask]]
+action_prefix = "disassociate"
+reason = "Disassociating resources"
+
+[[programs.ask]]
+action_prefix = "enable"
+reason = "Enabling resources"
+
+[[programs.ask]]
+action_prefix = "disable"
+reason = "Disabling resources"
+
+[[programs.ask]]
+action_prefix = "register"
+reason = "Registering resources"
+
+[[programs.ask]]
+action_prefix = "deregister"
+reason = "Deregistering resources"
+
+[[programs.ask]]
+action_prefix = "invoke"
+reason = "Invoking resources"
+
+[[programs.ask]]
+action_prefix = "publish"
+reason = "Publishing resources"
+
+[[programs.ask]]
+action_prefix = "send"
+reason = "Sending messages"
+
+[[programs.ask]]
+action_prefix = "tag"
+reason = "Tagging resources"
+
+[[programs.ask]]
+action_prefix = "untag"
+reason = "Untagging resources"
+
 # Blocked commands
 [[programs.block]]
 subcommand = "iam delete-user"
@@ -57,12 +177,6 @@ reason = "Deleting IAM users is blocked"
 [[programs.block]]
 subcommand_prefix = "organizations delete"
 reason = "Organization deletion blocked"
-
-# Custom handler for service+action prefix matching
-[[custom_handlers]]
-program = "aws"
-handler = "check_aws"
-description = "Complex prefix matching for describe-*/list-*/get-* (allow) vs create-*/delete-*/put-* (ask)"
 
 # =============================================================================
 # GOOGLE CLOUD (gcloud)
@@ -262,6 +376,12 @@ reason = "Project create"
 subcommand = "projects delete"
 reason = "Project delete"
 
+# Note: Custom handler for 3-word patterns (gcloud <group> <resource> <action>)
+[[custom_handlers]]
+program = "gcloud"
+handler = "check_gcloud"
+description = "Handle 3-word patterns: allow list/describe/get actions, ask for create/delete/update/deploy/start/stop"
+
 # =============================================================================
 # AZURE CLI (az)
 # =============================================================================
@@ -280,11 +400,8 @@ subcommand = "--help"
 [[programs.allow]]
 subcommand = "-h"
 
-# Custom handler for Azure show/list patterns
-[[custom_handlers]]
-program = "az"
-handler = "check_az"
-description = "Allow list/show subcommands, ask for create/delete/update/start/stop/restart"
+# Note: az uses declarative rules only (no custom handler needed)
+# The Rust code just wraps declarative with a default ask message
 
 # =============================================================================
 # TERRAFORM / OPENTOFU
@@ -373,6 +490,7 @@ reason = "Terraform: Initializing"
 [[programs.ask]]
 subcommand = "fmt"
 reason = "Terraform: Formatting files"
+accept_edits_auto_allow = true
 
 # state mutations
 [[programs.ask]]
@@ -403,6 +521,12 @@ reason = "Terraform: workspace delete"
 [[programs.ask]]
 subcommand = "workspace select"
 reason = "Terraform: workspace select"
+
+# Note: Custom handler for fmt -check (TOML order issue: ask rule shadows allow rule)
+[[custom_handlers]]
+program = "terraform"
+handler = "check_terraform"
+description = "Handle fmt -check (allow) vs fmt without -check (ask), since TOML order matters"
 
 # =============================================================================
 # KUBECTL
@@ -837,6 +961,12 @@ reason = "Docker: volume rm"
 [[programs.ask]]
 subcommand = "system prune"
 reason = "Docker: system prune"
+
+# Note: Custom handler for docker compose with flags between "compose" and subcommand
+[[custom_handlers]]
+program = "docker"
+handler = "check_docker"
+description = "Handle docker compose with flags (e.g., docker compose -f x.yml config)"
 
 # =============================================================================
 # PODMAN

@@ -71,13 +71,14 @@ src/
 
 1. **Input**: JSON from Claude Code's PreToolUse hook (includes `cwd`, `permission_mode`)
 2. **Mise expansion**: If command is `mise run <task>` or `mise <task>`, expand to underlying commands
-3. **Settings check**: Load `~/.claude/settings.json` + `.claude/settings.json`, check if command matches deny/ask rules
-4. **Accept Edits Mode**: If `permission_mode` is `acceptEdits` and command is file-editing, auto-allow
-5. **Security checks**: Raw string patterns (pipe-to-shell, xargs, redirections)
-6. **Parse**: tree-sitter-bash extracts individual commands from compound statements
-7. **Check**: Each command runs through all gates
-8. **Decide**: Strictest decision wins (block > ask > allow > skip)
-9. **Output**: JSON with `permissionDecision` (allow/ask/deny) and `suggestions` for ask decisions
+3. **Package.json expansion**: If command is `npm run <script>`, `pnpm run <script>`, etc., expand to underlying command
+4. **Gate analysis**: Security checks (raw string patterns) + tree-sitter parsing + gate checks; strictest decision wins
+5. **If blocked**: Deny immediately (dangerous commands always blocked, regardless of settings)
+6. **Load settings**: Merge settings.json from all locations
+7. **Settings deny**: If command matches deny rules, deny immediately
+8. **Accept Edits Mode**: If `permission_mode` is `acceptEdits` and command is file-editing within allowed directories, auto-allow
+9. **Settings ask/allow**: Check remaining settings.json rules
+10. **Output**: JSON with `permissionDecision` (allow/ask/deny) and `suggestions` for ask decisions
 
 ## Mise Task Expansion (mise.rs)
 
@@ -160,7 +161,7 @@ When bash-gates sees `npm run <script>`, `pnpm run <script>`, `yarn <script>`, e
 
 ## Settings.json Integration (settings.rs)
 
-bash-gates combines gate analysis with your Claude Code permission rules. Gate blocks take priority (dangerous commands always denied), then settings.json is checked:
+bash-gates combines gate analysis with your Claude Code permission rules. Gate blocks take priority (dangerous commands always denied), then settings.json deny rules, then acceptEdits mode:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -169,11 +170,14 @@ bash-gates combines gate analysis with your Claude Code permission rules. Gate b
 │  1. Run bash-gates analysis first                           │
 │     └─ gate blocks  → deny directly (dangerous always blocked) │
 │  2. Load settings.json (all locations, merged)              │
-│  3. Check command against settings.json rules               │
-│     ├─ matches deny  → deny directly                        │
+│  3. Check settings.json DENY rules                          │
+│     └─ matches deny  → deny directly                        │
+│  4. acceptEdits mode + file-editing command                 │
+│     └─ auto-allow (if not blocked or denied above)          │
+│  5. Check settings.json ask/allow rules                     │
 │     ├─ matches ask   → return ask (defer to CC)             │
 │     └─ matches allow → return allow                         │
-│  4. No settings match → use gate result (allow/ask)         │
+│  6. No settings match → use gate result (allow/ask)         │
 └─────────────────────────────────────────────────────────────┘
 ```
 

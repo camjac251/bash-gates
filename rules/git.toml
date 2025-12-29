@@ -408,10 +408,25 @@ reason = "git worktree operation"
 
 [[custom_handlers]]
 program = "git"
+handler = "extract_subcommand"
+description = "Skip global options (-C, --git-dir, -c, etc.) to find actual subcommand"
+
+[[custom_handlers]]
+program = "git"
 handler = "check_git_add"
 description = "Handle git add with special checks for -A, --all, ., wildcards"
 
 [[custom_handlers]]
 program = "git"
-handler = "check_git_global_opts"
-description = "Skip global options (-C, --git-dir, etc.) to find actual subcommand"
+handler = "force_with_lease_handling"
+description = "push --force-with-lease is treated as safe push (not flagged as force push)"
+
+[[custom_handlers]]
+program = "git"
+handler = "checkout_branch_creation"
+description = "checkout -b/-B creates branch (different reason than regular checkout)"
+
+[[custom_handlers]]
+program = "git"
+handler = "checkout_discard_changes"
+description = "checkout -- discards changes (different reason than regular checkout)"

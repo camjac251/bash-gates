@@ -56,72 +56,15 @@ pub fn check_cloud(cmd: &CommandInfo) -> GateResult {
     }
 }
 
-/// AWS needs custom handling for prefix-based patterns.
-/// Patterns like `ec2 describe-*` need prefix matching.
+/// AWS uses declarative rules with action_prefix for prefix matching.
+/// The action_prefix field matches args[1] (the action in `aws <service> <action>`).
 fn check_aws(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-
-    // Check declarative for blocks and explicit allows first
-    if let Some(result) = check_aws_declarative(cmd) {
-        if matches!(
-            result.decision,
-            crate::models::Decision::Block | crate::models::Decision::Allow
-        ) {
-            return result;
-        }
-    }
-
-    if args.len() < 2 {
-        // Single args like --version, help - try declarative
-        return check_aws_declarative(cmd).unwrap_or_else(|| {
-            GateResult::ask(format!(
-                "aws: {}",
-                args.first().unwrap_or(&"unknown".to_string())
-            ))
-        });
-    }
-
-    let service = args[0].as_str();
-    let action = args[1].as_str();
-
-    // Read prefixes (describe-*, list-*, get-*, head-*)
-    let read_prefixes = ["describe", "list", "get", "head", "query", "scan", "filter"];
-    if read_prefixes.iter().any(|p| action.starts_with(p)) {
-        return GateResult::allow();
-    }
-
-    // Write prefixes that need approval
-    let write_prefixes = [
-        "create",
-        "delete",
-        "put",
-        "update",
-        "modify",
-        "remove",
-        "run",
-        "start",
-        "stop",
-        "terminate",
-        "reboot",
-        "attach",
-        "detach",
-        "associate",
-        "disassociate",
-        "enable",
-        "disable",
-        "register",
-        "deregister",
-        "invoke",
-        "publish",
-        "send",
-        "tag",
-        "untag",
-    ];
-    if write_prefixes.iter().any(|p| action.starts_with(p)) {
-        return GateResult::ask(format!("aws: {service} {action}"));
-    }
-
-    GateResult::ask(format!("aws: {service} {action}"))
+    check_aws_declarative(cmd).unwrap_or_else(|| {
+        GateResult::ask(format!(
+            "aws: {}",
+            cmd.args.first().unwrap_or(&"unknown".to_string())
+        ))
+    })
 }
 
 /// gcloud needs custom handling for 3-word patterns.

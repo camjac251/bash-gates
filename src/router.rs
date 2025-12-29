@@ -118,10 +118,11 @@ pub fn check_command(command_string: &str) -> HookOutput {
 ///
 /// Priority order:
 /// 1. Gate blocks → deny directly (dangerous commands always blocked)
-/// 2. acceptEdits mode + file-editing command → allow automatically
-/// 3. Settings.json deny/ask → ask (defer to Claude Code)
-/// 4. Settings.json allow → allow
-/// 5. Gate result (allow/ask)
+/// 2. Settings.json deny → deny (user's explicit deny rules always respected)
+/// 3. acceptEdits mode + file-editing command → allow automatically
+/// 4. Settings.json ask → ask (defer to Claude Code)
+/// 5. Settings.json allow → allow
+/// 6. Gate result (allow/ask)
 pub fn check_command_with_settings(
     command_string: &str,
     cwd: &str,
@@ -151,8 +152,14 @@ pub fn check_command_with_settings(
         }
     }
 
-    // Load settings.json (user + project) - needed for both acceptEdits check and rule matching
+    // Load settings.json (user + project) - needed for deny check, acceptEdits check, and rule matching
     let settings = Settings::load(cwd);
+
+    // Check settings.json deny rules FIRST - user's explicit deny rules always respected
+    // This must happen before acceptEdits to prevent acceptEdits from bypassing deny rules
+    if settings.is_denied(command_string) {
+        return HookOutput::deny("Matched settings.json deny rule");
+    }
 
     // In acceptEdits mode, auto-allow file-editing commands that:
     // - Are file-editing commands
@@ -162,25 +169,16 @@ pub fn check_command_with_settings(
         if let Some(ref output) = gate_result.hook_specific_output {
             if output.permission_decision == "ask" {
                 let commands = extract_commands(command_string);
-                let all_file_edits = commands.iter().all(is_file_editing_command);
-                let any_sensitive = commands.iter().any(targets_sensitive_path);
                 let allowed_dirs = settings.allowed_directories(cwd);
-                let any_outside = commands
-                    .iter()
-                    .any(|cmd| targets_outside_allowed_dirs(cmd, &allowed_dirs));
-                if all_file_edits && !commands.is_empty() && !any_sensitive && !any_outside {
+                if should_auto_allow_in_accept_edits(&commands, &allowed_dirs) {
                     return HookOutput::allow(Some("Auto-allowed in acceptEdits mode"));
                 }
             }
         }
     }
 
-    // Check settings.json - respect user's explicit rules
-    match settings.check_command(command_string) {
-        SettingsDecision::Deny => {
-            // User explicitly denied - block directly
-            return HookOutput::deny("Matched settings.json deny rule");
-        }
+    // Check remaining settings.json rules (ask/allow) - deny already checked above
+    match settings.check_command_excluding_deny(command_string) {
         SettingsDecision::Ask => {
             // User wants to be asked - defer to Claude Code
             return HookOutput::ask("Matched settings.json ask rule");
@@ -188,6 +186,10 @@ pub fn check_command_with_settings(
         SettingsDecision::Allow => {
             // User explicitly allows - return allow immediately
             return HookOutput::allow(Some("Matched settings.json allow rule"));
+        }
+        SettingsDecision::Deny => {
+            // Should not happen since we use check_command_excluding_deny
+            unreachable!("check_command_excluding_deny should not return Deny");
         }
         SettingsDecision::NoMatch => {
             // No match - use gate result
@@ -379,12 +381,7 @@ fn check_package_script(
                     let commands = extract_commands(&script_cmd);
                     let settings = Settings::load(cwd);
                     let allowed_dirs = settings.allowed_directories(cwd);
-                    let all_file_edits = commands.iter().all(is_file_editing_command);
-                    let any_sensitive = commands.iter().any(targets_sensitive_path);
-                    let any_outside = commands
-                        .iter()
-                        .any(|cmd| targets_outside_allowed_dirs(cmd, &allowed_dirs));
-                    if all_file_edits && !commands.is_empty() && !any_sensitive && !any_outside {
+                    if should_auto_allow_in_accept_edits(&commands, &allowed_dirs) {
                         return HookOutput::allow(Some(&format!(
                             "{pm} run {script_name}: Auto-allowed in acceptEdits mode"
                         )));
@@ -501,12 +498,10 @@ fn check_command_expanded(command_string: &str, cwd: &str, permission_mode: &str
                 }
                 Decision::Ask => {
                     // In acceptEdits mode, check if this is a file-editing command
-                    if permission_mode == "acceptEdits" && is_file_editing_command(cmd) {
+                    if permission_mode == "acceptEdits" {
                         let settings = Settings::load(&cwd_str);
                         let allowed_dirs = settings.allowed_directories(&cwd_str);
-                        if !targets_sensitive_path(cmd)
-                            && !targets_outside_allowed_dirs(cmd, &allowed_dirs)
-                        {
+                        if should_auto_allow_in_accept_edits(std::slice::from_ref(cmd), &allowed_dirs) {
                             // Auto-allow file-editing command in acceptEdits mode
                             continue;
                         }
@@ -762,32 +757,70 @@ pub fn check_single_command(cmd: &crate::models::CommandInfo) -> GateResult {
 
 // === Accept Edits Mode ===
 
+/// Check if commands should be auto-allowed in acceptEdits mode.
+/// Returns true if all commands are file-editing operations that:
+/// - Don't target sensitive paths (system files, credentials)
+/// - Don't target paths outside allowed directories
+fn should_auto_allow_in_accept_edits(commands: &[CommandInfo], allowed_dirs: &[String]) -> bool {
+    if commands.is_empty() {
+        return false;
+    }
+    let all_file_edits = commands.iter().all(is_file_editing_command);
+    let any_sensitive = commands.iter().any(targets_sensitive_path);
+    let any_outside = commands
+        .iter()
+        .any(|cmd| targets_outside_allowed_dirs(cmd, allowed_dirs));
+    all_file_edits && !any_sensitive && !any_outside
+}
+
 /// Check if a command targets sensitive paths that should not be auto-allowed.
 /// Returns true if any argument looks like a sensitive system path.
+///
+/// This function distinguishes between:
+/// 1. System paths (always blocked): /etc, /usr, /bin, etc.
+/// 2. Security-critical user paths (always blocked): ~/.ssh, ~/.gnupg, ~/.aws, etc.
+/// 3. Regular user dotfiles (allowed): ~/.bashrc, ~/.prettierrc, ~/.config/app.yaml
 fn targets_sensitive_path(cmd: &CommandInfo) -> bool {
-    // Sensitive path prefixes - system directories
-    const SENSITIVE_PREFIXES: &[&str] = &[
+    // System directories - always blocked (system-wide impact)
+    const BLOCKED_SYSTEM_PREFIXES: &[&str] = &[
         "/etc/", "/usr/", "/bin/", "/sbin/", "/var/", "/opt/", "/boot/", "/root/", "/lib/",
-        "/lib64/", "/proc/", "/sys/",
+        "/lib64/", "/proc/", "/sys/", "/dev/",
     ];
 
-    // Sensitive path patterns - user config/credentials
-    const SENSITIVE_PATTERNS: &[&str] = &[
-        "/.ssh/",
-        "/.gnupg/",
-        "/.aws/",
-        "/.kube/",
-        "/.config/gh/",
-        "/.docker/",
-        "/.npmrc",
-        "/.netrc",
-        "/.gitconfig",
-        "/.git/hooks/",
-        "/.bashrc",
-        "/.zshrc",
-        "/.profile",
-        "/.bash_profile",
+    // Security-critical directories in home - always blocked (credentials/keys)
+    // These contain authentication material that could be exfiltrated or modified
+    const BLOCKED_SECURITY_DIRS: &[&str] = &[
+        "/.ssh/",           // SSH keys
+        "/.ssh",            // The directory itself (exact match for ssh dir operations)
+        "/.gnupg/",         // GPG keys
+        "/.gnupg",          // The directory itself
+        "/.aws/",           // AWS credentials
+        "/.kube/",          // Kubernetes configs with tokens
+        "/.docker/",        // Docker auth configs
+        "/.config/gh/",     // GitHub CLI tokens
+        "/.password-store/", // pass password manager
+        "/.vault-token",    // HashiCorp Vault token
     ];
+
+    // Specific credential files - always blocked
+    // These files often contain tokens/passwords even if not in security dirs
+    const BLOCKED_CREDENTIAL_FILES: &[&str] = &[
+        "/.npmrc",          // npm tokens
+        "/.netrc",          // FTP/HTTP credentials
+        "/.pypirc",         // PyPI tokens
+        "/.gem/credentials", // RubyGems tokens
+        "/.m2/settings.xml", // Maven credentials
+        "/.gradle/gradle.properties", // Gradle credentials
+        "/.nuget/NuGet.Config", // NuGet credentials
+        "/id_rsa",          // SSH private key (anywhere in path)
+        "/id_ed25519",      // SSH private key (anywhere in path)
+        "/id_ecdsa",        // SSH private key (anywhere in path)
+        "/id_dsa",          // SSH private key (anywhere in path)
+    ];
+
+    // Git hook paths - could be used for code execution attacks
+    // Use patterns without leading slash to match both absolute and relative paths
+    const BLOCKED_GIT_PATTERNS: &[&str] = &[".git/hooks/", ".githooks/"];
 
     // Lock files that affect dependency resolution
     const LOCK_FILES: &[&str] = &[
@@ -814,15 +847,29 @@ fn targets_sensitive_path(cmd: &CommandInfo) -> bool {
             arg.clone()
         };
 
-        // Check sensitive prefixes
-        for prefix in SENSITIVE_PREFIXES {
+        // Check system directory prefixes (always blocked)
+        for prefix in BLOCKED_SYSTEM_PREFIXES {
             if expanded.starts_with(prefix) {
                 return true;
             }
         }
 
-        // Check sensitive patterns (anywhere in path)
-        for pattern in SENSITIVE_PATTERNS {
+        // Check security-critical directories (always blocked)
+        for pattern in BLOCKED_SECURITY_DIRS {
+            if expanded.contains(pattern) || arg.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check specific credential files (always blocked)
+        for pattern in BLOCKED_CREDENTIAL_FILES {
+            if expanded.contains(pattern) || arg.contains(pattern) {
+                return true;
+            }
+        }
+
+        // Check git hook patterns (always blocked)
+        for pattern in BLOCKED_GIT_PATTERNS {
             if expanded.contains(pattern) || arg.contains(pattern) {
                 return true;
             }
@@ -834,6 +881,11 @@ fn targets_sensitive_path(cmd: &CommandInfo) -> bool {
                 return true;
             }
         }
+
+        // Note: Regular dotfiles like ~/.bashrc, ~/.zshrc, ~/.prettierrc,
+        // ~/.config/app.yaml are now ALLOWED for editing in acceptEdits mode.
+        // The targets_outside_allowed_dirs check will still apply if the user
+        // hasn't added their home directory to additionalDirectories.
     }
 
     false
@@ -871,7 +923,9 @@ fn targets_outside_allowed_dirs(cmd: &CommandInfo, allowed_dirs: &[String]) -> b
             } else {
                 continue; // Can't expand, skip
             };
-            if !is_under_any_dir(&expanded, &normalized_dirs) {
+            // Resolve symlinks in the expanded path
+            let resolved = resolve_path(&expanded);
+            if !is_under_any_dir(&resolved, &normalized_dirs) {
                 return true;
             }
             continue;
@@ -903,13 +957,58 @@ fn targets_outside_allowed_dirs(cmd: &CommandInfo, allowed_dirs: &[String]) -> b
                 return true;
             }
         }
+
+        // For relative paths (not starting with / or ~), resolve symlinks
+        // by joining with cwd (first allowed dir) and canonicalizing.
+        // This catches symlink escapes like `escape/passwd` where `escape -> /etc`.
+        if !arg.starts_with('/') && !arg.starts_with('~') && !normalized_dirs.is_empty() {
+            let cwd = &normalized_dirs[0];
+            let full_path = std::path::Path::new(cwd).join(arg);
+            let resolved = resolve_path(&full_path.to_string_lossy());
+            if !is_under_any_dir(&resolved, &normalized_dirs) {
+                return true;
+            }
+        }
     }
 
     false
 }
 
-/// Resolve a path by canonicalizing . and .. components.
+/// Resolve a path by canonicalizing symlinks, `.` and `..` components.
+/// Uses std::fs::canonicalize() when the path exists to resolve symlinks.
+/// For non-existent paths, tries to canonicalize the parent directory.
+/// Falls back to manual resolution if canonicalization fails.
 fn resolve_path(path: &str) -> String {
+    use std::path::Path;
+
+    let path_obj = Path::new(path);
+
+    // First, try to canonicalize the full path (resolves symlinks)
+    if let Ok(canonical) = std::fs::canonicalize(path_obj) {
+        return canonical.to_string_lossy().to_string();
+    }
+
+    // If full path doesn't exist, try to canonicalize the parent directory
+    // This handles cases like `/home/user/project/symlink/newfile` where
+    // `symlink` exists but `newfile` doesn't
+    if let Some(parent) = path_obj.parent() {
+        if let Ok(canonical_parent) = std::fs::canonicalize(parent) {
+            if let Some(filename) = path_obj.file_name() {
+                return canonical_parent
+                    .join(filename)
+                    .to_string_lossy()
+                    .to_string();
+            }
+        }
+    }
+
+    // Fall back to manual resolution (handles . and .. but not symlinks)
+    resolve_path_manual(path)
+}
+
+/// Manual path resolution that handles `.` and `..` components but not symlinks.
+/// Used as fallback when filesystem-based canonicalization fails.
+fn resolve_path_manual(path: &str) -> String {
     use std::path::Path;
 
     let path = Path::new(path);
@@ -950,120 +1049,9 @@ fn is_under_any_dir(path: &str, allowed_dirs: &[String]) -> bool {
     false
 }
 
-/// Programs that are file-editing tools (modify files in place).
-/// These are auto-allowed in acceptEdits mode (unless targeting sensitive paths).
-const FILE_EDITING_PROGRAMS: &[&str] = &[
-    // Text replacement tools
-    "sd",  // sed alternative
-    "sed", // with -i flag (checked separately)
-    // Code formatting/linting with fix
-    "prettier",
-    "biome",
-    "eslint",
-    "black",
-    "ruff",
-    "autopep8",
-    "isort",
-    "go",            // go fmt modifies files
-    "gofmt",         // with -w flag
-    "goimports",     // with -w flag
-    "gci",           // with write subcommand
-    "golangci-lint", // with --fix flag
-    "rustfmt",
-    "clang-format",
-    "shfmt",
-    "stylua",
-    "rubocop",
-    "standardrb",
-    // Code modification tools
-    "ast-grep",
-    "sg", // with -U flag (checked separately)
-    "patch",
-    "dos2unix",
-    "unix2dos",
-    // YAML editing
-    "yq", // with -i flag
-];
-
-/// Check if a command is a file-editing command that should be auto-allowed
-/// in acceptEdits mode.
-fn is_file_editing_command(cmd: &CommandInfo) -> bool {
-    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
-
-    // Check if it's a known file-editing program
-    if !FILE_EDITING_PROGRAMS.contains(&base_program) {
-        return false;
-    }
-
-    // Helper to check for read-only flags
-    let has_readonly_flag = |flags: &[&str]| cmd.args.iter().any(|a| flags.contains(&a.as_str()));
-
-    // Some programs need specific flags to be file-editing
-    match base_program {
-        // sed needs -i flag to edit in place
-        "sed" => cmd.args.iter().any(|a| a == "-i" || a.starts_with("-i")),
-
-        // ast-grep/sg needs -U (update) flag to modify files
-        "ast-grep" | "sg" => cmd.args.iter().any(|a| a == "-U" || a == "--update-all"),
-
-        // yq needs -i flag to edit in place
-        "yq" => cmd.args.iter().any(|a| a == "-i" || a == "--inplace"),
-
-        // Formatters with --write/--fix flags
-        "prettier" => cmd.args.iter().any(|a| a == "--write" || a == "-w"),
-        "biome" => cmd
-            .args
-            .iter()
-            .any(|a| a == "--write" || a == "--fix" || a == "--fix-unsafe"),
-        "eslint" => cmd.args.iter().any(|a| a == "--fix"),
-        "ruff" => {
-            // ruff format always writes, ruff check needs --fix
-            cmd.args.first().is_some_and(|a| a == "format") || cmd.args.iter().any(|a| a == "--fix")
-        }
-        "rubocop" | "standardrb" => cmd
-            .args
-            .iter()
-            .any(|a| a == "-a" || a == "-A" || a == "--auto-correct" || a == "--autocorrect"),
-
-        // These always modify files when invoked (sd has no dry-run mode)
-        "sd" | "dos2unix" | "unix2dos" => true,
-
-        // patch has --dry-run mode
-        "patch" => !has_readonly_flag(&["--dry-run"]),
-
-        // Formatters that output to stdout by default - need -w flag
-        "gofmt" | "goimports" | "shfmt" => cmd.args.iter().any(|a| a == "-w"),
-
-        // go fmt always modifies files (runs gofmt -l -w internally)
-        "go" => cmd.args.first().is_some_and(|a| a == "fmt"),
-
-        // golangci-lint with --fix modifies files
-        "golangci-lint" => cmd.args.iter().any(|a| a == "--fix"),
-
-        // gci write modifies files (gci diff just shows changes)
-        "gci" => cmd.args.first().is_some_and(|a| a == "write"),
-
-        // clang-format outputs to stdout by default - needs -i flag
-        "clang-format" => cmd.args.iter().any(|a| a == "-i"),
-
-        // autopep8 outputs to stdout by default - needs -i or --in-place
-        "autopep8" => cmd.args.iter().any(|a| a == "-i" || a == "--in-place"),
-
-        // black writes by default but has --check/--diff modes
-        "black" => !has_readonly_flag(&["--check", "--diff"]),
-
-        // isort writes by default but has --check/--check-only/--diff modes
-        "isort" => !has_readonly_flag(&["--check", "--check-only", "--diff"]),
-
-        // rustfmt writes by default but has --check mode
-        "rustfmt" => !has_readonly_flag(&["--check"]),
-
-        // stylua writes by default but has --check mode
-        "stylua" => !has_readonly_flag(&["--check"]),
-
-        _ => false,
-    }
-}
+// File-editing detection is now generated from TOML rules with accept_edits_auto_allow = true.
+// See src/generated/rules.rs for the generated is_file_editing_command function.
+use crate::generated::rules::is_file_editing_command;
 
 // === Suggestion Generation ===
 
@@ -1763,6 +1751,599 @@ mod tests {
                 &cmd("sd", &["old", "new", "/home/user/project3/file.txt"]),
                 &allowed
             ));
+        }
+
+        /// Test that settings.json deny rules take precedence over acceptEdits mode.
+        /// Regression test for bug: acceptEdits override was happening BEFORE settings.json
+        /// deny rules were checked, allowing denied commands to bypass user's explicit deny rules.
+        #[test]
+        fn test_settings_deny_overrides_accept_edits() {
+            use std::fs;
+            use tempfile::TempDir;
+
+            // Create a temp directory with .claude/settings.json containing deny rules
+            let temp_dir = TempDir::new().unwrap();
+            let claude_dir = temp_dir.path().join(".claude");
+            fs::create_dir(&claude_dir).unwrap();
+
+            // Create settings.json with deny rule for sd
+            let settings_content = r#"{
+                "permissions": {
+                    "deny": ["Bash(sd:*)"]
+                }
+            }"#;
+            fs::write(claude_dir.join("settings.json"), settings_content).unwrap();
+
+            let cwd = temp_dir.path().to_str().unwrap();
+
+            // In acceptEdits mode, sd would normally be auto-allowed
+            // But with deny rule, it should be denied
+            let result = check_command_with_settings("sd 'old' 'new' file.txt", cwd, "acceptEdits");
+            assert_eq!(
+                get_decision(&result),
+                "deny",
+                "Settings deny should override acceptEdits auto-allow"
+            );
+            assert!(
+                get_reason(&result).contains("settings.json deny"),
+                "Should mention settings.json deny rule"
+            );
+        }
+
+        /// Test that settings.json deny rules also work with other file-editing commands
+        #[test]
+        fn test_settings_deny_prettier_overrides_accept_edits() {
+            use std::fs;
+            use tempfile::TempDir;
+
+            let temp_dir = TempDir::new().unwrap();
+            let claude_dir = temp_dir.path().join(".claude");
+            fs::create_dir(&claude_dir).unwrap();
+
+            let settings_content = r#"{
+                "permissions": {
+                    "deny": ["Bash(prettier --write:*)"]
+                }
+            }"#;
+            fs::write(claude_dir.join("settings.json"), settings_content).unwrap();
+
+            let cwd = temp_dir.path().to_str().unwrap();
+
+            // prettier --write would normally be auto-allowed in acceptEdits
+            // But with deny rule, it should be denied
+            let result = check_command_with_settings("prettier --write src/", cwd, "acceptEdits");
+            assert_eq!(
+                get_decision(&result),
+                "deny",
+                "Settings deny should override acceptEdits for prettier"
+            );
+        }
+
+        /// Test that without deny rules, acceptEdits still works normally
+        #[test]
+        fn test_accept_edits_works_without_deny_rules() {
+            use std::fs;
+            use tempfile::TempDir;
+
+            let temp_dir = TempDir::new().unwrap();
+            let claude_dir = temp_dir.path().join(".claude");
+            fs::create_dir(&claude_dir).unwrap();
+
+            // Settings with only allow rules (no deny)
+            let settings_content = r#"{
+                "permissions": {
+                    "allow": ["Bash(git:*)"]
+                }
+            }"#;
+            fs::write(claude_dir.join("settings.json"), settings_content).unwrap();
+
+            let cwd = temp_dir.path().to_str().unwrap();
+
+            // sd should be auto-allowed in acceptEdits mode (no deny rule)
+            let result = check_command_with_settings("sd 'old' 'new' file.txt", cwd, "acceptEdits");
+            assert_eq!(
+                get_decision(&result),
+                "allow",
+                "acceptEdits should work when no deny rule matches"
+            );
+            assert!(
+                get_reason(&result).contains("acceptEdits"),
+                "Should be auto-allowed by acceptEdits"
+            );
+        }
+    }
+
+    /// Tests for targets_sensitive_path function.
+    /// Verifies that system paths and security-critical files are blocked,
+    /// while regular user dotfiles are allowed.
+    mod sensitive_paths {
+        use super::*;
+        use crate::models::CommandInfo;
+
+        fn cmd(program: &str, args: &[&str]) -> CommandInfo {
+            CommandInfo {
+                program: program.to_string(),
+                args: args.iter().map(|s| s.to_string()).collect(),
+                raw: format!(
+                    "{} {}",
+                    program,
+                    args.iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+            }
+        }
+
+        // === System paths should always be blocked ===
+
+        #[test]
+        fn test_etc_passwd_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "/etc/passwd"])),
+                "/etc/passwd should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_etc_config_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("yq", &["-i", ".key = val", "/etc/config.yaml"])),
+                "/etc/config.yaml should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_usr_local_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "/usr/local/bin/script"])),
+                "/usr/local paths should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_var_log_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "/var/log/app.log"])),
+                "/var/log paths should be blocked"
+            );
+        }
+
+        // === Security-critical user files should be blocked ===
+
+        #[test]
+        fn test_ssh_id_rsa_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.ssh/id_rsa"])),
+                "~/.ssh/id_rsa should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_ssh_config_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.ssh/config"])),
+                "~/.ssh/config should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_gnupg_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.gnupg/gpg.conf"])),
+                "~/.gnupg should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_aws_credentials_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.aws/credentials"])),
+                "~/.aws/credentials should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_kube_config_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.kube/config"])),
+                "~/.kube/config should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_docker_config_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.docker/config.json"])),
+                "~/.docker/config.json should be blocked"
+            );
+        }
+
+        #[test]
+        fn test_npmrc_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.npmrc"])),
+                "~/.npmrc should be blocked (may contain tokens)"
+            );
+        }
+
+        #[test]
+        fn test_netrc_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.netrc"])),
+                "~/.netrc should be blocked (contains credentials)"
+            );
+        }
+
+        #[test]
+        fn test_gh_config_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "~/.config/gh/hosts.yml"])),
+                "~/.config/gh should be blocked (GitHub tokens)"
+            );
+        }
+
+        #[test]
+        fn test_git_hooks_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", ".git/hooks/pre-commit"])),
+                ".git/hooks should be blocked (code execution)"
+            );
+        }
+
+        // === Regular user dotfiles should be ALLOWED ===
+
+        #[test]
+        fn test_bashrc_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.bashrc"])),
+                "~/.bashrc should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_zshrc_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.zshrc"])),
+                "~/.zshrc should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_profile_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.profile"])),
+                "~/.profile should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_bash_profile_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.bash_profile"])),
+                "~/.bash_profile should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_prettierrc_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.prettierrc"])),
+                "~/.prettierrc should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_eslintrc_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.eslintrc"])),
+                "~/.eslintrc should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_gitconfig_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.gitconfig"])),
+                "~/.gitconfig should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_config_app_yaml_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("yq", &["-i", ".key = val", "~/.config/app.yaml"])),
+                "~/.config/app.yaml should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_config_nvim_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.config/nvim/init.lua"])),
+                "~/.config/nvim should be allowed for editing"
+            );
+        }
+
+        #[test]
+        fn test_vimrc_allowed() {
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["old", "new", "~/.vimrc"])),
+                "~/.vimrc should be allowed for editing"
+            );
+        }
+
+        // === Edge cases ===
+
+        #[test]
+        fn test_flags_skipped() {
+            // Flags should not be checked as paths
+            assert!(
+                !targets_sensitive_path(&cmd("sd", &["-F", "old", "new", "file.txt"])),
+                "Flags should be skipped when checking paths"
+            );
+        }
+
+        #[test]
+        fn test_lock_files_still_blocked() {
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "package-lock.json"])),
+                "Lock files should still be blocked"
+            );
+        }
+
+        #[test]
+        fn test_private_key_anywhere_blocked() {
+            // id_rsa anywhere in path should be blocked
+            assert!(
+                targets_sensitive_path(&cmd("sd", &["old", "new", "/some/path/id_rsa"])),
+                "id_rsa anywhere in path should be blocked"
+            );
+        }
+    }
+
+    /// Tests for symlink resolution in targets_outside_allowed_dirs.
+    /// These tests use actual filesystem symlinks to verify that the function
+    /// correctly resolves symlinks and rejects paths that escape via symlink.
+    #[cfg(unix)]
+    mod symlink_resolution {
+        use super::*;
+        use crate::models::CommandInfo;
+        use std::os::unix::fs::symlink;
+        use tempfile::TempDir;
+
+        fn cmd(program: &str, args: &[&str]) -> CommandInfo {
+            CommandInfo {
+                program: program.to_string(),
+                args: args.iter().map(|s| s.to_string()).collect(),
+                raw: format!(
+                    "{} {}",
+                    program,
+                    args.iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+            }
+        }
+
+        /// Test that a symlink pointing outside the allowed directory is detected.
+        /// Attack scenario: symlink inside project pointing to /etc
+        #[test]
+        fn test_symlink_escape_absolute_path_detected() {
+            let temp_dir = TempDir::new().unwrap();
+            let project_dir = temp_dir.path();
+
+            // Create a symlink: project_dir/escape -> /tmp (outside project)
+            let escape_link = project_dir.join("escape");
+            symlink("/tmp", &escape_link).unwrap();
+
+            let allowed = vec![project_dir.to_string_lossy().to_string()];
+
+            // Absolute path through symlink should be detected as escaping
+            let escape_path = escape_link.to_string_lossy().to_string();
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", &format!("{}/file.txt", escape_path)]),
+                &allowed,
+            );
+            assert!(result, "Symlink escape via absolute path should be detected");
+        }
+
+        /// Test that a relative path through a symlink is detected.
+        /// Attack scenario: `sd 'old' 'new' escape/passwd` where escape -> /etc
+        #[test]
+        fn test_symlink_escape_relative_path_detected() {
+            let temp_dir = TempDir::new().unwrap();
+            let project_dir = temp_dir.path();
+
+            // Create a symlink: project_dir/escape -> /tmp (outside project)
+            let escape_link = project_dir.join("escape");
+            symlink("/tmp", &escape_link).unwrap();
+
+            let allowed = vec![project_dir.to_string_lossy().to_string()];
+
+            // Relative path through symlink should be detected as escaping
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "escape/file.txt"]),
+                &allowed,
+            );
+            assert!(
+                result,
+                "Symlink escape via relative path should be detected"
+            );
+        }
+
+        /// Test that symlinks within the allowed directory are fine.
+        #[test]
+        fn test_symlink_within_allowed_dir_ok() {
+            let temp_dir = TempDir::new().unwrap();
+            let project_dir = temp_dir.path();
+
+            // Create subdirectory and symlink pointing to it
+            let subdir = project_dir.join("subdir");
+            std::fs::create_dir(&subdir).unwrap();
+            let link_to_subdir = project_dir.join("link_to_subdir");
+            symlink(&subdir, &link_to_subdir).unwrap();
+
+            let allowed = vec![project_dir.to_string_lossy().to_string()];
+
+            // Path through symlink that stays within allowed dir should be OK
+            let link_path = link_to_subdir.to_string_lossy().to_string();
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", &format!("{}/file.txt", link_path)]),
+                &allowed,
+            );
+            assert!(
+                !result,
+                "Symlink within allowed directory should be OK"
+            );
+        }
+
+        /// Test that relative path through symlink to /etc/passwd is detected.
+        /// This is the exact attack scenario from the bug report.
+        #[test]
+        fn test_etc_passwd_symlink_attack() {
+            let temp_dir = TempDir::new().unwrap();
+            let project_dir = temp_dir.path();
+
+            // Create symlink: project_dir/escape -> /etc
+            let escape_link = project_dir.join("escape");
+            symlink("/etc", &escape_link).unwrap();
+
+            let allowed = vec![project_dir.to_string_lossy().to_string()];
+
+            // This is the exact attack: escape/passwd looks like it's under project
+            // but actually resolves to /etc/passwd
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "escape/passwd"]),
+                &allowed,
+            );
+            assert!(result, "/etc/passwd via symlink escape should be detected");
+        }
+
+        /// Test that non-existent file through existing symlink is detected.
+        /// The parent (symlink target) is resolved, catching the escape.
+        #[test]
+        fn test_nonexistent_file_through_symlink_detected() {
+            let temp_dir = TempDir::new().unwrap();
+            let project_dir = temp_dir.path();
+
+            // Create symlink: project_dir/escape -> /tmp
+            let escape_link = project_dir.join("escape");
+            symlink("/tmp", &escape_link).unwrap();
+
+            let allowed = vec![project_dir.to_string_lossy().to_string()];
+
+            // Non-existent file through symlink - parent exists, so should be detected
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "escape/nonexistent_new_file.txt"]),
+                &allowed,
+            );
+            assert!(
+                result,
+                "Non-existent file through symlink should be detected"
+            );
+        }
+
+        /// Test that tilde paths with symlinks are resolved.
+        #[test]
+        fn test_tilde_path_with_symlink() {
+            // This test only works if we can write to home directory
+            // Skip if home dir is not writable
+            let home = match dirs::home_dir() {
+                Some(h) => h,
+                None => return, // Skip test
+            };
+
+            let temp_dir = TempDir::new().unwrap();
+            let project_dir = temp_dir.path();
+
+            // Create a symlink in home pointing outside project
+            let home_link = home.join(".bash_gates_test_symlink");
+            if home_link.exists() {
+                std::fs::remove_file(&home_link).ok();
+            }
+
+            // Create symlink: ~/.bash_gates_test_symlink -> /tmp
+            if symlink("/tmp", &home_link).is_err() {
+                return; // Skip if we can't create symlink in home
+            }
+
+            // Cleanup on scope exit
+            struct Cleanup(std::path::PathBuf);
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    std::fs::remove_file(&self.0).ok();
+                }
+            }
+            let _cleanup = Cleanup(home_link.clone());
+
+            let allowed = vec![project_dir.to_string_lossy().to_string()];
+
+            // Tilde path through symlink should be detected
+            let result = targets_outside_allowed_dirs(
+                &cmd("sd", &["old", "new", "~/.bash_gates_test_symlink/file.txt"]),
+                &allowed,
+            );
+            assert!(
+                result,
+                "Tilde path through symlink should be detected as escaping"
+            );
+        }
+
+        /// Test resolve_path function directly
+        #[test]
+        fn test_resolve_path_with_symlink() {
+            let temp_dir = TempDir::new().unwrap();
+            let project_dir = temp_dir.path();
+
+            // Create a symlink: project_dir/link -> /tmp
+            let link_path = project_dir.join("link");
+            symlink("/tmp", &link_path).unwrap();
+
+            // resolve_path should follow the symlink
+            let resolved = resolve_path(&link_path.to_string_lossy());
+            assert_eq!(resolved, "/tmp", "resolve_path should resolve symlink");
+        }
+
+        /// Test resolve_path with non-existent file but existing parent symlink
+        #[test]
+        fn test_resolve_path_nonexistent_file_with_symlink_parent() {
+            let temp_dir = TempDir::new().unwrap();
+            let project_dir = temp_dir.path();
+
+            // Create a symlink: project_dir/link -> /tmp
+            let link_path = project_dir.join("link");
+            symlink("/tmp", &link_path).unwrap();
+
+            // Resolve non-existent file through symlink
+            let file_through_link = link_path.join("newfile.txt");
+            let resolved = resolve_path(&file_through_link.to_string_lossy());
+            assert_eq!(
+                resolved, "/tmp/newfile.txt",
+                "resolve_path should resolve parent symlink for non-existent file"
+            );
+        }
+
+        /// Test that resolve_path falls back to manual resolution for non-existent paths
+        #[test]
+        fn test_resolve_path_fallback() {
+            // Path that doesn't exist at all
+            let resolved = resolve_path("/nonexistent/path/to/file.txt");
+            assert_eq!(
+                resolved, "/nonexistent/path/to/file.txt",
+                "resolve_path should fall back to manual resolution for non-existent paths"
+            );
+        }
+
+        /// Test resolve_path with .. components
+        #[test]
+        fn test_resolve_path_with_dotdot() {
+            let resolved = resolve_path("/home/user/../other/file.txt");
+            assert_eq!(
+                resolved, "/home/other/file.txt",
+                "resolve_path should resolve .. components"
+            );
         }
     }
 

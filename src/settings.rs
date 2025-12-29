@@ -5,7 +5,35 @@
 
 use serde::Deserialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
+
+/// Normalize a path by resolving `.` and `..` components without requiring the path to exist.
+fn normalize_path(path: &Path) -> String {
+    let mut components: Vec<Component> = Vec::new();
+
+    for component in path.components() {
+        match component {
+            Component::CurDir => {
+                // Skip `.` (current directory)
+            }
+            Component::ParentDir => {
+                // Pop the last normal component if possible
+                if let Some(Component::Normal(_)) = components.last() {
+                    components.pop();
+                } else {
+                    // Keep the `..` if we can't go up further
+                    components.push(component);
+                }
+            }
+            _ => {
+                components.push(component);
+            }
+        }
+    }
+
+    let normalized: PathBuf = components.iter().collect();
+    normalized.to_string_lossy().to_string()
+}
 
 #[derive(Debug, Deserialize, Default)]
 pub struct Permissions {
@@ -106,29 +134,43 @@ impl Settings {
     }
 
     /// Get all allowed directories (cwd + additionalDirectories from settings).
-    /// Expands ~ to home directory.
+    /// Expands ~ to home directory and resolves relative paths against cwd.
     pub fn allowed_directories(&self, cwd: &str) -> Vec<String> {
         let mut dirs = vec![cwd.to_string()];
+        let cwd_path = Path::new(cwd);
+
         for dir in &self.permissions.additional_directories {
-            // Expand ~ to home directory
             let expanded = if let Some(suffix) = dir.strip_prefix("~/") {
+                // Expand ~ to home directory
                 if let Some(home) = dirs::home_dir() {
                     home.join(suffix).to_string_lossy().to_string()
                 } else {
                     dir.clone()
                 }
             } else if dir == "~" {
+                // Expand standalone ~
                 if let Some(home) = dirs::home_dir() {
                     home.to_string_lossy().to_string()
                 } else {
                     dir.clone()
                 }
-            } else {
+            } else if dir.starts_with('/') {
+                // Absolute path - use as-is
                 dir.clone()
+            } else {
+                // Relative path (./foo, ../bar, or just "foo") - resolve against cwd
+                let joined = cwd_path.join(dir);
+                // Normalize the path (resolve . and ..)
+                normalize_path(&joined)
             };
             dirs.push(expanded);
         }
         dirs
+    }
+
+    /// Check if command matches any deny rules.
+    pub fn is_denied(&self, command: &str) -> bool {
+        self.matches_any(&self.permissions.deny, command)
     }
 
     /// Check command against settings rules.
@@ -139,6 +181,22 @@ impl Settings {
             return SettingsDecision::Deny;
         }
 
+        // Check ask
+        if self.matches_any(&self.permissions.ask, command) {
+            return SettingsDecision::Ask;
+        }
+
+        // Check allow
+        if self.matches_any(&self.permissions.allow, command) {
+            return SettingsDecision::Allow;
+        }
+
+        SettingsDecision::NoMatch
+    }
+
+    /// Check command against settings rules, excluding deny (for use after deny check).
+    /// Returns Ask, Allow, or NoMatch.
+    pub fn check_command_excluding_deny(&self, command: &str) -> SettingsDecision {
         // Check ask
         if self.matches_any(&self.permissions.ask, command) {
             return SettingsDecision::Ask;
@@ -276,5 +334,107 @@ mod tests {
             settings.check_command("cat file.txt"),
             SettingsDecision::Allow
         );
+    }
+
+    #[test]
+    fn test_normalize_path() {
+        use std::path::Path;
+
+        // Basic normalization
+        assert_eq!(normalize_path(Path::new("/a/b/c")), "/a/b/c");
+        assert_eq!(normalize_path(Path::new("/a/./b/c")), "/a/b/c");
+        assert_eq!(normalize_path(Path::new("/a/b/../c")), "/a/c");
+        assert_eq!(normalize_path(Path::new("/a/b/c/..")), "/a/b");
+        assert_eq!(normalize_path(Path::new("/a/b/./c/../d")), "/a/b/d");
+
+        // Multiple .. components
+        assert_eq!(normalize_path(Path::new("/a/b/c/../../d")), "/a/d");
+
+        // Leading .. preserved when can't go higher
+        assert_eq!(normalize_path(Path::new("../a/b")), "../a/b");
+    }
+
+    #[test]
+    fn test_allowed_directories_relative_paths() {
+        let settings = Settings {
+            permissions: Permissions {
+                additional_directories: vec![
+                    "./subprojects".to_string(),
+                    "../sibling-repo".to_string(),
+                    "bare-subdir".to_string(),
+                ],
+                ..Default::default()
+            },
+        };
+
+        let dirs = settings.allowed_directories("/home/user/project");
+
+        // cwd is always first
+        assert_eq!(dirs[0], "/home/user/project");
+
+        // ./subprojects resolved against cwd
+        assert_eq!(dirs[1], "/home/user/project/subprojects");
+
+        // ../sibling-repo resolved against cwd
+        assert_eq!(dirs[2], "/home/user/sibling-repo");
+
+        // bare-subdir resolved against cwd
+        assert_eq!(dirs[3], "/home/user/project/bare-subdir");
+    }
+
+    #[test]
+    fn test_allowed_directories_absolute_paths() {
+        let settings = Settings {
+            permissions: Permissions {
+                additional_directories: vec!["/absolute/path".to_string()],
+                ..Default::default()
+            },
+        };
+
+        let dirs = settings.allowed_directories("/home/user/project");
+
+        // Absolute paths unchanged
+        assert_eq!(dirs[1], "/absolute/path");
+    }
+
+    #[test]
+    fn test_allowed_directories_tilde_expansion() {
+        let settings = Settings {
+            permissions: Permissions {
+                additional_directories: vec!["~/other-project".to_string(), "~".to_string()],
+                ..Default::default()
+            },
+        };
+
+        let dirs = settings.allowed_directories("/home/user/project");
+
+        // Tilde should be expanded (we can't assert exact value, but it shouldn't start with ~)
+        assert!(!dirs[1].starts_with('~'), "~/other-project should be expanded");
+        assert!(!dirs[2].starts_with('~'), "~ should be expanded");
+
+        // Should end with the suffix
+        assert!(dirs[1].ends_with("other-project"));
+    }
+
+    #[test]
+    fn test_allowed_directories_mixed() {
+        let settings = Settings {
+            permissions: Permissions {
+                additional_directories: vec![
+                    "./relative".to_string(),
+                    "/absolute".to_string(),
+                    "~/home-relative".to_string(),
+                ],
+                ..Default::default()
+            },
+        };
+
+        let dirs = settings.allowed_directories("/project");
+
+        assert_eq!(dirs.len(), 4); // cwd + 3 additional
+        assert_eq!(dirs[0], "/project");
+        assert_eq!(dirs[1], "/project/relative");
+        assert_eq!(dirs[2], "/absolute");
+        assert!(!dirs[3].starts_with('~'));
     }
 }

@@ -259,6 +259,12 @@ reason = "Creating tarball"
 subcommand = "set"
 reason = "Setting config"
 
+# Note: Custom handler for devtool invocation and unknown command handling
+[[custom_handlers]]
+program = "npm"
+handler = "check_npm"
+description = "Handle devtool invocation (npm eslint, npm prettier), ask for unknown subcommands"
+
 # =============================================================================
 # PNPM
 # =============================================================================
@@ -405,6 +411,12 @@ reason = "Store operation"
 subcommand = "patch"
 reason = "Patching package"
 
+# Note: Custom handler for devtool invocation and unknown command handling
+[[custom_handlers]]
+program = "pnpm"
+handler = "check_pnpm"
+description = "Handle devtool invocation (pnpm biome, pnpm eslint), ask for unknown subcommands"
+
 # =============================================================================
 # YARN
 # =============================================================================
@@ -538,11 +550,11 @@ reason = "Global operation"
 subcommand = "set"
 reason = "Setting config"
 
-# Custom handler for bare "yarn" = install
+# Note: Custom handler for bare "yarn" = install, devtool invocation, and unknown commands
 [[custom_handlers]]
 program = "yarn"
-handler = "check_yarn_bare"
-description = "Bare yarn command is equivalent to yarn install"
+handler = "check_yarn"
+description = "Handle bare yarn (= install), devtool invocation (yarn eslint), ask for unknown subcommands"
 
 # =============================================================================
 # PIP
@@ -614,6 +626,12 @@ reason = "Downloading packages"
 [[programs.ask]]
 subcommand = "wheel"
 reason = "Building wheel"
+
+# Note: Custom handler for --dry-run flag handling
+[[custom_handlers]]
+program = "pip"
+handler = "check_pip"
+description = "Allow install --dry-run (preview mode), ask for actual installs"
 
 # =============================================================================
 # UV
@@ -713,6 +731,12 @@ reason = "uv pip: install"
 [[programs.ask]]
 subcommand = "pip uninstall"
 reason = "uv pip: uninstall"
+
+# Note: Custom handler for run subcommand (delegates to devtools or asks)
+[[custom_handlers]]
+program = "uv"
+handler = "check_uv"
+description = "Handle uv run <tool> (delegates to devtools gate), ask for unknown commands"
 
 # =============================================================================
 # CARGO
@@ -888,6 +912,7 @@ subcommand = "test"
 [[programs.ask]]
 subcommand = "fmt"
 reason = "Formatting files"
+accept_edits_auto_allow = true
 
 # go run executes arbitrary code - needs approval
 [[programs.ask]]
@@ -1272,6 +1297,12 @@ reason = "Self operation"
 subcommand = "source"
 reason = "Source operation"
 
+# Note: Custom handler for run subcommand (delegates to devtools or asks)
+[[custom_handlers]]
+program = "poetry"
+handler = "check_poetry"
+description = "Handle poetry run <tool> (delegates to devtools gate), ask for unknown commands"
+
 # =============================================================================
 # PIPX
 # =============================================================================
@@ -1333,6 +1364,12 @@ reason = "Modifying PATH"
 [[programs.ask]]
 subcommand = "run"
 reason = "Running application"
+
+# Note: Custom handler for run subcommand (delegates to devtools or asks)
+[[custom_handlers]]
+program = "pipx"
+handler = "check_pipx"
+description = "Handle pipx run <tool> (delegates to devtools gate), ask for unknown commands"
 
 # =============================================================================
 # MISE (Runtime Version Manager)
@@ -1507,3 +1544,9 @@ reason = "Linking tool version"
 [[programs.ask]]
 subcommand = "registry"
 reason = "Registry operation"
+
+# Note: Custom handler for exec subcommand
+[[custom_handlers]]
+program = "mise"
+handler = "check_mise"
+description = "Handle mise exec <tool> (delegates to devtools gate), task expansion handled in mise.rs"

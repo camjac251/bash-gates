@@ -6,15 +6,18 @@
 //! - Complex blocked commands (shutdown, mkfs, etc.)
 
 use crate::generated::rules::{
-    check_ansible_declarative, check_apt_cache_declarative, check_apt_declarative,
-    check_bazel_declarative, check_brew_declarative, check_cmake_declarative,
-    check_dnf_declarative, check_gradle_declarative, check_hyperfine_declarative,
-    check_just_declarative, check_kill_declarative, check_killall_declarative,
-    check_make_declarative, check_meson_declarative, check_mongosh_declarative,
-    check_mvn_declarative, check_mysql_declarative, check_ninja_declarative,
-    check_pacman_declarative, check_pkill_declarative, check_psql_declarative,
-    check_systemctl_declarative, check_task_declarative, check_vagrant_declarative,
-    check_xkill_declarative,
+    check_alembic_declarative, check_ansible_declarative, check_apt_cache_declarative,
+    check_apt_declarative, check_bazel_declarative, check_brew_declarative,
+    check_cmake_declarative, check_createdb_declarative, check_dbmate_declarative,
+    check_dd_declarative, check_dnf_declarative, check_dropdb_declarative,
+    check_flyway_declarative, check_goose_declarative, check_gradle_declarative,
+    check_hyperfine_declarative, check_just_declarative, check_kill_declarative,
+    check_killall_declarative, check_make_declarative, check_meson_declarative,
+    check_migrate_declarative, check_mongosh_declarative, check_mvn_declarative,
+    check_mysql_declarative, check_ninja_declarative, check_pacman_declarative,
+    check_pg_dump_declarative, check_pg_restore_declarative, check_pkill_declarative,
+    check_psql_declarative, check_systemctl_declarative, check_task_declarative,
+    check_vagrant_declarative, check_xkill_declarative,
 };
 use crate::models::{CommandInfo, Decision, GateResult};
 
@@ -29,16 +32,26 @@ pub fn check_system(cmd: &CommandInfo) -> GateResult {
         "mysql" => check_mysql(cmd),
         "sqlite3" | "mongosh" | "mongo" | "redis-cli" => check_database_generic(cmd),
 
-        // PostgreSQL utilities
-        "createdb" => GateResult::ask("createdb: Creating database"),
-        "dropdb" => GateResult::ask("dropdb: Dropping database"),
-        "pg_dump" => GateResult::allow(), // Read-only backup
-        "pg_restore" => GateResult::ask("pg_restore: Restoring database"),
+        // PostgreSQL utilities - use TOML rules
+        "createdb" => check_createdb_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("createdb: Creating database")),
+        "dropdb" => check_dropdb_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("dropdb: Dropping database")),
+        "pg_dump" => check_pg_dump_declarative(cmd).unwrap_or_else(GateResult::allow),
+        "pg_restore" => check_pg_restore_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("pg_restore: Restoring database")),
 
-        // Database migration tools
-        "migrate" | "goose" | "dbmate" | "flyway" | "alembic" => {
-            GateResult::ask(format!("{program}: Running database migration"))
-        }
+        // Database migration tools - use TOML rules
+        "migrate" => check_migrate_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("migrate: Running database migration")),
+        "goose" => check_goose_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("goose: Running database migration")),
+        "dbmate" => check_dbmate_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("dbmate: Running database migration")),
+        "flyway" => check_flyway_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("flyway: Running database migration")),
+        "alembic" => check_alembic_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("alembic: Running database migration")),
 
         // Process management
         "kill" => check_kill(cmd),
@@ -98,7 +111,8 @@ pub fn check_system(cmd: &CommandInfo) -> GateResult {
             GateResult::block(format!("{program}: Disk partitioning blocked"))
         }
 
-        "dd" => GateResult::ask("dd: Low-level disk operation"),
+        "dd" => check_dd_declarative(cmd)
+            .unwrap_or_else(|| GateResult::block("dd: Low-level disk operation blocked")),
         "crontab" => check_crontab(cmd),
 
         _ => GateResult::skip(),

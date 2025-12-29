@@ -35,6 +35,7 @@ unknown_action = "ask"
 # sd is always a write operation
 [[programs.ask]]
 reason = "In-place text replacement"
+accept_edits_auto_allow = true
 
 # =============================================================================
 # SAD (preview mode safe, --commit asks)
@@ -47,6 +48,7 @@ unknown_action = "allow"  # Default is preview mode
 [[programs.ask]]
 reason = "Applying replacements"
 if_flags_any = ["--commit"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # AST-GREP (search safe, -U/--update-all asks)
@@ -60,6 +62,7 @@ unknown_action = "allow"  # Default is search mode
 [[programs.ask]]
 reason = "Rewriting code"
 if_flags_any = ["-U", "--update-all"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # YQ (read safe, -i/--inplace asks)
@@ -72,6 +75,7 @@ unknown_action = "allow"  # Default is read mode
 [[programs.ask]]
 reason = "In-place YAML edit"
 if_flags_any = ["-i", "--inplace"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # JQ (always safe - read-only)
@@ -92,6 +96,7 @@ unknown_action = "allow"  # Default is scan mode
 [[programs.ask]]
 reason = "Auto-fixing code"
 if_flags_any = ["--autofix", "--fix"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # COMBY (match safe, -in-place/-i asks)
@@ -104,6 +109,7 @@ unknown_action = "allow"  # Default is match mode
 [[programs.ask]]
 reason = "In-place replacement"
 if_flags_any = ["-in-place", "-i"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # GRIT (check safe, apply asks)
@@ -116,6 +122,7 @@ unknown_action = "allow"
 [[programs.ask]]
 subcommand = "apply"
 reason = "Applying migrations"
+accept_edits_auto_allow = true
 
 # =============================================================================
 # WATCHEXEC (always asks - runs commands)
@@ -136,17 +143,19 @@ reason = "Runs commands on file changes"
 name = "biome"
 unknown_action = "allow"
 
-# check --write asks
+# check --write/--fix/--fix-unsafe asks
 [[programs.ask]]
 subcommand = "check"
 reason = "Writing fixes"
-if_flags_any = ["--write"]
+if_flags_any = ["--write", "--fix", "--fix-unsafe"]
+accept_edits_auto_allow = true
 
 # format --write asks
 [[programs.ask]]
 subcommand = "format"
 reason = "Formatting files"
 if_flags_any = ["--write"]
+accept_edits_auto_allow = true
 
 # lint is read-only
 [[programs.allow]]
@@ -163,6 +172,7 @@ unknown_action = "allow"
 [[programs.ask]]
 reason = "Writing formatted files"
 if_flags_any = ["--write", "-w"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # ESLINT (lint safe, --fix asks)
@@ -175,6 +185,7 @@ unknown_action = "allow"
 [[programs.ask]]
 reason = "Auto-fixing"
 if_flags_any = ["--fix"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # RUFF (check safe, check --fix asks, format without --check asks)
@@ -189,9 +200,20 @@ unknown_action = "allow"
 subcommand = "check"
 reason = "Auto-fixing"
 if_flags_any = ["--fix"]
+accept_edits_auto_allow = true
 
-# format without --check/--diff
-# Note: Custom handler needed for precise logic
+# format --check/--diff is read-only
+[[programs.allow]]
+subcommand = "format"
+if_flags_any = ["--check", "--diff"]
+
+# format without --check/--diff asks (writes files)
+[[programs.ask]]
+subcommand = "format"
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# Note: The allow rule for --check/--diff makes the custom handler unnecessary now
 [[custom_handlers]]
 program = "ruff"
 handler = "check_ruff"
@@ -211,6 +233,7 @@ if_flags_any = ["--check", "--diff"]
 
 [[programs.ask]]
 reason = "Formatting files"
+accept_edits_auto_allow = true
 
 # =============================================================================
 # ISORT (--check/--check-only/--diff safe, otherwise asks)
@@ -226,6 +249,7 @@ if_flags_any = ["--check", "--check-only", "--diff"]
 
 [[programs.ask]]
 reason = "Sorting imports"
+accept_edits_auto_allow = true
 
 # =============================================================================
 # SHELLCHECK (always safe - read-only static analysis)
@@ -250,6 +274,7 @@ unknown_action = "allow"
 [[programs.ask]]
 reason = "Applying lint fixes"
 if_flags_any = ["--fix"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # GCI (Go import organizer - write subcommand modifies files)
@@ -262,6 +287,7 @@ unknown_action = "allow"
 [[programs.ask]]
 reason = "Formatting imports"
 if_flags_any = ["write"]
+accept_edits_auto_allow = true
 
 # =============================================================================
 # AIR (Go hot-reload - runs/watches files)
@@ -379,3 +405,279 @@ unknown_action = "allow"
 [[programs.ask]]
 reason = "Formatting files"
 if_flags_any = ["-w"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# GOIMPORTS (Go import formatter - -w writes files)
+# =============================================================================
+
+[[programs]]
+name = "goimports"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Formatting imports"
+if_flags_any = ["-w"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# SHFMT (Shell formatter - -w writes files)
+# =============================================================================
+
+[[programs]]
+name = "shfmt"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Formatting files"
+if_flags_any = ["-w"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# RUSTFMT (Rust formatter - --check is read-only, otherwise writes)
+# =============================================================================
+
+[[programs]]
+name = "rustfmt"
+unknown_action = "ask"
+
+[[programs.allow]]
+if_flags_any = ["--check"]
+
+[[programs.ask]]
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# STYLUA (Lua formatter - --check is read-only, otherwise writes)
+# =============================================================================
+
+[[programs]]
+name = "stylua"
+unknown_action = "ask"
+
+[[programs.allow]]
+if_flags_any = ["--check"]
+
+[[programs.ask]]
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# CLANG-FORMAT (C/C++ formatter - -i writes files, otherwise stdout)
+# =============================================================================
+
+[[programs]]
+name = "clang-format"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Formatting files in-place"
+if_flags_any = ["-i"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# AUTOPEP8 (Python formatter - -i/--in-place writes files, otherwise stdout)
+# =============================================================================
+
+[[programs]]
+name = "autopep8"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Formatting files in-place"
+if_flags_any = ["-i", "--in-place"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# RUBOCOP (Ruby linter - -a/-A/--auto-correct modifies files)
+# =============================================================================
+
+[[programs]]
+name = "rubocop"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Auto-correcting"
+if_flags_any = ["-a", "-A", "--auto-correct", "--autocorrect"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# STANDARDRB (Ruby linter - -a/-A/--auto-correct modifies files)
+# =============================================================================
+
+[[programs]]
+name = "standardrb"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Auto-correcting"
+if_flags_any = ["-a", "-A", "--auto-correct", "--autocorrect"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# PATCH (applies diff patches - --dry-run is read-only)
+# =============================================================================
+
+[[programs]]
+name = "patch"
+unknown_action = "ask"
+
+[[programs.allow]]
+if_flags_any = ["--dry-run"]
+
+[[programs.ask]]
+reason = "Applying patch"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# DOS2UNIX / UNIX2DOS (line ending converters - always modify files)
+# =============================================================================
+
+[[programs]]
+name = "dos2unix"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Converting line endings"
+accept_edits_auto_allow = true
+
+[[programs]]
+name = "unix2dos"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Converting line endings"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# STYLELINT (CSS/SCSS linter - --fix modifies files)
+# =============================================================================
+
+[[programs]]
+name = "stylelint"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Auto-fixing styles"
+if_flags_any = ["--fix"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# MIX (Elixir build tool - mix format always modifies files)
+# =============================================================================
+
+[[programs]]
+name = "mix"
+unknown_action = "allow"
+
+[[programs.ask]]
+subcommand = "format"
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# PERLTIDY (Perl formatter - -b flag writes back to original file)
+# =============================================================================
+
+[[programs]]
+name = "perltidy"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Formatting in-place"
+if_flags_any = ["-b"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# DARTFMT (Dart formatter - writes by default)
+# =============================================================================
+
+[[programs]]
+name = "dartfmt"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# DART (dart format command - writes by default, --output=show is read-only)
+# =============================================================================
+
+[[programs]]
+name = "dart"
+unknown_action = "allow"
+
+[[programs.ask]]
+subcommand = "format"
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# ELM-FORMAT (Elm formatter - writes by default)
+# =============================================================================
+
+[[programs]]
+name = "elm-format"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# SCALAFMT (Scala formatter - writes by default, --check is read-only)
+# =============================================================================
+
+[[programs]]
+name = "scalafmt"
+unknown_action = "ask"
+
+[[programs.allow]]
+if_flags_any = ["--check"]
+
+[[programs.ask]]
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# KTLINT (Kotlin linter - -F/--format modifies files)
+# =============================================================================
+
+[[programs]]
+name = "ktlint"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Formatting files"
+if_flags_any = ["-F", "--format"]
+accept_edits_auto_allow = true
+
+# =============================================================================
+# SWIFTFORMAT (Swift formatter - writes by default, --lint is read-only)
+# =============================================================================
+
+[[programs]]
+name = "swiftformat"
+unknown_action = "ask"
+
+[[programs.allow]]
+if_flags_any = ["--lint"]
+
+[[programs.ask]]
+reason = "Formatting files"
+accept_edits_auto_allow = true
+
+# =============================================================================
+# BUF (Protocol Buffers tool - buf format writes by default, --diff is read-only)
+# =============================================================================
+
+[[programs]]
+name = "buf"
+unknown_action = "allow"
+
+[[programs.ask]]
+subcommand = "format"
+reason = "Formatting files"
+accept_edits_auto_allow = true
