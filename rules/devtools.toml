@@ -252,6 +252,18 @@ reason = "Applying lint fixes"
 if_flags_any = ["--fix"]
 
 # =============================================================================
+# GCI (Go import organizer - write subcommand modifies files)
+# =============================================================================
+
+[[programs]]
+name = "gci"
+unknown_action = "allow"
+
+[[programs.ask]]
+reason = "Formatting imports"
+if_flags_any = ["write"]
+
+# =============================================================================
 # AIR (Go hot-reload - runs/watches files)
 # =============================================================================
 

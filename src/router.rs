@@ -967,6 +967,7 @@ const FILE_EDITING_PROGRAMS: &[&str] = &[
     "go",            // go fmt modifies files
     "gofmt",         // with -w flag
     "goimports",     // with -w flag
+    "gci",           // with write subcommand
     "golangci-lint", // with --fix flag
     "rustfmt",
     "clang-format",
@@ -1038,6 +1039,9 @@ fn is_file_editing_command(cmd: &CommandInfo) -> bool {
 
         // golangci-lint with --fix modifies files
         "golangci-lint" => cmd.args.iter().any(|a| a == "--fix"),
+
+        // gci write modifies files (gci diff just shows changes)
+        "gci" => cmd.args.first().is_some_and(|a| a == "write"),
 
         // clang-format outputs to stdout by default - needs -i flag
         "clang-format" => cmd.args.iter().any(|a| a == "-i"),
