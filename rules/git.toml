@@ -294,6 +294,17 @@ reason = "Merging branches"
 subcommand = "rebase"
 reason = "Rebasing"
 
+# checkout with specific flag conditions (checked before general checkout)
+[[programs.ask]]
+subcommand = "checkout"
+reason = "Creating branch"
+if_flags_any = ["-b", "-B"]
+
+[[programs.ask]]
+subcommand = "checkout"
+reason = "Discarding changes"
+if_flags_any = ["--"]
+
 [[programs.ask]]
 subcommand = "checkout"
 reason = "Checking out"
@@ -415,18 +426,3 @@ description = "Skip global options (-C, --git-dir, -c, etc.) to find actual subc
 program = "git"
 handler = "check_git_add"
 description = "Handle git add with special checks for -A, --all, ., wildcards"
-
-[[custom_handlers]]
-program = "git"
-handler = "force_with_lease_handling"
-description = "push --force-with-lease is treated as safe push (not flagged as force push)"
-
-[[custom_handlers]]
-program = "git"
-handler = "checkout_branch_creation"
-description = "checkout -b/-B creates branch (different reason than regular checkout)"
-
-[[custom_handlers]]
-program = "git"
-handler = "checkout_discard_changes"
-description = "checkout -- discards changes (different reason than regular checkout)"

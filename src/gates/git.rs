@@ -1,7 +1,22 @@
 //! Git command permission gate.
 //!
-//! Custom preprocessing for git's global options (-C, --git-dir, etc.),
-//! then delegates to declarative rules.
+//! Mostly declarative via rules/git.toml, with two custom handlers:
+//!
+//! 1. `extract_subcommand` - Skip global options (-C, --git-dir, -c, etc.)
+//!    to find the actual git subcommand. This is necessary because git
+//!    allows global options before the subcommand, and TOML can't express
+//!    "skip N flags then match subcommand".
+//!
+//! 2. `check_git_add` - Special handling for git add with -A/--all, ., and
+//!    wildcards. These require checking argument values, not just flags,
+//!    which TOML can't express. Each case gets a different reason:
+//!    - `-A/--all` -> "Staging all files"
+//!    - `.` -> "Staging directory"
+//!    - `*` in args -> "Staging with wildcard"
+//!    - otherwise -> "Staging files"
+//!
+//! Everything else (checkout -b/-B, checkout --, push --force-with-lease,
+//! config subcommands, etc.) is handled declaratively via TOML rules.
 
 use crate::generated::rules::check_git_declarative;
 use crate::models::{CommandInfo, GateResult};
@@ -126,27 +141,14 @@ pub fn check_git(cmd: &CommandInfo) -> GateResult {
         raw: cmd.raw.clone(),
     };
 
-    // Special case: --force-with-lease is safe (don't trigger force push warning)
-    if subcommand == "push" && args.iter().any(|a| a == "--force-with-lease") {
-        return GateResult::ask("git: Pushing to remote");
-    }
-
-    // Special case: git add with wildcards, --all, or .
+    // Special case: git add with wildcards, --all, or . (complex logic)
     if subcommand == "add" {
         return check_git_add(&normalized_args);
     }
 
-    // Special case: checkout with -b/-B creates a branch
-    if subcommand == "checkout" && normalized_args.iter().any(|a| a == "-b" || a == "-B") {
-        return GateResult::ask("git: Creating branch");
-    }
-
-    // Special case: checkout with -- discards changes
-    if subcommand == "checkout" && normalized_args.iter().any(|a| a == "--") {
-        return GateResult::ask("git: Discarding changes");
-    }
-
     // Use declarative rules for everything else
+    // Note: checkout -b/-B, checkout --, and push --force-with-lease are handled
+    // declaratively via TOML rules with if_flags_any
     check_git_declarative(&normalized_cmd)
         .unwrap_or_else(|| GateResult::ask(format!("git: {subcommand}")))
 }

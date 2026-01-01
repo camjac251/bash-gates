@@ -1,10 +1,16 @@
 //! Basic shell commands that are safe (read-only or display-only).
 //!
-//! Uses generated SAFE_COMMANDS list with custom logic for:
-//! - sed/perl with -i flag (delegate to filesystem gate)
-//! - xargs with safe/unsafe target commands
-//! - xargs sh -c 'script' where script contains only safe commands
-//! - bash/sh/zsh -c 'script' where script is parsed and checked
+//! Mostly declarative via rules/basics.toml which defines safe_commands list
+//! and conditional_allow for sed/perl without -i flag.
+//!
+//! Custom handlers needed for complex validation:
+//!
+//! 1. `check_xargs` - xargs safety depends on the target command being safe.
+//!    TOML can't express "allow if args contain a command from safe_commands".
+//!    Also handles `xargs sh -c 'script'` by parsing the inner script.
+//!
+//! 2. `check_shell_c` - bash/sh/zsh -c 'script' requires parsing the script
+//!    string and checking each command in it. TOML can't parse embedded scripts.
 
 use crate::generated::rules::{SAFE_COMMANDS, check_conditional_allow, check_safe_command};
 use crate::models::{CommandInfo, Decision, GateResult};

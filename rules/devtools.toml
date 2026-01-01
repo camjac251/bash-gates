@@ -213,12 +213,6 @@ subcommand = "format"
 reason = "Formatting files"
 accept_edits_auto_allow = true
 
-# Note: The allow rule for --check/--diff makes the custom handler unnecessary now
-[[custom_handlers]]
-program = "ruff"
-handler = "check_ruff"
-description = "ruff format asks unless --check or --diff present"
-
 # =============================================================================
 # BLACK (--check/--diff safe, otherwise asks)
 # =============================================================================

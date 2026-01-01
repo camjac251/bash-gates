@@ -680,7 +680,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
         file_name
     ));
 
-    // Collect simple allows
+    // Collect simple allows (no conditions)
     let simple_allows: Vec<String> = program
         .allow
         .iter()
@@ -689,6 +689,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                 && r.action_prefix.is_none()
                 && r.unless_flags.is_empty()
                 && r.unless_args_contain.is_empty()
+                && r.if_flags_any.is_empty()  // Exclude conditional allows
         })
         .map(|r| r.subcommand_parts().join(" "))
         .filter(|s| !s.is_empty())
@@ -1108,8 +1109,15 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                     .iter()
                     .map(|f| format!("\"{}\"", escape_rust_string(f)))
                     .collect();
+                // Include subcommand check if subcommand is specified
+                let subcmd_check = if parts.is_empty() {
+                    "true".to_string()
+                } else {
+                    generate_subcommand_match(&parts)
+                };
                 output.push_str(&format!(
-                    "    if cmd.args.iter().any(|a| [{}].contains(&a.as_str())) {{\n",
+                    "    if {} && cmd.args.iter().any(|a| [{}].contains(&a.as_str())) {{\n",
+                    subcmd_check,
                     flags.join(", ")
                 ));
                 output.push_str("        return Some(GateResult::allow());\n");

@@ -1,7 +1,19 @@
 //! Cloud CLI permission gates (AWS, gcloud, az, terraform, kubectl, docker, podman).
 //!
-//! Uses generated declarative rules with custom handling for:
-//! - kubectl 3-word block patterns (delete namespace kube-system)
+//! Mostly declarative via rules/cloud.toml, with custom handlers for:
+//!
+//! 1. `check_gcloud` - gcloud uses 3-word patterns: `gcloud <service> <resource> <action>`
+//!    The action (3rd word) determines read vs write. TOML only handles 2-word subcommands.
+//!
+//! 2. `check_docker` - docker compose accepts flags between "compose" and the actual
+//!    subcommand (e.g., `docker compose -f x.yml config`). Custom logic skips flags
+//!    to find the real subcommand.
+//!
+//! 3. `check_kubectl` - 3-word block patterns like `delete namespace kube-system`.
+//!    The generated declarative code handles 2-word blocks, but 3-word blocks
+//!    require explicit checking.
+//!
+//! Everything else (AWS, Azure, Terraform, Helm, Pulumi, Podman) is fully declarative.
 
 use crate::generated::rules::{
     check_aws_declarative, check_az_declarative, check_docker_compose_declarative,
@@ -24,7 +36,12 @@ pub fn check_cloud(cmd: &CommandInfo) -> GateResult {
                 cmd.args.first().unwrap_or(&"unknown".to_string())
             ))
         }),
-        "terraform" | "tofu" => check_terraform(cmd),
+        "terraform" | "tofu" => check_terraform_declarative(cmd).unwrap_or_else(|| {
+            GateResult::ask(format!(
+                "terraform: {}",
+                cmd.args.first().unwrap_or(&"unknown".to_string())
+            ))
+        }),
         "kubectl" | "k" => check_kubectl(cmd),
         "docker" => check_docker(cmd),
         "podman" => check_podman_declarative(cmd).unwrap_or_else(|| {
@@ -97,28 +114,6 @@ fn check_gcloud(cmd: &CommandInfo) -> GateResult {
     }
 
     GateResult::ask(format!("gcloud: {} {} {}", args[0], args[1], action))
-}
-
-/// terraform needs custom handling for fmt -check.
-fn check_terraform(cmd: &CommandInfo) -> GateResult {
-    let args = &cmd.args;
-
-    // fmt requires special handling - allow with -check, ask without
-    // (the declarative generator incorrectly puts "fmt" in ALLOW unconditionally)
-    if args.first().map(String::as_str) == Some("fmt") {
-        if args.iter().any(|a| a == "-check") {
-            return GateResult::allow();
-        }
-        return GateResult::ask("terraform: Formatting files");
-    }
-
-    // Try declarative rules for other commands
-    check_terraform_declarative(cmd).unwrap_or_else(|| {
-        GateResult::ask(format!(
-            "terraform: {}",
-            args.first().unwrap_or(&"unknown".to_string())
-        ))
-    })
 }
 
 /// docker compose needs custom handling because flags can appear between
@@ -291,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_terraform_write_asks() {
-        let write_cmds = [&["apply"][..], &["destroy"], &["init"]];
+        let write_cmds = [&["apply"][..], &["destroy"], &["init"], &["fmt"]];
 
         for args in write_cmds {
             let result = check_cloud(&terraform(args));

@@ -522,12 +522,6 @@ reason = "Terraform: workspace delete"
 subcommand = "workspace select"
 reason = "Terraform: workspace select"
 
-# Note: Custom handler for fmt -check (TOML order issue: ask rule shadows allow rule)
-[[custom_handlers]]
-program = "terraform"
-handler = "check_terraform"
-description = "Handle fmt -check (allow) vs fmt without -check (ask), since TOML order matters"
-
 # =============================================================================
 # KUBECTL
 # =============================================================================

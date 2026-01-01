@@ -1,48 +1,20 @@
 //! Developer tools permission gate.
 //!
-//! Almost entirely declarative - add tools to rules/devtools.toml.
-//! Only `ruff` needs custom logic (format vs check detection).
+//! Fully declarative - add tools to rules/devtools.toml.
 
-use crate::generated::rules::{check_devtools_gate, check_ruff_declarative};
-use crate::models::{CommandInfo, Decision, GateResult};
+use crate::generated::rules::check_devtools_gate;
+use crate::models::{CommandInfo, GateResult};
 
 /// Check developer tools that can modify files.
 pub fn check_devtools(cmd: &CommandInfo) -> GateResult {
-    // Try the generated gate first
-    let result = check_devtools_gate(cmd);
-
-    // Generated gate returns Skip for programs with custom handlers
-    if matches!(result.decision, Decision::Skip) && cmd.program == "ruff" {
-        return check_ruff(cmd);
-    }
-
-    result
-}
-
-/// Custom handler for ruff - format subcommand needs special logic
-fn check_ruff(cmd: &CommandInfo) -> GateResult {
-    // Declarative handles most cases
-    if let Some(result) = check_ruff_declarative(cmd) {
-        // If declarative says ask/block, use that
-        if !matches!(result.decision, Decision::Allow) {
-            return result;
-        }
-    }
-
-    // ruff format without --check/--diff asks
-    if cmd.args.first().map(String::as_str) == Some("format")
-        && !cmd.args.iter().any(|a| a == "--check" || a == "--diff")
-    {
-        return GateResult::ask("ruff: Formatting files");
-    }
-
-    GateResult::allow()
+    check_devtools_gate(cmd)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::gates::test_utils::cmd;
+    use crate::models::Decision;
 
     // === sd (always asks - in-place editor) ===
 
