@@ -4,6 +4,7 @@
 //! Also handles package managers invoking dev tools (pnpm biome, npm eslint, etc.)
 
 use crate::gates::devtools::check_devtools;
+use crate::gates::GATES;
 use crate::generated::rules::{
     check_bun_declarative, check_cargo_declarative, check_conda_declarative, check_go_declarative,
     check_mise_declarative, check_npm_declarative, check_pip_declarative, check_pipx_declarative,
@@ -17,6 +18,7 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
     let program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
     match program {
         "npm" => check_npm(cmd),
+        "npx" => check_npx(cmd),
         "pnpm" => check_pnpm(cmd),
         "yarn" => check_yarn(cmd),
         "pip" | "pip3" => check_pip(cmd),
@@ -24,6 +26,7 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
         "cargo" => check_cargo(cmd),
         "go" => check_go(cmd),
         "bun" => check_bun(cmd),
+        "bunx" => check_bunx(cmd),
         "conda" | "mamba" | "micromamba" => check_conda(cmd),
         "poetry" => check_poetry(cmd),
         "pipx" => check_pipx(cmd),
@@ -34,7 +37,87 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
     }
 }
 
+/// Check if package manager is using subcommands that run arbitrary binaries.
+/// npm/pnpm/yarn/bun all have ways to run binaries from node_modules.
+/// This routes through ALL gates to catch dangerous commands like rm -rf /.
+fn check_pm_binary_exec(cmd: &CommandInfo, pm_name: &str) -> Option<GateResult> {
+    if cmd.args.is_empty() {
+        return None;
+    }
+
+    // npm/pnpm/yarn have "exec" or "x" subcommands
+    // npx and bunx are always binary executors
+    let is_binary_cmd = match pm_name {
+        "npx" | "bunx" => true,
+        _ => cmd.args[0] == "exec" || cmd.args[0] == "x",
+    };
+
+    if !is_binary_cmd {
+        return None;
+    }
+
+    // Find where the command starts (after subcommand and flags)
+    let cmd_start = if pm_name == "npx" || pm_name == "bunx" {
+        let mut idx = 0;
+        while idx < cmd.args.len() && cmd.args[idx].starts_with('-') {
+            idx += 1;
+            // Skip flag values for -p/--package/-c
+            if idx < cmd.args.len()
+                && !cmd.args[idx].starts_with('-')
+                && matches!(
+                    cmd.args.get(idx.saturating_sub(1)).map(|s| s.as_str()),
+                    Some("-p" | "--package" | "-c")
+                )
+            {
+                idx += 1;
+            }
+        }
+        idx
+    } else {
+        // Skip "exec" or "x" and any flags
+        let mut idx = 1;
+        while idx < cmd.args.len() && cmd.args[idx].starts_with('-') {
+            idx += 1;
+        }
+        idx
+    };
+
+    if cmd_start >= cmd.args.len() {
+        return None;
+    }
+
+    let underlying_program = &cmd.args[cmd_start];
+
+    // Build synthetic command for the underlying program
+    let tool_cmd = CommandInfo {
+        program: underlying_program.clone(),
+        args: cmd.args[cmd_start + 1..].to_vec(),
+        raw: cmd.raw.clone(),
+    };
+
+    // Run through ALL gates to catch dangerous commands
+    for (_name, gate_fn) in GATES.iter() {
+        let result = gate_fn(&tool_cmd);
+        if !matches!(result.decision, Decision::Skip) {
+            return Some(GateResult {
+                decision: result.decision,
+                reason: result
+                    .reason
+                    .map(|r| format!("{pm_name}: {underlying_program}: {r}")),
+            });
+        }
+    }
+
+    // No gate handled it - ask for unknown commands
+    Some(GateResult::ask(format!("{pm_name}: {underlying_program}")))
+}
+
 fn check_npm(cmd: &CommandInfo) -> GateResult {
+    // Check if npm is running an arbitrary binary (npm exec <cmd>)
+    if let Some(result) = check_pm_binary_exec(cmd, "npm") {
+        return result;
+    }
+
     // Check if npm is invoking a known dev tool (npm eslint, npm prettier, etc.)
     if let Some(result) = check_invoked_devtool(cmd, "npm") {
         return result;
@@ -78,7 +161,17 @@ fn check_npm(cmd: &CommandInfo) -> GateResult {
     ))
 }
 
+/// npx runs arbitrary binaries - route through all gates
+fn check_npx(cmd: &CommandInfo) -> GateResult {
+    check_pm_binary_exec(cmd, "npx").unwrap_or_else(|| GateResult::ask("npx: no command specified"))
+}
+
 fn check_pnpm(cmd: &CommandInfo) -> GateResult {
+    // Check if pnpm is running an arbitrary binary (pnpm exec <cmd>, pnpm x <cmd>)
+    if let Some(result) = check_pm_binary_exec(cmd, "pnpm") {
+        return result;
+    }
+
     // Check if pnpm is invoking a known dev tool (pnpm biome, pnpm eslint, etc.)
     if let Some(result) = check_invoked_devtool(cmd, "pnpm") {
         return result;
@@ -120,6 +213,11 @@ fn check_pnpm(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_yarn(cmd: &CommandInfo) -> GateResult {
+    // Check if yarn is running an arbitrary binary (yarn exec <cmd>)
+    if let Some(result) = check_pm_binary_exec(cmd, "yarn") {
+        return result;
+    }
+
     // Check if yarn is invoking a known dev tool (yarn eslint, yarn prettier, etc.)
     if let Some(result) = check_invoked_devtool(cmd, "yarn") {
         return result;
@@ -275,6 +373,11 @@ fn check_go(cmd: &CommandInfo) -> GateResult {
 }
 
 fn check_bun(cmd: &CommandInfo) -> GateResult {
+    // Check if bun is running an arbitrary binary (bun x <cmd>)
+    if let Some(result) = check_pm_binary_exec(cmd, "bun") {
+        return result;
+    }
+
     if let Some(result) = check_bun_declarative(cmd) {
         if !matches!(result.decision, Decision::Allow)
             || has_known_subcommand(
@@ -289,6 +392,11 @@ fn check_bun(cmd: &CommandInfo) -> GateResult {
         "bun: {}",
         cmd.args.first().unwrap_or(&"unknown".to_string())
     ))
+}
+
+/// bunx runs arbitrary binaries - route through all gates
+fn check_bunx(cmd: &CommandInfo) -> GateResult {
+    check_pm_binary_exec(cmd, "bunx").unwrap_or_else(|| GateResult::ask("bunx: no command specified"))
 }
 
 fn check_conda(cmd: &CommandInfo) -> GateResult {
@@ -447,18 +555,31 @@ fn check_mise(cmd: &CommandInfo) -> GateResult {
             }
 
             if cmd_start < cmd.args.len() {
-                // Check if executing a known dev tool
+                let underlying_program = &cmd.args[cmd_start];
+                // Build synthetic command for the underlying program
                 let tool_cmd = CommandInfo {
-                    program: cmd.args[cmd_start].clone(),
+                    program: underlying_program.clone(),
                     args: cmd.args[cmd_start + 1..].to_vec(),
                     raw: cmd.raw.clone(),
                 };
-                let result = check_devtools(&tool_cmd);
-                if !matches!(result.decision, Decision::Skip) {
-                    return result;
+                // Run through ALL gates (not just devtools) to catch dangerous commands
+                for (_name, gate_fn) in GATES.iter() {
+                    let result = gate_fn(&tool_cmd);
+                    if !matches!(result.decision, Decision::Skip) {
+                        // Prefix reason with mise exec context
+                        return GateResult {
+                            decision: result.decision,
+                            reason: result
+                                .reason
+                                .map(|r| format!("mise exec {underlying_program}: {r}")),
+                        };
+                    }
                 }
+                // No gate handled it - ask for unknown commands
+                return GateResult::ask(format!("mise exec: {underlying_program}"));
             }
         }
+        // No command specified - bare "mise exec" or "mise x"
         return GateResult::allow();
     }
 
@@ -555,19 +676,20 @@ fn check_python_run_command(cmd: &CommandInfo, pm_name: &str) -> Option<GateResu
         args: run_args.to_vec(),
     };
 
-    // Try devtools gate first
-    let result = check_devtools(&tool_cmd);
-
-    if result.decision != Decision::Skip {
-        return Some(GateResult {
-            decision: result.decision,
-            reason: result
-                .reason
-                .map(|r| format!("{pm_name} run {run_cmd}: {r}")),
-        });
+    // Run through ALL gates to catch dangerous commands like rm -rf /
+    for (_name, gate_fn) in GATES.iter() {
+        let result = gate_fn(&tool_cmd);
+        if !matches!(result.decision, Decision::Skip) {
+            return Some(GateResult {
+                decision: result.decision,
+                reason: result
+                    .reason
+                    .map(|r| format!("{pm_name} run {run_cmd}: {r}")),
+            });
+        }
     }
 
-    // For Python-specific tools not in devtools, check common patterns
+    // For Python-specific tools not in any gate, check common patterns
     match run_cmd.as_str() {
         // Test runners - safe
         "pytest" | "py.test" | "unittest" | "nose" | "nose2" | "ward" | "hypothesis" => {
@@ -579,7 +701,7 @@ fn check_python_run_command(cmd: &CommandInfo, pm_name: &str) -> Option<GateResu
         "build" | "flit" | "hatchling" | "maturin" | "setuptools" => Some(GateResult::allow()),
         // Documentation - safe
         "sphinx-build" | "mkdocs" | "pdoc" => Some(GateResult::allow()),
-        // Unknown - let it through (will be caught by basics gate or ask)
+        // Unknown - let it through (will be caught by outer logic)
         _ => None,
     }
 }
@@ -844,5 +966,157 @@ mod tests {
     fn test_non_pm_skips() {
         let result = check_package_managers(&cmd("git", &["status"]));
         assert_eq!(result.decision, Decision::Skip);
+    }
+
+    // === Security: Exec/Run with dangerous commands should BLOCK ===
+
+    mod exec_security {
+        use super::*;
+
+        // mise exec/x
+        #[test]
+        fn test_mise_exec_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("mise", &["exec", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "mise exec rm -rf / should block");
+        }
+
+        #[test]
+        fn test_mise_x_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("mise", &["x", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "mise x rm -rf / should block");
+        }
+
+        #[test]
+        fn test_mise_exec_safe_allows() {
+            let result = check_package_managers(&cmd("mise", &["exec", "biome", "check", "."]));
+            assert_eq!(result.decision, Decision::Allow, "mise exec biome check should allow");
+        }
+
+        // uv run
+        #[test]
+        fn test_uv_run_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("uv", &["run", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "uv run rm -rf / should block");
+        }
+
+        #[test]
+        fn test_uv_run_git_status_allows() {
+            let result = check_package_managers(&cmd("uv", &["run", "git", "status"]));
+            assert_eq!(result.decision, Decision::Allow, "uv run git status should allow");
+        }
+
+        // poetry run
+        #[test]
+        fn test_poetry_run_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("poetry", &["run", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "poetry run rm -rf / should block");
+        }
+
+        // pdm run
+        #[test]
+        fn test_pdm_run_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("pdm", &["run", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "pdm run rm -rf / should block");
+        }
+
+        // pipx run
+        #[test]
+        fn test_pipx_run_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("pipx", &["run", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "pipx run rm -rf / should block");
+        }
+
+        // hatch run
+        #[test]
+        fn test_hatch_run_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("hatch", &["run", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "hatch run rm -rf / should block");
+        }
+
+        // npm exec
+        #[test]
+        fn test_npm_exec_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("npm", &["exec", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "npm exec rm -rf / should block");
+        }
+
+        #[test]
+        fn test_npm_exec_safe_allows() {
+            let result = check_package_managers(&cmd("npm", &["exec", "biome", "check", "."]));
+            assert_eq!(result.decision, Decision::Allow, "npm exec biome check should allow");
+        }
+
+        // pnpm exec/x
+        #[test]
+        fn test_pnpm_exec_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("pnpm", &["exec", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "pnpm exec rm -rf / should block");
+        }
+
+        #[test]
+        fn test_pnpm_x_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("pnpm", &["x", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "pnpm x rm -rf / should block");
+        }
+
+        // yarn exec
+        #[test]
+        fn test_yarn_exec_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("yarn", &["exec", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "yarn exec rm -rf / should block");
+        }
+
+        // bun x
+        #[test]
+        fn test_bun_x_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("bun", &["x", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "bun x rm -rf / should block");
+        }
+
+        // npx (standalone)
+        #[test]
+        fn test_npx_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("npx", &["rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "npx rm -rf / should block");
+        }
+
+        #[test]
+        fn test_npx_biome_allows() {
+            let result = check_package_managers(&cmd("npx", &["biome", "check", "."]));
+            assert_eq!(result.decision, Decision::Allow, "npx biome check should allow");
+        }
+
+        #[test]
+        fn test_npx_with_flags_rm_blocks() {
+            // npx -y rm -rf / should still block
+            let result = check_package_managers(&cmd("npx", &["-y", "rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "npx -y rm -rf / should block");
+        }
+
+        // bunx (standalone)
+        #[test]
+        fn test_bunx_rm_rf_blocks() {
+            let result = check_package_managers(&cmd("bunx", &["rm", "-rf", "/"]));
+            assert_eq!(result.decision, Decision::Block, "bunx rm -rf / should block");
+        }
+
+        #[test]
+        fn test_bunx_biome_allows() {
+            let result = check_package_managers(&cmd("bunx", &["biome", "check", "."]));
+            assert_eq!(result.decision, Decision::Allow, "bunx biome check should allow");
+        }
+
+        // Test that unknown commands ask (not allow)
+        #[test]
+        fn test_mise_exec_unknown_asks() {
+            let result = check_package_managers(&cmd("mise", &["exec", "someunknowntool"]));
+            assert_eq!(result.decision, Decision::Ask, "mise exec unknown should ask");
+        }
+
+        #[test]
+        fn test_npx_unknown_asks() {
+            let result = check_package_managers(&cmd("npx", &["someunknowntool"]));
+            assert_eq!(result.decision, Decision::Ask, "npx unknown should ask");
+        }
     }
 }

@@ -54,7 +54,8 @@ pub fn parse_script_invocation(command: &str) -> Option<(&'static str, String)> 
         "npm" | "pnpm" | "yarn" | "bun" => {
             // npm run <script>, pnpm run <script>, yarn run <script>
             // Also: pnpm <script> (shorthand), yarn <script>, bun run <script>
-            if parts.len() >= 3 && (parts[1] == "run" || parts[1] == "exec") {
+            // Note: "exec" is NOT the same as "run" - exec runs arbitrary binaries, not scripts
+            if parts.len() >= 3 && parts[1] == "run" {
                 let pm = match parts[0] {
                     "npm" => "npm",
                     "pnpm" => "pnpm",
