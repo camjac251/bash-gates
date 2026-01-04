@@ -12,6 +12,7 @@ pre-commit:
     fmt:
       run: cargo fmt
       glob: "*.rs"
+      stage_fixed: true
       priority: 2
     # Then check with clippy
     clippy:
