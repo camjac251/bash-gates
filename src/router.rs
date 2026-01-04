@@ -501,7 +501,10 @@ fn check_command_expanded(command_string: &str, cwd: &str, permission_mode: &str
                     if permission_mode == "acceptEdits" {
                         let settings = Settings::load(&cwd_str);
                         let allowed_dirs = settings.allowed_directories(&cwd_str);
-                        if should_auto_allow_in_accept_edits(std::slice::from_ref(cmd), &allowed_dirs) {
+                        if should_auto_allow_in_accept_edits(
+                            std::slice::from_ref(cmd),
+                            &allowed_dirs,
+                        ) {
                             // Auto-allow file-editing command in acceptEdits mode
                             continue;
                         }
@@ -790,32 +793,32 @@ fn targets_sensitive_path(cmd: &CommandInfo) -> bool {
     // Security-critical directories in home - always blocked (credentials/keys)
     // These contain authentication material that could be exfiltrated or modified
     const BLOCKED_SECURITY_DIRS: &[&str] = &[
-        "/.ssh/",           // SSH keys
-        "/.ssh",            // The directory itself (exact match for ssh dir operations)
-        "/.gnupg/",         // GPG keys
-        "/.gnupg",          // The directory itself
-        "/.aws/",           // AWS credentials
-        "/.kube/",          // Kubernetes configs with tokens
-        "/.docker/",        // Docker auth configs
-        "/.config/gh/",     // GitHub CLI tokens
+        "/.ssh/",            // SSH keys
+        "/.ssh",             // The directory itself (exact match for ssh dir operations)
+        "/.gnupg/",          // GPG keys
+        "/.gnupg",           // The directory itself
+        "/.aws/",            // AWS credentials
+        "/.kube/",           // Kubernetes configs with tokens
+        "/.docker/",         // Docker auth configs
+        "/.config/gh/",      // GitHub CLI tokens
         "/.password-store/", // pass password manager
-        "/.vault-token",    // HashiCorp Vault token
+        "/.vault-token",     // HashiCorp Vault token
     ];
 
     // Specific credential files - always blocked
     // These files often contain tokens/passwords even if not in security dirs
     const BLOCKED_CREDENTIAL_FILES: &[&str] = &[
-        "/.npmrc",          // npm tokens
-        "/.netrc",          // FTP/HTTP credentials
-        "/.pypirc",         // PyPI tokens
-        "/.gem/credentials", // RubyGems tokens
-        "/.m2/settings.xml", // Maven credentials
+        "/.npmrc",                    // npm tokens
+        "/.netrc",                    // FTP/HTTP credentials
+        "/.pypirc",                   // PyPI tokens
+        "/.gem/credentials",          // RubyGems tokens
+        "/.m2/settings.xml",          // Maven credentials
         "/.gradle/gradle.properties", // Gradle credentials
-        "/.nuget/NuGet.Config", // NuGet credentials
-        "/id_rsa",          // SSH private key (anywhere in path)
-        "/id_ed25519",      // SSH private key (anywhere in path)
-        "/id_ecdsa",        // SSH private key (anywhere in path)
-        "/id_dsa",          // SSH private key (anywhere in path)
+        "/.nuget/NuGet.Config",       // NuGet credentials
+        "/id_rsa",                    // SSH private key (anywhere in path)
+        "/id_ed25519",                // SSH private key (anywhere in path)
+        "/id_ecdsa",                  // SSH private key (anywhere in path)
+        "/id_dsa",                    // SSH private key (anywhere in path)
     ];
 
     // Git hook paths - could be used for code execution attacks
@@ -2146,7 +2149,10 @@ mod tests {
                 &cmd("sd", &["old", "new", &format!("{}/file.txt", escape_path)]),
                 &allowed,
             );
-            assert!(result, "Symlink escape via absolute path should be detected");
+            assert!(
+                result,
+                "Symlink escape via absolute path should be detected"
+            );
         }
 
         /// Test that a relative path through a symlink is detected.
@@ -2193,10 +2199,7 @@ mod tests {
                 &cmd("sd", &["old", "new", &format!("{}/file.txt", link_path)]),
                 &allowed,
             );
-            assert!(
-                !result,
-                "Symlink within allowed directory should be OK"
-            );
+            assert!(!result, "Symlink within allowed directory should be OK");
         }
 
         /// Test that relative path through symlink to /etc/passwd is detected.

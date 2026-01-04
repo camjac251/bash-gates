@@ -409,7 +409,10 @@ mod tests {
         let dirs = settings.allowed_directories("/home/user/project");
 
         // Tilde should be expanded (we can't assert exact value, but it shouldn't start with ~)
-        assert!(!dirs[1].starts_with('~'), "~/other-project should be expanded");
+        assert!(
+            !dirs[1].starts_with('~'),
+            "~/other-project should be expanded"
+        );
         assert!(!dirs[2].starts_with('~'), "~ should be expanded");
 
         // Should end with the suffix

@@ -1,0 +1,1103 @@
+# Beads Issue Tracker Permission Gate
+#
+# Handles the `bd` CLI (beads issue tracker):
+# - Read-only queries (list, show, ready, blocked, etc.)
+# - Write operations (create, update, close, delete, etc.)
+# - Sync operations (sync, export, import)
+# - Admin/dangerous operations (cleanup, reset)
+#
+# Pattern: Most read operations are safe, writes need approval
+
+[meta]
+name = "beads"
+description = "Beads issue tracker CLI permission gate"
+priority = 22
+
+# =============================================================================
+# BD (main beads CLI)
+# =============================================================================
+
+[[programs]]
+name = "bd"
+aliases = ["beads"]
+unknown_action = "ask"  # Unknown subcommands need approval
+
+# =============================================================================
+# READ-ONLY COMMANDS (always safe)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Core Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "list"
+
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "ready"
+
+[[programs.allow]]
+subcommand = "blocked"
+
+[[programs.allow]]
+subcommand = "count"
+
+[[programs.allow]]
+subcommand = "search"
+
+[[programs.allow]]
+subcommand = "where"
+
+# -----------------------------------------------------------------------------
+# System Info
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "help"
+
+[[programs.allow]]
+subcommand = "status"
+
+[[programs.allow]]
+subcommand = "doctor"
+
+[[programs.allow]]
+subcommand = "lint"
+
+[[programs.allow]]
+subcommand = "human"
+
+[[programs.allow]]
+subcommand = "onboard"
+
+[[programs.allow]]
+subcommand = "completion"
+
+[[programs.allow]]
+subcommand = "thanks"
+
+[[programs.allow]]
+subcommand = "detect-pollution"
+
+# -----------------------------------------------------------------------------
+# Dependency Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "dep"
+unless_flags = ["add", "remove"]
+
+[[programs.allow]]
+subcommand = "dep tree"
+
+[[programs.allow]]
+subcommand = "dep cycles"
+
+[[programs.allow]]
+subcommand = "graph"
+
+# -----------------------------------------------------------------------------
+# Label Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "label"
+unless_flags = ["add", "remove"]
+
+[[programs.allow]]
+subcommand = "label list"
+
+[[programs.allow]]
+subcommand = "label list-all"
+
+# -----------------------------------------------------------------------------
+# Comment Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "comments"
+unless_flags = ["add"]
+
+[[programs.allow]]
+subcommand = "comment"
+unless_flags = ["add"]
+
+# -----------------------------------------------------------------------------
+# Daemon Status (not control)
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "daemons"
+unless_flags = ["start", "stop", "restart", "killall"]
+
+[[programs.allow]]
+subcommand = "daemons list"
+
+[[programs.allow]]
+subcommand = "daemons health"
+
+[[programs.allow]]
+subcommand = "daemons logs"
+
+[[programs.allow]]
+subcommand = "daemon"
+unless_flags = ["start", "stop", "restart", "kill", "run"]
+
+[[programs.allow]]
+subcommand = "daemon health"
+
+[[programs.allow]]
+subcommand = "daemon logs"
+
+# -----------------------------------------------------------------------------
+# Config Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "config"
+unless_flags = ["set", "unset"]
+
+[[programs.allow]]
+subcommand = "config get"
+
+[[programs.allow]]
+subcommand = "config list"
+
+# -----------------------------------------------------------------------------
+# Stats and Analytics
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "stats"
+
+[[programs.allow]]
+subcommand = "activity"
+
+[[programs.allow]]
+subcommand = "stale"
+
+[[programs.allow]]
+subcommand = "orphans"
+
+[[programs.allow]]
+subcommand = "preflight"
+
+# -----------------------------------------------------------------------------
+# Audit Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "audit"
+unless_flags = ["record", "label"]
+
+# -----------------------------------------------------------------------------
+# Epic Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "epic"
+unless_flags = ["create", "close", "update"]
+
+[[programs.allow]]
+subcommand = "epic status"
+
+[[programs.allow]]
+subcommand = "close-eligible"
+
+# -----------------------------------------------------------------------------
+# Swarm Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "swarm"
+unless_flags = ["create", "close", "update", "add", "remove"]
+
+[[programs.allow]]
+subcommand = "swarm list"
+
+# -----------------------------------------------------------------------------
+# Gate Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "gate"
+unless_flags = ["resolve", "add-waiter"]
+
+[[programs.allow]]
+subcommand = "gate list"
+
+[[programs.allow]]
+subcommand = "gate show"
+
+[[programs.allow]]
+subcommand = "gate check"
+
+[[programs.allow]]
+subcommand = "gate discover"
+
+# -----------------------------------------------------------------------------
+# Template Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "template"
+unless_flags = ["instantiate"]
+
+[[programs.allow]]
+subcommand = "template list"
+
+[[programs.allow]]
+subcommand = "template show"
+
+# -----------------------------------------------------------------------------
+# Formula Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "formula"
+unless_flags = ["create", "delete", "update", "edit", "convert"]
+
+[[programs.allow]]
+subcommand = "formula list"
+
+[[programs.allow]]
+subcommand = "formula show"
+
+# -----------------------------------------------------------------------------
+# Molecule Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "mol"
+unless_flags = ["burn", "squash", "bond", "distill", "create"]
+
+[[programs.allow]]
+subcommand = "mol show"
+
+[[programs.allow]]
+subcommand = "mol current"
+
+[[programs.allow]]
+subcommand = "mol stale"
+
+[[programs.allow]]
+subcommand = "mol progress"
+
+[[programs.allow]]
+subcommand = "mol list"
+
+# -----------------------------------------------------------------------------
+# Slot Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "slot"
+unless_flags = ["set", "clear", "claim", "release"]
+
+[[programs.allow]]
+subcommand = "slot show"
+
+[[programs.allow]]
+subcommand = "slot list"
+
+# -----------------------------------------------------------------------------
+# Agent Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "agent"
+unless_flags = ["set", "clear", "update", "create"]
+
+[[programs.allow]]
+subcommand = "agent show"
+
+[[programs.allow]]
+subcommand = "agent list"
+
+# -----------------------------------------------------------------------------
+# State Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "state"
+
+[[programs.allow]]
+subcommand = "state list"
+
+# -----------------------------------------------------------------------------
+# Worktree Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "worktree"
+unless_flags = ["add", "remove", "prune"]
+
+[[programs.allow]]
+subcommand = "worktree list"
+
+# -----------------------------------------------------------------------------
+# Repo Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "repo"
+unless_flags = ["add", "remove", "set", "sync"]
+
+[[programs.allow]]
+subcommand = "repo list"
+
+[[programs.allow]]
+subcommand = "repo show"
+
+# -----------------------------------------------------------------------------
+# Integration Queries (Jira)
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "jira"
+unless_flags = ["sync", "push", "import", "create"]
+
+[[programs.allow]]
+subcommand = "jira status"
+
+[[programs.allow]]
+subcommand = "jira list"
+
+[[programs.allow]]
+subcommand = "jira show"
+
+# -----------------------------------------------------------------------------
+# Integration Queries (Linear)
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "linear"
+unless_flags = ["sync", "push", "import", "create"]
+
+[[programs.allow]]
+subcommand = "linear status"
+
+[[programs.allow]]
+subcommand = "linear list"
+
+[[programs.allow]]
+subcommand = "linear show"
+
+# -----------------------------------------------------------------------------
+# Ship Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "ship"
+unless_flags = ["publish", "create", "delete"]
+
+[[programs.allow]]
+subcommand = "ship list"
+
+[[programs.allow]]
+subcommand = "ship show"
+
+# -----------------------------------------------------------------------------
+# Upgrade Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "upgrade"
+unless_flags = ["--apply", "--install", "ack"]
+
+[[programs.allow]]
+subcommand = "upgrade status"
+
+[[programs.allow]]
+subcommand = "upgrade review"
+
+# -----------------------------------------------------------------------------
+# Migrate Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "migrate"
+unless_flags = ["--apply", "--force"]
+
+# -----------------------------------------------------------------------------
+# Duplicate Detection
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "duplicates"
+unless_flags = ["--auto-merge"]
+
+# -----------------------------------------------------------------------------
+# Dry-run Operations
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "cleanup"
+if_flags_any = ["--dry-run"]
+
+[[programs.allow]]
+subcommand = "compact"
+if_flags_any = ["--dry-run"]
+
+[[programs.allow]]
+subcommand = "delete"
+if_flags_any = ["--dry-run"]
+
+[[programs.allow]]
+subcommand = "admin cleanup"
+if_flags_any = ["--dry-run"]
+
+[[programs.allow]]
+subcommand = "admin compact"
+if_flags_any = ["--dry-run"]
+
+# -----------------------------------------------------------------------------
+# AI Context Recovery
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "prime"
+
+[[programs.allow]]
+subcommand = "quickstart"
+
+[[programs.allow]]
+subcommand = "workflow"
+
+[[programs.allow]]
+subcommand = "tips"
+
+# -----------------------------------------------------------------------------
+# Deleted Issues List
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "deleted"
+
+# -----------------------------------------------------------------------------
+# Hook/Pin Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "hook"
+
+[[programs.allow]]
+subcommand = "pin"
+unless_flags = ["--set", "--clear"]
+
+# =============================================================================
+# WRITE OPERATIONS (need approval)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Issue Lifecycle
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating new issue"
+
+[[programs.ask]]
+subcommand = "create-form"
+reason = "Creating issue via form"
+
+[[programs.ask]]
+subcommand = "q"
+reason = "Quick capturing issue"
+
+[[programs.ask]]
+subcommand = "quick"
+reason = "Quick capturing issue"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating issue"
+
+[[programs.ask]]
+subcommand = "edit"
+reason = "Editing issue in editor"
+
+[[programs.ask]]
+subcommand = "close"
+reason = "Closing issue"
+
+[[programs.ask]]
+subcommand = "reopen"
+reason = "Reopening issue"
+
+[[programs.ask]]
+subcommand = "delete"
+reason = "Deleting issue"
+
+[[programs.ask]]
+subcommand = "move"
+reason = "Moving issue to different rig"
+
+[[programs.ask]]
+subcommand = "refile"
+reason = "Refiling issue"
+
+# -----------------------------------------------------------------------------
+# State Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "set-state"
+reason = "Setting issue state"
+
+[[programs.ask]]
+subcommand = "defer"
+reason = "Deferring issue"
+
+[[programs.ask]]
+subcommand = "undefer"
+reason = "Undeferring issue"
+
+# -----------------------------------------------------------------------------
+# Dependency Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "dep add"
+reason = "Adding dependency"
+
+[[programs.ask]]
+subcommand = "dep remove"
+reason = "Removing dependency"
+
+[[programs.ask]]
+subcommand = "relate"
+reason = "Relating issues"
+
+[[programs.ask]]
+subcommand = "unrelate"
+reason = "Unrelating issues"
+
+[[programs.ask]]
+subcommand = "duplicate"
+reason = "Marking as duplicate"
+
+[[programs.ask]]
+subcommand = "supersede"
+reason = "Marking as superseded"
+
+# -----------------------------------------------------------------------------
+# Label Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "label add"
+reason = "Adding label"
+
+[[programs.ask]]
+subcommand = "label remove"
+reason = "Removing label"
+
+# -----------------------------------------------------------------------------
+# Comment Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "comments add"
+reason = "Adding comment"
+
+[[programs.ask]]
+subcommand = "comment add"
+reason = "Adding comment"
+
+# -----------------------------------------------------------------------------
+# Sync and Export
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "sync"
+reason = "Syncing issues with git"
+
+[[programs.ask]]
+subcommand = "export"
+reason = "Exporting issues"
+
+[[programs.ask]]
+subcommand = "import"
+reason = "Importing issues"
+
+# -----------------------------------------------------------------------------
+# Initialization
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "init"
+reason = "Initializing beads in project"
+
+[[programs.ask]]
+subcommand = "setup"
+reason = "Setting up integration"
+
+# -----------------------------------------------------------------------------
+# Config Writes
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "config set"
+reason = "Changing configuration"
+
+[[programs.ask]]
+subcommand = "config unset"
+reason = "Unsetting configuration"
+
+# -----------------------------------------------------------------------------
+# Daemon Control
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "daemons start"
+reason = "Starting daemon"
+
+[[programs.ask]]
+subcommand = "daemons stop"
+reason = "Stopping daemon"
+
+[[programs.ask]]
+subcommand = "daemons restart"
+reason = "Restarting daemon"
+
+[[programs.ask]]
+subcommand = "daemons killall"
+reason = "Killing all daemons"
+
+[[programs.ask]]
+subcommand = "daemon start"
+reason = "Starting daemon"
+
+[[programs.ask]]
+subcommand = "daemon stop"
+reason = "Stopping daemon"
+
+[[programs.ask]]
+subcommand = "daemon restart"
+reason = "Restarting daemon"
+
+[[programs.ask]]
+subcommand = "daemon kill"
+reason = "Killing daemon"
+
+[[programs.ask]]
+subcommand = "daemon run"
+reason = "Running daemon"
+
+# -----------------------------------------------------------------------------
+# Git Hooks
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "hooks"
+reason = "Managing git hooks"
+
+# -----------------------------------------------------------------------------
+# Migration
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "migrate"
+reason = "Migrating database"
+if_flags_any = ["--apply", "--force"]
+
+[[programs.ask]]
+subcommand = "migrate sync"
+reason = "Migrating sync"
+
+[[programs.ask]]
+subcommand = "migrate issues"
+reason = "Migrating issues"
+
+[[programs.ask]]
+subcommand = "migrate hash-ids"
+reason = "Migrating hash IDs"
+
+[[programs.ask]]
+subcommand = "migrate tombstones"
+reason = "Migrating tombstones"
+
+# -----------------------------------------------------------------------------
+# Admin Operations
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "admin"
+reason = "Admin operation"
+
+[[programs.ask]]
+subcommand = "admin cleanup"
+reason = "Cleaning up issues"
+
+[[programs.ask]]
+subcommand = "admin compact"
+reason = "Compacting issues"
+
+[[programs.ask]]
+subcommand = "admin reset"
+reason = "Resetting database"
+warn = true
+
+# -----------------------------------------------------------------------------
+# Compaction/Cleanup (aliases)
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "compact"
+reason = "Compacting old issues"
+
+[[programs.ask]]
+subcommand = "cleanup"
+reason = "Cleaning up issues"
+
+# -----------------------------------------------------------------------------
+# Merge/Duplicates
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "merge"
+reason = "Merging issues"
+
+[[programs.ask]]
+subcommand = "duplicates"
+reason = "Auto-merging duplicates"
+if_flags_any = ["--auto-merge"]
+
+# -----------------------------------------------------------------------------
+# Repair/Restore
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "repair"
+reason = "Repairing database"
+
+[[programs.ask]]
+subcommand = "restore"
+reason = "Restoring issue"
+
+# -----------------------------------------------------------------------------
+# Upgrade Operations
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "upgrade ack"
+reason = "Acknowledging upgrade"
+
+[[programs.ask]]
+subcommand = "upgrade"
+reason = "Applying upgrade"
+if_flags_any = ["--apply", "--install"]
+
+# -----------------------------------------------------------------------------
+# Epic Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "epic create"
+reason = "Creating epic"
+
+[[programs.ask]]
+subcommand = "epic close"
+reason = "Closing epic"
+
+[[programs.ask]]
+subcommand = "epic update"
+reason = "Updating epic"
+
+# -----------------------------------------------------------------------------
+# Swarm Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "swarm create"
+reason = "Creating swarm"
+
+[[programs.ask]]
+subcommand = "swarm close"
+reason = "Closing swarm"
+
+[[programs.ask]]
+subcommand = "swarm update"
+reason = "Updating swarm"
+
+[[programs.ask]]
+subcommand = "swarm add"
+reason = "Adding to swarm"
+
+[[programs.ask]]
+subcommand = "swarm remove"
+reason = "Removing from swarm"
+
+# -----------------------------------------------------------------------------
+# Gate Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "gate resolve"
+reason = "Resolving gate"
+
+[[programs.ask]]
+subcommand = "gate add-waiter"
+reason = "Adding gate waiter"
+
+# -----------------------------------------------------------------------------
+# Template Operations
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "template instantiate"
+reason = "Instantiating template"
+
+# -----------------------------------------------------------------------------
+# Molecule Operations
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "mol burn"
+reason = "Burning molecule"
+
+[[programs.ask]]
+subcommand = "mol squash"
+reason = "Squashing molecule"
+
+[[programs.ask]]
+subcommand = "mol bond"
+reason = "Bonding molecules"
+
+[[programs.ask]]
+subcommand = "mol distill"
+reason = "Distilling molecule"
+
+[[programs.ask]]
+subcommand = "mol create"
+reason = "Creating molecule"
+
+[[programs.ask]]
+subcommand = "pour"
+reason = "Creating molecule from formula"
+
+[[programs.ask]]
+subcommand = "wisp"
+reason = "Creating ephemeral wisp"
+
+[[programs.ask]]
+subcommand = "cook"
+reason = "Compiling formula to proto"
+
+# -----------------------------------------------------------------------------
+# Formula Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "formula create"
+reason = "Creating formula"
+
+[[programs.ask]]
+subcommand = "formula delete"
+reason = "Deleting formula"
+
+[[programs.ask]]
+subcommand = "formula update"
+reason = "Updating formula"
+
+[[programs.ask]]
+subcommand = "formula edit"
+reason = "Editing formula"
+
+[[programs.ask]]
+subcommand = "formula convert"
+reason = "Converting formula"
+
+# -----------------------------------------------------------------------------
+# Slot Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "slot set"
+reason = "Setting slot"
+
+[[programs.ask]]
+subcommand = "slot clear"
+reason = "Clearing slot"
+
+[[programs.ask]]
+subcommand = "slot claim"
+reason = "Claiming slot"
+
+[[programs.ask]]
+subcommand = "slot release"
+reason = "Releasing slot"
+
+# -----------------------------------------------------------------------------
+# Agent Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "agent set"
+reason = "Setting agent state"
+
+[[programs.ask]]
+subcommand = "agent clear"
+reason = "Clearing agent state"
+
+[[programs.ask]]
+subcommand = "agent update"
+reason = "Updating agent"
+
+[[programs.ask]]
+subcommand = "agent create"
+reason = "Creating agent"
+
+# -----------------------------------------------------------------------------
+# Audit Recording
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "audit record"
+reason = "Recording audit entry"
+
+[[programs.ask]]
+subcommand = "audit label"
+reason = "Labeling audit entry"
+
+# -----------------------------------------------------------------------------
+# Pin Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "pin"
+reason = "Pinning work to agent"
+if_flags_any = ["--set", "--clear"]
+
+# -----------------------------------------------------------------------------
+# Ship Operations
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "ship publish"
+reason = "Publishing capability"
+
+[[programs.ask]]
+subcommand = "ship create"
+reason = "Creating ship"
+
+[[programs.ask]]
+subcommand = "ship delete"
+reason = "Deleting ship"
+
+# -----------------------------------------------------------------------------
+# Rename Operations
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "rename-prefix"
+reason = "Renaming issue prefix"
+
+# -----------------------------------------------------------------------------
+# Worktree Operations
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "worktree add"
+reason = "Adding worktree"
+
+[[programs.ask]]
+subcommand = "worktree remove"
+reason = "Removing worktree"
+
+[[programs.ask]]
+subcommand = "worktree prune"
+reason = "Pruning worktrees"
+
+# -----------------------------------------------------------------------------
+# Repo Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "repo add"
+reason = "Adding repository"
+
+[[programs.ask]]
+subcommand = "repo remove"
+reason = "Removing repository"
+
+[[programs.ask]]
+subcommand = "repo set"
+reason = "Setting repository config"
+
+[[programs.ask]]
+subcommand = "repo sync"
+reason = "Syncing repository"
+
+# -----------------------------------------------------------------------------
+# Integration Sync (Jira)
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "jira sync"
+reason = "Syncing with Jira"
+
+[[programs.ask]]
+subcommand = "jira push"
+reason = "Pushing to Jira"
+
+[[programs.ask]]
+subcommand = "jira import"
+reason = "Importing from Jira"
+
+[[programs.ask]]
+subcommand = "jira create"
+reason = "Creating in Jira"
+
+# -----------------------------------------------------------------------------
+# Integration Sync (Linear)
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "linear sync"
+reason = "Syncing with Linear"
+
+[[programs.ask]]
+subcommand = "linear push"
+reason = "Pushing to Linear"
+
+[[programs.ask]]
+subcommand = "linear import"
+reason = "Importing from Linear"
+
+[[programs.ask]]
+subcommand = "linear create"
+reason = "Creating in Linear"
+
+# -----------------------------------------------------------------------------
+# Mail
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "mail"
+reason = "Delegating to mail provider"
+
+# -----------------------------------------------------------------------------
+# Reset (dangerous)
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "reset"
+reason = "Resetting database"
+warn = true
+
+# =============================================================================
+# NO BLOCKED COMMANDS
+# =============================================================================
+# We don't block any beads commands - they're all recoverable via git
+# The worst case is losing local changes, which sync recovers from

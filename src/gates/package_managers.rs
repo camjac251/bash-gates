@@ -3,8 +3,8 @@
 //! Uses declarative rules for most commands.
 //! Also handles package managers invoking dev tools (pnpm biome, npm eslint, etc.)
 
-use crate::gates::devtools::check_devtools;
 use crate::gates::GATES;
+use crate::gates::devtools::check_devtools;
 use crate::generated::rules::{
     check_bun_declarative, check_cargo_declarative, check_conda_declarative, check_go_declarative,
     check_mise_declarative, check_npm_declarative, check_pip_declarative, check_pipx_declarative,
@@ -396,7 +396,8 @@ fn check_bun(cmd: &CommandInfo) -> GateResult {
 
 /// bunx runs arbitrary binaries - route through all gates
 fn check_bunx(cmd: &CommandInfo) -> GateResult {
-    check_pm_binary_exec(cmd, "bunx").unwrap_or_else(|| GateResult::ask("bunx: no command specified"))
+    check_pm_binary_exec(cmd, "bunx")
+        .unwrap_or_else(|| GateResult::ask("bunx: no command specified"))
 }
 
 fn check_conda(cmd: &CommandInfo) -> GateResult {
@@ -977,140 +978,224 @@ mod tests {
         #[test]
         fn test_mise_exec_rm_rf_blocks() {
             let result = check_package_managers(&cmd("mise", &["exec", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "mise exec rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "mise exec rm -rf / should block"
+            );
         }
 
         #[test]
         fn test_mise_x_rm_rf_blocks() {
             let result = check_package_managers(&cmd("mise", &["x", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "mise x rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "mise x rm -rf / should block"
+            );
         }
 
         #[test]
         fn test_mise_exec_safe_allows() {
             let result = check_package_managers(&cmd("mise", &["exec", "biome", "check", "."]));
-            assert_eq!(result.decision, Decision::Allow, "mise exec biome check should allow");
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "mise exec biome check should allow"
+            );
         }
 
         // uv run
         #[test]
         fn test_uv_run_rm_rf_blocks() {
             let result = check_package_managers(&cmd("uv", &["run", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "uv run rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "uv run rm -rf / should block"
+            );
         }
 
         #[test]
         fn test_uv_run_git_status_allows() {
             let result = check_package_managers(&cmd("uv", &["run", "git", "status"]));
-            assert_eq!(result.decision, Decision::Allow, "uv run git status should allow");
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "uv run git status should allow"
+            );
         }
 
         // poetry run
         #[test]
         fn test_poetry_run_rm_rf_blocks() {
             let result = check_package_managers(&cmd("poetry", &["run", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "poetry run rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "poetry run rm -rf / should block"
+            );
         }
 
         // pdm run
         #[test]
         fn test_pdm_run_rm_rf_blocks() {
             let result = check_package_managers(&cmd("pdm", &["run", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "pdm run rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "pdm run rm -rf / should block"
+            );
         }
 
         // pipx run
         #[test]
         fn test_pipx_run_rm_rf_blocks() {
             let result = check_package_managers(&cmd("pipx", &["run", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "pipx run rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "pipx run rm -rf / should block"
+            );
         }
 
         // hatch run
         #[test]
         fn test_hatch_run_rm_rf_blocks() {
             let result = check_package_managers(&cmd("hatch", &["run", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "hatch run rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "hatch run rm -rf / should block"
+            );
         }
 
         // npm exec
         #[test]
         fn test_npm_exec_rm_rf_blocks() {
             let result = check_package_managers(&cmd("npm", &["exec", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "npm exec rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "npm exec rm -rf / should block"
+            );
         }
 
         #[test]
         fn test_npm_exec_safe_allows() {
             let result = check_package_managers(&cmd("npm", &["exec", "biome", "check", "."]));
-            assert_eq!(result.decision, Decision::Allow, "npm exec biome check should allow");
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "npm exec biome check should allow"
+            );
         }
 
         // pnpm exec/x
         #[test]
         fn test_pnpm_exec_rm_rf_blocks() {
             let result = check_package_managers(&cmd("pnpm", &["exec", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "pnpm exec rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "pnpm exec rm -rf / should block"
+            );
         }
 
         #[test]
         fn test_pnpm_x_rm_rf_blocks() {
             let result = check_package_managers(&cmd("pnpm", &["x", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "pnpm x rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "pnpm x rm -rf / should block"
+            );
         }
 
         // yarn exec
         #[test]
         fn test_yarn_exec_rm_rf_blocks() {
             let result = check_package_managers(&cmd("yarn", &["exec", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "yarn exec rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "yarn exec rm -rf / should block"
+            );
         }
 
         // bun x
         #[test]
         fn test_bun_x_rm_rf_blocks() {
             let result = check_package_managers(&cmd("bun", &["x", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "bun x rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "bun x rm -rf / should block"
+            );
         }
 
         // npx (standalone)
         #[test]
         fn test_npx_rm_rf_blocks() {
             let result = check_package_managers(&cmd("npx", &["rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "npx rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "npx rm -rf / should block"
+            );
         }
 
         #[test]
         fn test_npx_biome_allows() {
             let result = check_package_managers(&cmd("npx", &["biome", "check", "."]));
-            assert_eq!(result.decision, Decision::Allow, "npx biome check should allow");
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "npx biome check should allow"
+            );
         }
 
         #[test]
         fn test_npx_with_flags_rm_blocks() {
             // npx -y rm -rf / should still block
             let result = check_package_managers(&cmd("npx", &["-y", "rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "npx -y rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "npx -y rm -rf / should block"
+            );
         }
 
         // bunx (standalone)
         #[test]
         fn test_bunx_rm_rf_blocks() {
             let result = check_package_managers(&cmd("bunx", &["rm", "-rf", "/"]));
-            assert_eq!(result.decision, Decision::Block, "bunx rm -rf / should block");
+            assert_eq!(
+                result.decision,
+                Decision::Block,
+                "bunx rm -rf / should block"
+            );
         }
 
         #[test]
         fn test_bunx_biome_allows() {
             let result = check_package_managers(&cmd("bunx", &["biome", "check", "."]));
-            assert_eq!(result.decision, Decision::Allow, "bunx biome check should allow");
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "bunx biome check should allow"
+            );
         }
 
         // Test that unknown commands ask (not allow)
         #[test]
         fn test_mise_exec_unknown_asks() {
             let result = check_package_managers(&cmd("mise", &["exec", "someunknowntool"]));
-            assert_eq!(result.decision, Decision::Ask, "mise exec unknown should ask");
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "mise exec unknown should ask"
+            );
         }
 
         #[test]

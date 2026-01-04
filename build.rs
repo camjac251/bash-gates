@@ -689,7 +689,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                 && r.action_prefix.is_none()
                 && r.unless_flags.is_empty()
                 && r.unless_args_contain.is_empty()
-                && r.if_flags_any.is_empty()  // Exclude conditional allows
+                && r.if_flags_any.is_empty() // Exclude conditional allows
         })
         .map(|r| r.subcommand_parts().join(" "))
         .filter(|s| !s.is_empty())
@@ -941,9 +941,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
         .ask
         .iter()
         .filter(|r| {
-            !r.if_flags_any.is_empty()
-                || r.subcommand_prefix.is_some()
-                || r.action_prefix.is_some()
+            !r.if_flags_any.is_empty() || r.subcommand_prefix.is_some() || r.action_prefix.is_some()
         })
         .collect();
 
@@ -1458,9 +1456,13 @@ struct FileEditingRule {
 fn generate_file_editing_code(rule_files: &[(String, RuleFile)]) -> String {
     let mut output = String::new();
 
-    output.push_str("// ============================================================================\n");
+    output.push_str(
+        "// ============================================================================\n",
+    );
     output.push_str("// File Editing Detection (generated from accept_edits_auto_allow rules)\n");
-    output.push_str("// ============================================================================\n\n");
+    output.push_str(
+        "// ============================================================================\n\n",
+    );
 
     // Collect all file-editing rules from TOML
     let mut rules: Vec<FileEditingRule> = Vec::new();
@@ -1512,8 +1514,12 @@ fn generate_file_editing_code(rule_files: &[(String, RuleFile)]) -> String {
     let mut programs: Vec<&str> = programs_set.iter().map(String::as_str).collect();
     programs.sort();
 
-    output.push_str("/// Programs that have file-editing rules (generated from accept_edits_auto_allow)\n");
-    output.push_str("pub static FILE_EDITING_PROGRAMS: LazyLock<HashSet<&str>> = LazyLock::new(|| {\n");
+    output.push_str(
+        "/// Programs that have file-editing rules (generated from accept_edits_auto_allow)\n",
+    );
+    output.push_str(
+        "pub static FILE_EDITING_PROGRAMS: LazyLock<HashSet<&str>> = LazyLock::new(|| {\n",
+    );
     output.push_str("    [\n");
     for prog in &programs {
         output.push_str(&format!("        \"{}\",\n", escape_rust_string(prog)));
@@ -1523,9 +1529,12 @@ fn generate_file_editing_code(rule_files: &[(String, RuleFile)]) -> String {
 
     // Generate the check function
     output.push_str("/// Check if a command is a file-editing command (generated from accept_edits_auto_allow rules)\n");
-    output.push_str("/// Returns true if the command should be auto-allowed in acceptEdits mode.\n");
+    output
+        .push_str("/// Returns true if the command should be auto-allowed in acceptEdits mode.\n");
     output.push_str("pub fn is_file_editing_command(cmd: &CommandInfo) -> bool {\n");
-    output.push_str("    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);\n");
+    output.push_str(
+        "    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);\n",
+    );
     output.push_str("    \n");
     output.push_str("    // Quick check: is this a known file-editing program?\n");
     output.push_str("    if !FILE_EDITING_PROGRAMS.contains(base_program) {\n");
