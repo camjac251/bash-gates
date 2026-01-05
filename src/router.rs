@@ -42,6 +42,7 @@ pub fn check_command(command_string: &str) -> HookOutput {
     // Collect results from all commands
     let mut block_reasons: Vec<String> = Vec::new();
     let mut ask_reasons: Vec<String> = Vec::new();
+    let mut allow_reasons: Vec<String> = Vec::new();
     let mut command_decisions: Vec<(CommandInfo, Decision)> = Vec::new();
 
     for cmd in &commands {
@@ -62,7 +63,9 @@ pub fn check_command(command_string: &str) -> HookOutput {
                 }
             }
             Decision::Allow => {
-                // Explicitly allowed - no action needed
+                if let Some(reason) = result.reason {
+                    allow_reasons.push(reason);
+                }
             }
             Decision::Skip => {
                 // No gate handled this command - requires approval
@@ -108,7 +111,14 @@ pub fn check_command(command_string: &str) -> HookOutput {
     }
 
     // All checks passed - explicitly allow
-    HookOutput::allow(Some("Read-only operation"))
+    let allow_reason = if allow_reasons.is_empty() {
+        "Read-only operation".to_string()
+    } else if allow_reasons.len() == 1 {
+        allow_reasons.remove(0)
+    } else {
+        allow_reasons.join(", ")
+    };
+    HookOutput::allow(Some(&allow_reason))
 }
 
 /// Check a bash command with settings.json awareness and permission mode detection.

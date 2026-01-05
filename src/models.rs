@@ -53,6 +53,13 @@ impl GateResult {
         }
     }
 
+    pub fn allow_with_reason(reason: impl Into<String>) -> Self {
+        Self {
+            decision: Decision::Allow,
+            reason: Some(reason.into()),
+        }
+    }
+
     pub fn ask(reason: impl Into<String>) -> Self {
         Self {
             decision: Decision::Ask,

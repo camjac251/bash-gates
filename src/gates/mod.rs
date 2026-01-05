@@ -14,6 +14,7 @@ pub mod git;
 pub mod helpers;
 pub mod network;
 pub mod package_managers;
+pub mod shortcut;
 pub mod system;
 
 #[cfg(test)]
@@ -28,6 +29,7 @@ pub use gh::check_gh;
 pub use git::check_git;
 pub use network::check_network;
 pub use package_managers::check_package_managers;
+pub use shortcut::check_shortcut;
 pub use system::check_system;
 
 use crate::models::{CommandInfo, GateResult};
@@ -40,6 +42,7 @@ pub type GateCheckFn = fn(&CommandInfo) -> GateResult;
 pub static GATES: &[(&str, GateCheckFn)] = &[
     ("gh", check_gh),
     ("beads", check_beads),
+    ("shortcut", check_shortcut),
     ("cloud", check_cloud),
     ("network", check_network),
     ("git", check_git),

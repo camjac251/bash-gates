@@ -1,0 +1,195 @@
+# Shortcut CLI (short) - Community CLI for Shortcut.com
+# https://github.com/shortcut-cli/shortcut-cli
+
+[meta]
+name = "shortcut"
+description = "Shortcut.com project management CLI"
+priority = 45
+
+[[programs]]
+name = "short"
+unknown_action = "ask"
+
+# ============================================================================
+# INSTALL - Configure API token
+# ============================================================================
+
+[[programs.ask]]
+subcommand = "install"
+reason = "Configuring Shortcut API token"
+
+# ============================================================================
+# SEARCH / FIND - Search stories (read-only)
+# ============================================================================
+
+# Search with --save writes to config
+[[programs.ask]]
+subcommand = "search"
+reason = "Saving workspace to config"
+if_flags_any = ["-S", "--save"]
+
+[[programs.allow]]
+subcommand = "search"
+reason = "Searching stories"
+
+[[programs.allow]]
+subcommand = "find"
+reason = "Searching stories"
+
+# ============================================================================
+# STORY - View or update a story
+# Read-only by default, but update flags require approval
+# ============================================================================
+
+# Story with update flags → ask
+[[programs.ask]]
+subcommand = "story"
+reason = "Checking out git branch"
+if_flags_any = ["--git-branch", "--git-branch-short"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Downloading attachments to disk"
+if_flags_any = ["-D", "--download"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Adding comment to story"
+if_flags_any = ["-c", "--comment"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Updating story description"
+if_flags_any = ["-d", "--description"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Updating story estimate"
+if_flags_any = ["-e", "--estimate"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Setting story epic"
+if_flags_any = ["--epic"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Setting story iteration"
+if_flags_any = ["-i", "--iteration"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Updating story labels"
+if_flags_any = ["-l", "--label"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Moving story position"
+if_flags_any = ["--move-after", "--move-before", "--move-down", "--move-up"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Updating story owners"
+if_flags_any = ["-o", "--owners"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Updating story state"
+if_flags_any = ["-s", "--state"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Updating story title"
+if_flags_any = ["-t", "--title"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Updating story team"
+if_flags_any = ["-T", "--team"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Creating task on story"
+if_flags_any = ["--task"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Toggling task completion"
+if_flags_any = ["--task-complete"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Updating story type"
+if_flags_any = ["-y", "--type"]
+
+[[programs.ask]]
+subcommand = "story"
+reason = "Archiving story"
+if_flags_any = ["-a", "--archived"]
+
+# Story without update flags → allow (read-only view)
+[[programs.allow]]
+subcommand = "story"
+reason = "Viewing story"
+
+# ============================================================================
+# CREATE - Create a new story
+# ============================================================================
+
+# Create always asks (it's a write operation)
+# Note: --git-branch and --git-branch-short are also supported but create already asks
+[[programs.ask]]
+subcommand = "create"
+reason = "Creating new story"
+
+# ============================================================================
+# LIST COMMANDS - Read-only entity listing
+# ============================================================================
+
+[[programs.allow]]
+subcommand = "members"
+reason = "Listing members"
+
+[[programs.allow]]
+subcommand = "epics"
+reason = "Listing epics"
+
+[[programs.allow]]
+subcommand = "workflows"
+reason = "Listing workflows"
+
+[[programs.allow]]
+subcommand = "projects"
+reason = "Listing projects"
+
+# ============================================================================
+# WORKSPACE - Manage saved search queries
+# ============================================================================
+
+# Unsetting a workspace modifies config
+[[programs.ask]]
+subcommand = "workspace"
+reason = "Removing saved workspace"
+if_flags_any = ["-u", "--unset"]
+
+# List/load workspaces is read-only
+[[programs.allow]]
+subcommand = "workspace"
+reason = "Listing workspaces"
+
+# ============================================================================
+# API - Raw API requests (custom handler needed for -X METHOD parsing)
+# ============================================================================
+
+[[custom_handlers]]
+program = "short"
+handler = "check_short_api"
+description = "api subcommand: GET allows, POST/PUT/PATCH/DELETE asks"
+
+# ============================================================================
+# HELP - Always safe
+# ============================================================================
+
+[[programs.allow]]
+subcommand = "help"
+reason = "Showing help"

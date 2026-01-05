@@ -360,6 +360,9 @@ struct AllowRule {
     unless_args_contain: Vec<String>,
     #[serde(default)]
     if_flags_any: Vec<String>,
+    /// Optional reason for allowing (shown in decision output)
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -680,7 +683,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
         file_name
     ));
 
-    // Collect simple allows (no conditions)
+    // Collect simple allows (no conditions, no reason)
     let simple_allows: Vec<String> = program
         .allow
         .iter()
@@ -689,7 +692,8 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                 && r.action_prefix.is_none()
                 && r.unless_flags.is_empty()
                 && r.unless_args_contain.is_empty()
-                && r.if_flags_any.is_empty() // Exclude conditional allows
+                && r.if_flags_any.is_empty()
+                && r.reason.is_none() // Allows with reasons go to complex path
         })
         .map(|r| r.subcommand_parts().join(" "))
         .filter(|s| !s.is_empty())
@@ -1039,6 +1043,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                 || r.action_prefix.is_some()
                 || !r.unless_flags.is_empty()
                 || !r.if_flags_any.is_empty()
+                || r.reason.is_some() // Allows with reasons need special handling
         })
         .collect();
 
@@ -1046,6 +1051,8 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
         output.push_str("    // Check conditional allow rules\n");
         for allow in complex_allows {
             let parts = allow.subcommand_parts();
+
+            let allow_call = generate_allow_call(&allow.reason);
 
             if let Some(ref prefix) = allow.subcommand_prefix {
                 if parts.is_empty() {
@@ -1069,7 +1076,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                         escape_rust_string(prefix)
                     ));
                 }
-                output.push_str("        return Some(GateResult::allow());\n");
+                output.push_str(&format!("        return {};\n", allow_call));
                 output.push_str("    }\n");
             }
 
@@ -1080,7 +1087,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                     "    if cmd.args.get(1).is_some_and(|a| a.starts_with(\"{}\")) {{\n",
                     escape_rust_string(prefix)
                 ));
-                output.push_str("        return Some(GateResult::allow());\n");
+                output.push_str(&format!("        return {};\n", allow_call));
                 output.push_str("    }\n");
             }
 
@@ -1096,7 +1103,7 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                     check,
                     flags.join(", ")
                 ));
-                output.push_str("        return Some(GateResult::allow());\n");
+                output.push_str(&format!("        return {};\n", allow_call));
                 output.push_str("    }\n");
             }
 
@@ -1118,7 +1125,21 @@ fn generate_program_rules(file_name: &str, program: &ProgramRules) -> String {
                     subcmd_check,
                     flags.join(", ")
                 ));
-                output.push_str("        return Some(GateResult::allow());\n");
+                output.push_str(&format!("        return {};\n", allow_call));
+                output.push_str("    }\n");
+            }
+
+            // Handle allows with just a reason (simple subcommand match with custom reason)
+            if allow.reason.is_some()
+                && allow.subcommand_prefix.is_none()
+                && allow.action_prefix.is_none()
+                && allow.unless_flags.is_empty()
+                && allow.if_flags_any.is_empty()
+                && !parts.is_empty()
+            {
+                let check = generate_subcommand_match(&parts);
+                output.push_str(&format!("    if {} {{\n", check));
+                output.push_str(&format!("        return {};\n", allow_call));
                 output.push_str("    }\n");
             }
         }
@@ -1945,6 +1966,17 @@ fn escape_rust_string(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+/// Generate a GateResult::allow() call, with optional reason
+fn generate_allow_call(reason: &Option<String>) -> String {
+    match reason {
+        Some(r) => format!(
+            "Some(GateResult::allow_with_reason(\"{}\"))",
+            escape_rust_string(r)
+        ),
+        None => "Some(GateResult::allow())".to_string(),
+    }
 }
 
 fn toml_escape(s: &str) -> String {
