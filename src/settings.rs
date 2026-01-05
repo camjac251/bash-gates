@@ -224,6 +224,59 @@ impl Settings {
         false
     }
 
+    /// Check if an MCP tool is allowed in settings.json.
+    ///
+    /// MCP permissions use the format:
+    /// - `mcp__<server>` - entire server allowed
+    /// - `mcp__<server>__<tool>` - specific tool allowed
+    /// - `mcp__<server>__*` - server with wildcard
+    ///
+    /// Returns: Allow, Deny, Ask, or NoMatch
+    pub fn check_mcp_tool(&self, server: &str, tool: &str) -> SettingsDecision {
+        // Check deny rules first
+        if self.matches_mcp_pattern(&self.permissions.deny, server, tool) {
+            return SettingsDecision::Deny;
+        }
+
+        // Check ask rules
+        if self.matches_mcp_pattern(&self.permissions.ask, server, tool) {
+            return SettingsDecision::Ask;
+        }
+
+        // Check allow rules
+        if self.matches_mcp_pattern(&self.permissions.allow, server, tool) {
+            return SettingsDecision::Allow;
+        }
+
+        SettingsDecision::NoMatch
+    }
+
+    /// Check if an MCP server/tool matches any mcp__ patterns in the list.
+    fn matches_mcp_pattern(&self, patterns: &[String], server: &str, tool: &str) -> bool {
+        for pattern in patterns {
+            // Check for mcp__ prefix
+            if let Some(mcp_pattern) = pattern.strip_prefix("mcp__") {
+                // mcp__server - entire server
+                if mcp_pattern == server {
+                    return true;
+                }
+
+                // mcp__server__tool - specific tool
+                let specific = format!("{}__{}", server, tool);
+                if mcp_pattern == specific {
+                    return true;
+                }
+
+                // mcp__server__* - wildcard for server
+                let wildcard = format!("{}__*", server);
+                if mcp_pattern == wildcard {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Match Bash pattern:
     /// - "cmd:*" - prefix match with word boundary (git:* matches "git status")
     /// - "cmd*" - glob prefix match (cat /dev/zero* matches "cat /dev/zero | head")
@@ -439,5 +492,135 @@ mod tests {
         assert_eq!(dirs[1], "/project/relative");
         assert_eq!(dirs[2], "/absolute");
         assert!(!dirs[3].starts_with('~'));
+    }
+
+    // === MCP Permission Tests ===
+
+    #[test]
+    fn test_mcp_server_allow() {
+        // mcp__server-a allows entire server
+        let settings = Settings {
+            permissions: Permissions {
+                allow: vec!["mcp__server-a".to_string()],
+                ..Default::default()
+            },
+        };
+
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "tool_one"),
+            SettingsDecision::Allow
+        );
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "tool_two"),
+            SettingsDecision::Allow
+        );
+        // Different server - no match
+        assert_eq!(
+            settings.check_mcp_tool("server-b", "tool_one"),
+            SettingsDecision::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_mcp_specific_tool_allow() {
+        // mcp__server-a__tool_one allows only that tool
+        let settings = Settings {
+            permissions: Permissions {
+                allow: vec!["mcp__server-a__tool_one".to_string()],
+                ..Default::default()
+            },
+        };
+
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "tool_one"),
+            SettingsDecision::Allow
+        );
+        // Different tool on same server - no match
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "tool_two"),
+            SettingsDecision::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_mcp_wildcard_allow() {
+        // mcp__server-a__* allows all tools on server-a
+        let settings = Settings {
+            permissions: Permissions {
+                allow: vec!["mcp__server-a__*".to_string()],
+                ..Default::default()
+            },
+        };
+
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "tool_one"),
+            SettingsDecision::Allow
+        );
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "tool_two"),
+            SettingsDecision::Allow
+        );
+        // Different server - no match
+        assert_eq!(
+            settings.check_mcp_tool("server-b", "tool_one"),
+            SettingsDecision::NoMatch
+        );
+    }
+
+    #[test]
+    fn test_mcp_deny_priority() {
+        // Deny takes priority over allow
+        let settings = Settings {
+            permissions: Permissions {
+                allow: vec!["mcp__server-a".to_string()],
+                deny: vec!["mcp__server-a__dangerous_tool".to_string()],
+                ..Default::default()
+            },
+        };
+
+        // Specific tool is denied
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "dangerous_tool"),
+            SettingsDecision::Deny
+        );
+        // Other tools on server are allowed
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "safe_tool"),
+            SettingsDecision::Allow
+        );
+    }
+
+    #[test]
+    fn test_mcp_ask_priority() {
+        // Ask takes priority over allow, but not deny
+        let settings = Settings {
+            permissions: Permissions {
+                allow: vec!["mcp__server-a".to_string()],
+                ask: vec!["mcp__server-a__risky_tool".to_string()],
+                ..Default::default()
+            },
+        };
+
+        // Specific tool requires asking
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "risky_tool"),
+            SettingsDecision::Ask
+        );
+        // Other tools on server are allowed
+        assert_eq!(
+            settings.check_mcp_tool("server-a", "safe_tool"),
+            SettingsDecision::Allow
+        );
+    }
+
+    #[test]
+    fn test_mcp_no_match() {
+        // Empty settings - no match
+        let settings = Settings::default();
+
+        assert_eq!(
+            settings.check_mcp_tool("any-server", "any_tool"),
+            SettingsDecision::NoMatch
+        );
     }
 }

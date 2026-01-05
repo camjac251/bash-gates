@@ -1,0 +1,55 @@
+# MCP CLI (mcp-cli) Gate
+#
+# Handles `mcp-cli` commands for interacting with MCP (Model Context Protocol) servers.
+# Discovery commands are always allowed; `call` uses custom handler to check settings.json.
+#
+# Commands:
+# - servers: List connected MCP servers (read-only)
+# - tools [server]: List available tools (read-only)
+# - info <server>/<tool>: Get tool information (read-only)
+# - grep <pattern>: Search tools (read-only)
+# - resources [server]: List MCP resources (read-only)
+# - read <resource>: Read MCP resource (read-only)
+# - call <server>/<tool> <args>: Invoke an MCP tool (custom handler checks permissions)
+
+[meta]
+name = "mcp"
+description = "MCP CLI permission gate"
+priority = 5  # Check early, before general tool gates
+
+[[programs]]
+name = "mcp-cli"
+unknown_action = "ask"  # Unknown mcp-cli commands require approval
+
+# === Discovery Commands ===
+# These are always allowed (read-only operations)
+
+[[programs.allow]]
+subcommand = "servers"
+
+[[programs.allow]]
+subcommand = "tools"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "grep"
+
+[[programs.allow]]
+subcommand = "resources"
+
+[[programs.allow]]
+subcommand = "read"
+
+[[programs.allow]]
+subcommand = "help"
+
+# === Custom Handler for call ===
+# The `call` command invokes MCP tools and needs to check settings.json
+# for MCP permissions (mcp__<server>, mcp__<server>__<tool>, mcp__<server>__*)
+
+[[custom_handlers]]
+program = "mcp-cli"
+handler = "check_mcp_call"
+description = "mcp-cli call checks settings.json MCP permissions"

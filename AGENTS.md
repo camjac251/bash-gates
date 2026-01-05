@@ -54,10 +54,11 @@ src/
 ├── settings.rs      # settings.json parsing and pattern matching
 ├── mise.rs          # Mise task file parsing and command extraction
 ├── package_json.rs  # package.json script parsing and command extraction
-└── gates/           # 11 specialized permission gates
+└── gates/           # 12 specialized permission gates
     ├── mod.rs           # Gate registry
     ├── basics.rs        # Safe shell commands (echo, cat, ls, grep, etc.)
     ├── beads.rs         # Beads issue tracker CLI (bd)
+    ├── mcp.rs           # MCP CLI (mcp-cli)
     ├── gh.rs            # GitHub CLI
     ├── git.rs           # Git commands
     ├── shortcut.rs      # Shortcut.com CLI (short)
@@ -323,6 +324,26 @@ Handles `bd` (beads) issue tracker commands:
 - **Allow**: `list`, `show`, `ready`, `blocked`, `search`, `stats`, `doctor`, `dep tree`, `label list`, `prime`
 - **Ask**: `create`, `update`, `close`, `delete`, `sync`, `init`, `dep add`, `label add`, `comments add`
 - No blocked commands (all recoverable via git)
+
+### mcp.rs - MCP CLI
+Handles `mcp-cli` commands for Model Context Protocol servers:
+- **Allow**: `servers`, `tools`, `info`, `grep`, `resources`, `read`, `help` (discovery commands)
+- **Ask**: `call` (invokes MCP tools - checks settings.json for MCP permissions)
+
+MCP permissions in settings.json use patterns:
+- `mcp__<server>` - allow entire server
+- `mcp__<server>__<tool>` - allow specific tool
+- `mcp__<server>__*` - allow all tools on server (wildcard)
+
+Example settings.json:
+```json
+{
+  "permissions": {
+    "allow": ["mcp__docs", "mcp__search__*"],
+    "deny": ["mcp__docs__dangerous_tool"]
+  }
+}
+```
 
 ### gh.rs - GitHub CLI
 - **Allow**: `pr list`, `issue view`, `repo view`, `search`, `api` (GET)

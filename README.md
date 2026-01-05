@@ -27,7 +27,7 @@ A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse
 | **Compound Commands**     | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
 | **Security First**        | Catches pipe-to-shell, eval, command injection patterns                                                |
 | **Unknown Protection**    | Unrecognized commands require approval                                                                 |
-| **300+ Commands**         | 11 specialized gates with comprehensive coverage                                                       |
+| **300+ Commands**         | 12 specialized gates with comprehensive coverage                                                       |
 | **Fast**                  | Static native binary, no interpreter overhead                                                          |
 
 ---
@@ -50,15 +50,16 @@ flowchart TD
             direction LR
             G1[basics]
             G2[beads]
-            G3[gh]
-            G4[git]
-            G5[shortcut]
-            G6[cloud]
-            G7[filesystem]
-            G8[network]
-            G9[devtools]
-            G10[pkg mgrs]
-            G11[system]
+            G3[mcp]
+            G4[gh]
+            G5[git]
+            G6[shortcut]
+            G7[cloud]
+            G8[filesystem]
+            G9[network]
+            G10[devtools]
+            G11[pkg mgrs]
+            G12[system]
         end
     end
 
@@ -185,6 +186,29 @@ Add to `~/.claude/settings.json`:
 | Allow | Ask |
 |-------|-----|
 | `list`, `show`, `ready`, `blocked`, `search`, `stats`, `doctor`, `dep tree`, `prime` | `create`, `update`, `close`, `delete`, `sync`, `init`, `dep add`, `comments add` |
+
+### MCP CLI
+
+`mcp-cli` - Claude Code's [experimental token-efficient MCP interface](https://github.com/anthropics/claude-code/issues/12836#issuecomment-3629052941)
+
+Instead of loading full MCP tool definitions into the system prompt, Claude discovers tools on-demand via `mcp-cli` and executes them through Bash. Enable with `ENABLE_EXPERIMENTAL_MCP_CLI=true`.
+
+| Allow | Ask |
+|-------|-----|
+| `servers`, `tools`, `info`, `grep`, `resources`, `read`, `help` | `call` (invokes MCP tools) |
+
+Pre-approve trusted servers in settings.json to avoid repeated prompts:
+
+```json
+{
+  "permissions": {
+    "allow": ["mcp__perplexity", "mcp__context7__*"],
+    "deny": ["mcp__firecrawl__firecrawl_crawl"]
+  }
+}
+```
+
+Patterns: `mcp__<server>` (entire server), `mcp__<server>__<tool>` (specific tool), `mcp__<server>__*` (wildcard)
 
 ### GitHub CLI
 
@@ -325,9 +349,10 @@ src/
 ├── settings.rs       # settings.json parsing and pattern matching
 ├── mise.rs           # Mise task file parsing and command extraction
 ├── package_json.rs   # package.json script parsing and command extraction
-└── gates/            # 11 specialized permission gates
+└── gates/            # 12 specialized permission gates
     ├── basics.rs     # Safe commands (~130+)
     ├── beads.rs      # Beads issue tracker (bd) - github.com/steveyegge/beads
+    ├── mcp.rs        # MCP CLI (mcp-cli) - Model Context Protocol
     ├── gh.rs         # GitHub CLI
     ├── git.rs        # Git
     ├── shortcut.rs   # Shortcut CLI (short) - github.com/shortcut-cli/shortcut-cli
@@ -344,6 +369,7 @@ src/
 ## Links
 
 - [Claude Code Hooks Documentation](https://code.claude.com/docs/en/hooks)
+- [Claude Code MCP-CLI (experimental)](https://github.com/anthropics/claude-code/issues/12836#issuecomment-3629052941)
 - [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash)
 - [Beads Issue Tracker](https://github.com/steveyegge/beads)
 - [Shortcut CLI](https://github.com/shortcut-cli/shortcut-cli)
