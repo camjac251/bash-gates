@@ -54,11 +54,13 @@ src/
 ├── settings.rs      # settings.json parsing and pattern matching
 ├── mise.rs          # Mise task file parsing and command extraction
 ├── package_json.rs  # package.json script parsing and command extraction
-└── gates/           # 9 specialized permission gates
+└── gates/           # 11 specialized permission gates
     ├── mod.rs           # Gate registry
     ├── basics.rs        # Safe shell commands (echo, cat, ls, grep, etc.)
+    ├── beads.rs         # Beads issue tracker CLI (bd)
     ├── gh.rs            # GitHub CLI
     ├── git.rs           # Git commands
+    ├── shortcut.rs      # Shortcut.com CLI (short)
     ├── cloud.rs         # AWS, gcloud, terraform, kubectl, docker, helm, pulumi, az
     ├── network.rs       # curl, wget, ssh, scp, rsync, netcat
     ├── filesystem.rs    # rm, mv, cp, chmod, tar, zip
@@ -302,20 +304,35 @@ Before AST parsing, raw string checks catch dangerous patterns:
 ## Gate Coverage
 
 ### basics.rs - Safe Shell Commands
-~100 known-safe commands that are always allowed:
-- **Display**: `echo`, `printf`, `cat`, `head`, `tail`, `less`, `bat`
-- **Listing**: `ls`, `eza`, `tree`, `find`, `fd`, `which`
-- **Text processing**: `grep`, `rg`, `awk`, `sed` (without -i), `cut`, `sort`, `uniq`, `wc`
-- **File info**: `file`, `stat`, `du`, `df`, `realpath`
-- **Process/system**: `ps`, `top`, `htop`, `whoami`, `id`, `uname`, `date`, `uptime`
-- **Network info**: `ping`, `dig`, `ss`, `netstat`, `ip`
-- **Dev tools**: `jq`, `yq`, `tokei`, `hexdump`
-- **Help**: `man`, `tldr`, `--help`
+~130+ known-safe commands that are always allowed:
+- **Display**: `echo`, `printf`, `cat`, `head`, `tail`, `less`, `more`, `bat`, `batcat`
+- **Listing**: `ls`, `eza`, `lsd`, `tree`, `find`, `fd`, `locate`, `which`, `whereis`, `type`
+- **Text processing**: `grep`, `rg`, `awk`, `sed` (without -i), `cut`, `sort`, `uniq`, `wc`, `tr`, `diff`, `cmp`
+- **File info**: `file`, `stat`, `du`, `df`, `lsof`, `readlink`, `realpath`, `basename`, `dirname`
+- **Process/system**: `ps`, `top`, `htop`, `btop`, `procs`, `pgrep`, `uptime`, `whoami`, `id`, `uname`, `hostname`, `date`, `cal`, `free`, `nproc`, `lscpu`
+- **Network info**: `ping`, `traceroute`, `mtr`, `dig`, `nslookup`, `host`, `whois`, `ss`, `netstat`, `ip`, `ifconfig`
+- **Archive listing**: `zipinfo`, `unrar` (listing only)
+- **Dev tools**: `jq`, `yq`, `gron`, `fx`, `tokei`, `cloc`, `scc`, `hexdump`, `xxd`, `hexyl`, `base64`, `delta`, `difft`, `dust`, `fselect`
+- **Checksums**: `sha256sum`, `md5sum`, `sha1sum`, `b2sum`, `cksum`
+- **Help**: `man`, `info`, `help`, `tldr`, `cheat`
+- **Misc**: `true`, `false`, `seq`, `expr`, `bc`, `sleep`, `pwd`, `cd`, `printenv`, `export`, `test`
+- **Custom handlers**: `xargs` (safe only with known-safe target), `bash -c`/`sh -c` (parses inner script)
+
+### beads.rs - Beads Issue Tracker CLI
+Handles `bd` (beads) issue tracker commands:
+- **Allow**: `list`, `show`, `ready`, `blocked`, `search`, `stats`, `doctor`, `dep tree`, `label list`, `prime`
+- **Ask**: `create`, `update`, `close`, `delete`, `sync`, `init`, `dep add`, `label add`, `comments add`
+- No blocked commands (all recoverable via git)
 
 ### gh.rs - GitHub CLI
 - **Allow**: `pr list`, `issue view`, `repo view`, `search`, `api` (GET)
 - **Ask**: `pr create`, `pr merge`, `issue create`, `api` (POST/PUT/DELETE)
 - **Block**: `repo delete`, `auth logout`
+
+### shortcut.rs - Shortcut.com CLI
+Handles `short` CLI for Shortcut.com project management:
+- **Allow**: `search`, `find`, `story` (view only), `members`, `epics`, `workflows`, `projects`, `workspace` (list), `help`
+- **Ask**: `create`, `install`, `story` (with update flags like `--state`, `--title`, `--comment`), `search --save`, `api` (POST/PUT/DELETE)
 
 ### git.rs - Git
 - **Allow**: `status`, `log`, `diff`, `show`, `branch -a`, `--dry-run` commands
@@ -334,20 +351,38 @@ Before AST parsing, raw string checks catch dangerous patterns:
 - **pulumi**: `preview`/`stack ls` allow, `up`/`destroy`/`refresh` ask
 
 ### network.rs - Network Tools
-- **curl**: GET allow, POST/PUT/DELETE ask, `-o`/`-O` (download) ask
-- **wget**: `--spider` allow, download ask, `--mirror` ask
-- **ssh/scp/sftp**: always ask
-- **rsync**: `--dry-run` allow, otherwise ask
-- **netcat**: `-e` block (reverse shell), `-l` ask
+- **curl**: HEAD (`-I`) allow, GET allow by default, POST/PUT/DELETE/PATCH ask, `-o`/`-O` (download) ask, `-d`/`--data` implies mutation
+- **wget**: `--spider` allow (just checks URLs), `-O`/`-r`/`-m`/`--post-*` ask
+- **ssh/scp/sftp**: always ask (remote connections)
+- **rsync**: `-n`/`--dry-run` allow (preview), otherwise ask
+- **netcat** (`nc`/`ncat`): `-e` block (reverse shell risk), `-l` ask (listen mode), connections ask
+- **HTTPie** (`http`/`https`/`xh`): GET allow, POST/PUT/DELETE/PATCH ask
 
 ### filesystem.rs - Filesystem
-- **Allow**: `tar -tf`, `unzip -l` (list contents)
-- **Ask**: `rm`, `mv`, `cp`, `mkdir`, `chmod`, `tar -x`, `sed -i`
-- **Block**: `rm -rf /`, `rm -rf ~`, path traversal attempts (`//`, `/../`)
+- **Allow**: `tar -t`/`tar --list` (list contents), `unzip -l` (list contents)
+- **Ask**: `rm`, `mv`, `cp`, `mkdir`, `touch`, `chmod`, `chown`, `chgrp`, `ln`, `tar -x`/`tar -c`, `sed -i`, `perl` (can execute arbitrary code), `zip`
+- **Block**: `rm -rf /`, `rm -rf ~`, `rm -rf /*`, path traversal with normalization (`//`, `/./`, `/../`)
 
 ### devtools.rs - Developer Tools
-- **Allow**: `ast-grep` (search), `jq`, `yq`, `semgrep`, `sad` (preview), `black --check`, `gofmt` (no -w), `golangci-lint` (no --fix)
-- **Ask**: `sd`, `ast-grep -U`, `yq -i`, `semgrep --autofix`, `sad --commit`, `black`, `gofmt -w`, `golangci-lint --fix`
+Handles ~50+ developer tools with write-flag detection:
+- **Always safe**: `jq`, `shellcheck`, `hadolint`, `actionlint`, `vite`, `vitest`, `jest`, `mocha`, `tsc`, `tsup`, `esbuild`, `turbo`, `nx`, `knip`, `oxlint`
+- **Safe by default, ask with write flags**:
+  - `ast-grep`/`sg`: search safe, `-U`/`--update-all` asks
+  - `yq`: read safe, `-i`/`--inplace` asks
+  - `semgrep`: scan safe, `--autofix`/`--fix` asks
+  - `sad`: preview safe, `--commit` asks
+  - `prettier`: safe, `--write`/`-w` asks
+  - `eslint`: safe, `--fix` asks
+  - `biome`: `check`/`lint` safe, `--write`/`--fix` asks
+  - `ruff`: `check` safe, `check --fix` or `format` asks
+  - `black`/`isort`: `--check`/`--diff` safe, otherwise asks
+  - `gofmt`/`goimports`/`shfmt`: safe, `-w` asks
+  - `rustfmt`/`stylua`: `--check` safe, otherwise asks
+  - `golangci-lint`: safe, `--fix` asks
+  - `rubocop`/`standardrb`: safe, `-a`/`--auto-correct` asks
+  - `patch`: `--dry-run` safe, otherwise asks
+  - `clang-format`/`autopep8`: safe, `-i` asks
+- **Always ask**: `sd` (always writes), `watchexec` (runs commands), `dos2unix`/`unix2dos`, `dartfmt`, `elm-format`
 
 ### package_managers.rs - Package Managers
 - **Allow**: `list`, `show`, `test`, `build`, `check`, `lint`, `dev`
@@ -356,13 +391,21 @@ Before AST parsing, raw string checks catch dangerous patterns:
 - **mise**: `ls`/`doctor`/`reshim`/`exec` allow, `install`/`use`/`upgrade` ask (task expansion handled separately)
 
 ### system.rs - System Commands
-- **Database**: `psql -l`/`mysql SHOW` allow, `psql -c INSERT`/`psql -f` ask
-- **Build**: `make test`/`make build` allow, `make deploy` ask
+- **Database**: `psql -l` allow, `psql -c SELECT` allow, `psql -c INSERT`/`psql -f` ask; `pg_dump` allow, `pg_restore` ask
+- **Database CLIs**: `mysql`, `sqlite3`, `mongosh`, `redis-cli` - query commands parsed
+- **Database migrations**: `migrate`, `goose`, `dbmate`, `flyway`, `alembic` - always ask
+- **Build tools**:
+  - `make`: `-n`/`--dry-run` allow, `test`/`build`/`clean`/`fmt` allow, other targets ask
+  - `cmake`: `--view-only` allow, otherwise ask
+  - `ninja`, `just`, `task`: list commands allow, others ask
+  - `gradle`/`maven`: `tasks`/`help`/`test`/`build` allow, `publish`/`deploy` ask
+  - `bazel`: `info`/`query`/`build`/`test` allow, `run`/`clean` ask
+  - `meson`, `ansible`, `vagrant`, `hyperfine`: various patterns
 - **sudo/doas**: `-l`/`-v`/`-k` allow, describes underlying command (e.g., "sudo: Installing packages (apt)")
-- **systemctl**: `status`/`list-units` allow, `start`/`stop`/`restart` ask
-- **Process**: `kill -0` allow, `kill`/`pkill` ask
+- **systemctl**: `status`/`show`/`list-*`/`is-*`/`cat` allow, `start`/`stop`/`restart`/`enable`/`disable` ask
+- **Process**: `kill -0`/`kill -l` allow, `kill`/`pkill`/`killall` ask
 - **Crontab**: `crontab -l` allow, `crontab -e` ask
-- **Block**: `shutdown`, `reboot`, `mkfs`, `fdisk`, `parted`
+- **Block**: `shutdown`, `reboot`, `poweroff`, `halt`, `init`, `mkfs`, `fdisk`, `parted`, `gdisk`, `dd`, `shred`, `wipe`, `useradd`, `userdel`, `passwd`, `iptables`, `ufw`, `mount` (partial), `insmod`, `rmmod`, `modprobe`, `grub-install`
 
 ### system.rs - OS Package Managers
 - **apt/apt-get**: `list`/`search`/`show` allow, `install`/`remove`/`upgrade` ask

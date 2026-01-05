@@ -27,7 +27,7 @@ A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse
 | **Compound Commands**     | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
 | **Security First**        | Catches pipe-to-shell, eval, command injection patterns                                                |
 | **Unknown Protection**    | Unrecognized commands require approval                                                                 |
-| **200+ Commands**         | 9 specialized gates with comprehensive coverage                                                        |
+| **300+ Commands**         | 11 specialized gates with comprehensive coverage                                                       |
 | **Fast**                  | Static native binary, no interpreter overhead                                                          |
 
 ---
@@ -49,14 +49,16 @@ flowchart TD
         subgraph GATES [Permission Gates]
             direction LR
             G1[basics]
-            G2[gh]
-            G3[git]
-            G4[cloud]
-            G5[filesystem]
-            G6[network]
-            G7[devtools]
-            G8[pkg mgrs]
-            G9[system]
+            G2[beads]
+            G3[gh]
+            G4[git]
+            G5[shortcut]
+            G6[cloud]
+            G7[filesystem]
+            G8[network]
+            G9[devtools]
+            G10[pkg mgrs]
+            G11[system]
         end
     end
 
@@ -174,7 +176,15 @@ Add to `~/.claude/settings.json`:
 
 ### Basics
 
-~100 safe read-only commands: `echo`, `cat`, `ls`, `grep`, `awk`, `sed` (no -i), `ps`, `whoami`, `date`, `jq`, `yq`
+~130+ safe read-only commands: `echo`, `cat`, `ls`, `grep`, `rg`, `awk`, `sed` (no -i), `ps`, `whoami`, `date`, `jq`, `yq`, `bat`, `fd`, `tokei`, `hexdump`, and more. Custom handlers for `xargs` (safe only with known-safe targets) and `bash -c`/`sh -c` (parses inner script).
+
+### Beads Issue Tracker
+
+[Beads](https://github.com/steveyegge/beads) - Git-native issue tracking
+
+| Allow | Ask |
+|-------|-----|
+| `list`, `show`, `ready`, `blocked`, `search`, `stats`, `doctor`, `dep tree`, `prime` | `create`, `update`, `close`, `delete`, `sync`, `init`, `dep add`, `comments add` |
 
 ### GitHub CLI
 
@@ -187,6 +197,14 @@ Add to `~/.claude/settings.json`:
 | Allow                                        | Ask                                      | Ask (warning)                               |
 | -------------------------------------------- | ---------------------------------------- | ------------------------------------------- |
 | `status`, `log`, `diff`, `show`, `branch -a` | `add`, `commit`, `push`, `pull`, `merge` | `push --force`, `reset --hard`, `clean -fd` |
+
+### Shortcut CLI
+
+[shortcut-cli](https://github.com/shortcut-cli/shortcut-cli) - Community CLI for Shortcut
+
+| Allow | Ask |
+|-------|-----|
+| `search`, `find`, `story` (view), `members`, `epics`, `workflows`, `projects`, `help` | `create`, `install`, `story` (with update flags), `search --save`, `api` (POST/PUT/DELETE) |
 
 ### Cloud CLIs
 
@@ -208,21 +226,33 @@ AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi
 | --------------------- | ----------------------------------- | ---------------------- |
 | `tar -tf`, `unzip -l` | `rm`, `mv`, `cp`, `chmod`, `sed -i` | `rm -rf /`, `rm -rf ~` |
 
+### Developer Tools
+
+~50+ tools with write-flag detection: `jq`, `shellcheck`, `hadolint`, `vite`, `vitest`, `jest`, `tsc`, `esbuild`, `turbo`, `nx`
+
+| Safe by default | Ask with flags |
+|-----------------|----------------|
+| `ast-grep`, `yq`, `semgrep`, `sad`, `prettier`, `eslint`, `biome`, `ruff`, `black`, `gofmt`, `rustfmt`, `golangci-lint` | `-U`, `-i`, `--fix`, `--write`, `--commit`, `--autofix` |
+| Always ask: `sd` (always writes), `watchexec` (runs commands), `dos2unix` | |
+
 ### Package Managers
 
-npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx
+npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx, mise
 
 | Allow                                  | Ask                                   |
 | -------------------------------------- | ------------------------------------- |
-| `list`, `show`, `test`, `build`, `run` | `install`, `add`, `remove`, `publish` |
+| `list`, `show`, `test`, `build`, `dev` | `install`, `add`, `remove`, `publish`, `run` |
 
 ### System
 
-psql, make, sudo, systemctl, apt, brew, pacman, nix, dnf, zypper
+**Database CLIs:** psql, mysql, sqlite3, mongosh, redis-cli
+**Build tools:** make, cmake, ninja, just, gradle, maven, bazel
+**OS Package managers:** apt, brew, pacman, nix, dnf, zypper, flatpak, snap
+**Other:** sudo, systemctl, crontab, kill
 
 | Allow                                           | Ask                               | Block                        |
 | ----------------------------------------------- | --------------------------------- | ---------------------------- |
-| `psql -l`, `make test`, `sudo -l`, `apt search` | `make deploy`, `sudo apt install` | `shutdown`, `reboot`, `mkfs` |
+| `psql -l`, `make test`, `sudo -l`, `apt search` | `make deploy`, `sudo apt install` | `shutdown`, `reboot`, `mkfs`, `dd`, `fdisk`, `iptables`, `passwd` |
 
 ---
 
@@ -293,16 +323,20 @@ src/
 ├── parser.rs         # tree-sitter-bash AST parsing
 ├── router.rs         # Security checks + gate routing
 ├── settings.rs       # settings.json parsing and pattern matching
-└── gates/
-    ├── basics.rs     # Safe commands (~100)
+├── mise.rs           # Mise task file parsing and command extraction
+├── package_json.rs   # package.json script parsing and command extraction
+└── gates/            # 11 specialized permission gates
+    ├── basics.rs     # Safe commands (~130+)
+    ├── beads.rs      # Beads issue tracker (bd) - github.com/steveyegge/beads
     ├── gh.rs         # GitHub CLI
     ├── git.rs        # Git
-    ├── cloud.rs      # AWS, gcloud, terraform, kubectl, docker, az, helm, pulumi
-    ├── network.rs    # curl, wget, ssh, netcat
-    ├── filesystem.rs # rm, mv, cp, tar, zip
-    ├── devtools.rs   # sd, ast-grep, yq, semgrep
-    ├── package_managers.rs
-    └── system.rs     # psql, make, sudo, systemctl, OS pkg managers
+    ├── shortcut.rs   # Shortcut CLI (short) - github.com/shortcut-cli/shortcut-cli
+    ├── cloud.rs      # AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi
+    ├── network.rs    # curl, wget, ssh, rsync, netcat, HTTPie
+    ├── filesystem.rs # rm, mv, cp, chmod, tar, zip
+    ├── devtools.rs   # sd, ast-grep, yq, semgrep, biome, prettier, eslint, ruff, black
+    ├── package_managers.rs  # npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx, mise
+    └── system.rs     # psql, mysql, make, sudo, systemctl, OS pkg managers, build tools
 ```
 
 ---
@@ -311,3 +345,5 @@ src/
 
 - [Claude Code Hooks Documentation](https://code.claude.com/docs/en/hooks)
 - [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash)
+- [Beads Issue Tracker](https://github.com/steveyegge/beads)
+- [Shortcut CLI](https://github.com/shortcut-cli/shortcut-cli)
