@@ -22,7 +22,6 @@ A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse
 | Feature                   | Description                                                                                            |
 | ------------------------- | ------------------------------------------------------------------------------------------------------ |
 | **Settings Integration**  | Respects your `settings.json` allow/deny/ask rules - won't bypass your explicit permissions            |
-| **Suggestions**           | Returns rule patterns for "Yes, and always allow..." options in Claude Code                            |
 | **Accept Edits Mode**     | Auto-allows file-editing commands (`sd`, `prettier --write`, etc.) when in acceptEdits mode            |
 | **AST Parsing**           | Uses [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) for accurate command analysis |
 | **Compound Commands**     | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
@@ -90,33 +89,6 @@ bash-gates reads your Claude Code settings from `~/.claude/settings.json` and `.
 | none          | unknown    | **ask** |
 
 This ensures bash-gates won't accidentally bypass your explicit deny rules while still providing security against dangerous commands.
-
-### Suggestions
-
-When bash-gates returns `ask`, it includes **suggestions** that enable the "Yes, and always allow..." option in Claude Code:
-
-```json
-{
-  "permissionDecision": "ask",
-  "permissionDecisionReason": "npm: Installing packages",
-  "suggestions": [
-    { "type": "addRules", "rules": [{"ruleContent": "npm install:*"}], "destination": "session" },
-    { "type": "addRules", "rules": [{"ruleContent": "npm install:*"}], "destination": "localSettings" },
-    { "type": "addRules", "rules": [{"ruleContent": "npm install:*"}], "destination": "userSettings" }
-  ]
-}
-```
-
-| Destination | Scope | Persisted |
-|-------------|-------|-----------|
-| `session` | This session only | No |
-| `localSettings` | This project | Yes (`.claude/settings.json`) |
-| `userSettings` | All projects | Yes (`~/.claude/settings.json`) |
-
-**Commands that don't get suggestions:**
-- Dangerous commands: `rm`, `mv`, `chmod`, `sudo`, `kill`
-- Commands with dangerous flags: `--force`, `--hard`, `-rf`
-- Project-specific commands only get session/local (no global): `make`, `aws`, `kubectl`, `docker`, `ssh`
 
 ### Accept Edits Mode
 

@@ -132,60 +132,6 @@ impl HookInput {
     }
 }
 
-// === Suggestion Types ===
-
-/// Destination for where a suggestion rule should be saved
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SuggestionDestination {
-    Session,
-    LocalSettings,
-    UserSettings,
-}
-
-/// A rule to add for a tool
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SuggestionRule {
-    pub tool_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rule_content: Option<String>,
-}
-
-/// Behavior for an addRules suggestion
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SuggestionBehavior {
-    Allow,
-    Deny,
-    Ask,
-}
-
-/// A suggestion that can be returned with an ask decision
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum Suggestion {
-    /// Add permission rules
-    #[serde(rename = "addRules")]
-    AddRules {
-        rules: Vec<SuggestionRule>,
-        behavior: SuggestionBehavior,
-        destination: SuggestionDestination,
-    },
-    /// Add allowed directories
-    #[serde(rename = "addDirectories")]
-    AddDirectories {
-        directories: Vec<String>,
-        destination: SuggestionDestination,
-    },
-    /// Change permission mode
-    #[serde(rename = "setMode")]
-    SetMode {
-        mode: String,
-        destination: SuggestionDestination,
-    },
-}
-
 /// Hook-specific output for `PreToolUse`
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -194,8 +140,6 @@ pub struct HookSpecificOutput {
     pub permission_decision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_decision_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub suggestions: Option<Vec<Suggestion>>,
 }
 
 /// Output format for hooks
@@ -225,7 +169,6 @@ impl HookOutput {
                 hook_event_name: "PreToolUse".to_string(),
                 permission_decision: "allow".to_string(),
                 permission_decision_reason: reason.map(String::from),
-                suggestions: None,
             }),
         }
     }
@@ -238,24 +181,6 @@ impl HookOutput {
                 hook_event_name: "PreToolUse".to_string(),
                 permission_decision: "ask".to_string(),
                 permission_decision_reason: Some(reason.to_string()),
-                suggestions: None,
-            }),
-        }
-    }
-
-    /// Return ask for user permission with suggestions
-    pub fn ask_with_suggestions(reason: &str, suggestions: Vec<Suggestion>) -> Self {
-        Self {
-            decision: None,
-            hook_specific_output: Some(HookSpecificOutput {
-                hook_event_name: "PreToolUse".to_string(),
-                permission_decision: "ask".to_string(),
-                permission_decision_reason: Some(reason.to_string()),
-                suggestions: if suggestions.is_empty() {
-                    None
-                } else {
-                    Some(suggestions)
-                },
             }),
         }
     }
@@ -268,7 +193,6 @@ impl HookOutput {
                 hook_event_name: "PreToolUse".to_string(),
                 permission_decision: "deny".to_string(),
                 permission_decision_reason: Some(reason.to_string()),
-                suggestions: None,
             }),
         }
     }

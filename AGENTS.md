@@ -78,7 +78,7 @@ src/
 7. **Settings deny**: If command matches deny rules, deny immediately
 8. **Accept Edits Mode**: If `permission_mode` is `acceptEdits` and command is file-editing within allowed directories, auto-allow
 9. **Settings ask/allow**: Check remaining settings.json rules
-10. **Output**: JSON with `permissionDecision` (allow/ask/deny) and `suggestions` for ask decisions
+10. **Output**: JSON with `permissionDecision` (allow/ask/deny)
 
 ## Mise Task Expansion (mise.rs)
 
@@ -212,50 +212,6 @@ PreToolUse hooks have **more power** than settings.json:
 **Gate blocks always win:** Commands like `rm -rf /` are denied directly, regardless of settings.json. This ensures dangerous commands are always blocked.
 
 **Settings.json respected for non-blocked commands:** If you have `Bash(cat /dev/zero*)` in deny and a gate would allow `cat`, bash-gates returns `ask` to defer to Claude Code, which then applies your deny rule.
-
-## Suggestions (router.rs)
-
-When bash-gates returns `ask`, it includes suggestions that enable "Yes, and always allow..." in Claude Code:
-
-```json
-{
-  "permissionDecision": "ask",
-  "permissionDecisionReason": "npm: Installing packages",
-  "suggestions": [
-    { "type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "npm install:*"}], "behavior": "allow", "destination": "session" },
-    { "type": "addRules", "rules": [...], "destination": "localSettings" },
-    { "type": "addRules", "rules": [...], "destination": "userSettings" }
-  ]
-}
-```
-
-### Suggestion Destinations
-
-| Destination | Scope | Persisted |
-|-------------|-------|-----------|
-| `session` | This session only | No |
-| `localSettings` | This project | Yes (`.claude/settings.json`) |
-| `userSettings` | All projects | Yes (`~/.claude/settings.json`) |
-
-### No Suggestions For
-
-| Category | Programs |
-|----------|----------|
-| Dangerous | `rm`, `mv`, `chmod`, `sudo`, `kill`, `dd`, `shred` |
-| Dangerous flags | `--force`, `--hard`, `-rf`, `--delete` |
-| Project-specific (no userSettings) | `make`, `aws`, `gcloud`, `terraform`, `kubectl`, `docker`, `ssh`, `apt`, `brew` |
-
-### -f Flag Context-Aware
-
-The `-f` flag is only treated as dangerous for programs where it means "force":
-
-| Program | `-f` meaning | Suggestions? |
-|---------|--------------|--------------|
-| `git checkout -f` | force | No |
-| `rm -f file` | force | No |
-| `kubectl apply -f x.yaml` | file | Yes |
-| `helm install -f values.yaml` | values file | Yes |
-| `docker build -f Dockerfile` | file | Yes |
 
 ## Accept Edits Mode (router.rs)
 
@@ -601,13 +557,13 @@ cargo test -- --ignored
 echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | ./target/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"allow",...}}
 
-# Ask with suggestions (known risky)
+# Ask (known risky)
 echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages","suggestions":[...]}}
+# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages"}}
 
 # Ask (unknown command)
 echo '{"tool_name": "Bash", "tool_input": {"command": "mamba install numpy"}}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"conda: Installing packages","suggestions":[...]}}
+# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"conda: Installing packages"}}
 
 # Block (dangerous)
 echo '{"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}' | ./target/release/bash-gates
@@ -624,10 +580,6 @@ echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}, "permissio
 # Accept Edits Mode - asks for paths outside cwd
 echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new /other/file.txt"}, "permission_mode": "acceptEdits", "cwd": "/home/user/project"}' | ./target/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"ask",...}}
-
-# kubectl -f gets suggestions (context-aware -f handling)
-echo '{"tool_name": "Bash", "tool_input": {"command": "kubectl apply -f deployment.yaml"}}' | ./target/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","suggestions":[...]}} (2 suggestions, no userSettings)
 ```
 
 ## Compound Commands

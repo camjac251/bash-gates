@@ -4,10 +4,7 @@ use crate::gates::GATES;
 use crate::mise::{
     extract_task_commands, find_mise_config, load_mise_config, parse_mise_invocation,
 };
-use crate::models::{
-    CommandInfo, Decision, GateResult, HookOutput, Suggestion, SuggestionBehavior,
-    SuggestionDestination, SuggestionRule,
-};
+use crate::models::{CommandInfo, Decision, GateResult, HookOutput};
 use crate::package_json::{
     find_package_json, get_script_command, load_package_json, parse_script_invocation,
 };
@@ -105,9 +102,7 @@ pub fn check_command(command_string: &str) -> HookOutput {
             )
         };
 
-        // Generate suggestions for the ask decision
-        let suggestions = generate_suggestions_for_commands(&commands, &command_decisions);
-        return HookOutput::ask_with_suggestions(&combined, suggestions);
+        return HookOutput::ask(&combined);
     }
 
     // All checks passed - explicitly allow
@@ -144,12 +139,12 @@ pub fn check_command_with_settings(
 
     // Check for mise task invocation and expand to underlying commands
     if let Some(task_name) = parse_mise_invocation(command_string) {
-        return check_mise_task(&task_name, command_string, cwd, permission_mode);
+        return check_mise_task(&task_name, cwd, permission_mode);
     }
 
     // Check for package.json script invocation (npm run, pnpm run, etc.)
     if let Some((pm, script_name)) = parse_script_invocation(command_string) {
-        return check_package_script(pm, &script_name, command_string, cwd, permission_mode);
+        return check_package_script(pm, &script_name, cwd, permission_mode);
     }
 
     // Run gate analysis first - blocks take priority
@@ -210,56 +205,13 @@ pub fn check_command_with_settings(
     gate_result
 }
 
-/// Generate suggestions for a wrapper command (mise task or npm script).
-/// Returns suggestions for both canonical and shorthand patterns if they differ.
-/// - `canonical_pattern`: The normalized form, e.g., "pnpm run lint" or "mise run build"
-/// - `original_pattern`: The original invocation form, e.g., "pnpm lint" or "mise build"
-fn generate_wrapper_suggestions(
-    canonical_pattern: &str,
-    original_pattern: &str,
-) -> Vec<Suggestion> {
-    let mut rules = vec![SuggestionRule {
-        tool_name: "Bash".to_string(),
-        rule_content: Some(format!("{canonical_pattern}:*")),
-    }];
-
-    // If original differs from canonical (shorthand form), add that pattern too
-    // This ensures "pnpm lint" gets both "pnpm run lint:*" and "pnpm lint:*"
-    if original_pattern != canonical_pattern {
-        rules.push(SuggestionRule {
-            tool_name: "Bash".to_string(),
-            rule_content: Some(format!("{original_pattern}:*")),
-        });
-    }
-
-    // Wrapper commands are always project-specific (scripts/tasks vary per project)
-    vec![
-        Suggestion::AddRules {
-            rules: rules.clone(),
-            behavior: SuggestionBehavior::Allow,
-            destination: SuggestionDestination::Session,
-        },
-        Suggestion::AddRules {
-            rules,
-            behavior: SuggestionBehavior::Allow,
-            destination: SuggestionDestination::LocalSettings,
-        },
-    ]
-}
-
 /// Check a mise task by expanding it to its underlying commands.
 ///
 /// Finds the mise config file, extracts the task's run commands (including dependencies),
 /// and checks each command through the gate engine.
 /// - `task_name`: The task name (e.g., "lint", "build:prod")
-/// - `original_cmd`: The original command string (e.g., "mise lint" or "mise run lint")
 /// - `permission_mode`: The permission mode (e.g., "default", "acceptEdits")
-fn check_mise_task(
-    task_name: &str,
-    original_cmd: &str,
-    cwd: &str,
-    permission_mode: &str,
-) -> HookOutput {
+fn check_mise_task(task_name: &str, cwd: &str, permission_mode: &str) -> HookOutput {
     // Find mise config file
     let Some(config_path) = find_mise_config(cwd) else {
         return HookOutput::ask(&format!("mise {task_name}: No mise.toml found"));
@@ -324,16 +276,7 @@ fn check_mise_task(
         } else {
             ask_reasons.join("; ")
         };
-        // Generate suggestions for the mise wrapper command
-        // Extract original pattern from the original command (handles "mise lint" vs "mise run lint")
-        let original_pattern = original_cmd
-            .split_whitespace()
-            .take(2)
-            .collect::<Vec<_>>()
-            .join(" ");
-        let suggestions =
-            generate_wrapper_suggestions(&format!("mise run {task_name}"), &original_pattern);
-        return HookOutput::ask_with_suggestions(&combined, suggestions);
+        return HookOutput::ask(&combined);
     }
 
     // All commands are safe
@@ -345,12 +288,10 @@ fn check_mise_task(
 /// Finds package.json, extracts the script's command, and checks it through the gate engine.
 /// - `pm`: The package manager name (e.g., "pnpm", "npm")
 /// - `script_name`: The script name (e.g., "lint", "build")
-/// - `original_cmd`: The original command string (e.g., "pnpm lint" or "pnpm run lint")
 /// - `permission_mode`: The permission mode (e.g., "default", "acceptEdits")
 fn check_package_script(
     pm: &str,
     script_name: &str,
-    original_cmd: &str,
     cwd: &str,
     permission_mode: &str,
 ) -> HookOutput {
@@ -402,21 +343,7 @@ fn check_package_script(
                     .permission_decision_reason
                     .as_deref()
                     .unwrap_or("Requires approval");
-                // Generate suggestions for the package manager wrapper command
-                // Extract original pattern from the original command (handles "pnpm lint" vs "pnpm run lint")
-                let original_pattern = original_cmd
-                    .split_whitespace()
-                    .take(2)
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let suggestions = generate_wrapper_suggestions(
-                    &format!("{pm} run {script_name}"),
-                    &original_pattern,
-                );
-                return HookOutput::ask_with_suggestions(
-                    &format!("{pm} run {script_name}: {reason}"),
-                    suggestions,
-                );
+                return HookOutput::ask(&format!("{pm} run {script_name}: {reason}"));
             }
             "allow" => {
                 return HookOutput::allow(Some(&format!(
@@ -476,8 +403,7 @@ fn check_command_expanded(command_string: &str, cwd: &str, permission_mode: &str
         let cwd_str = effective_cwd.to_string_lossy();
         // Try package.json script expansion for this individual command
         if let Some((pm, script_name)) = parse_script_invocation(&cmd.raw) {
-            let result =
-                check_package_script(pm, &script_name, &cmd.raw, &cwd_str, permission_mode);
+            let result = check_package_script(pm, &script_name, &cwd_str, permission_mode);
             if let Some(ref output) = result.hook_specific_output {
                 match output.permission_decision.as_str() {
                     "deny" => {
@@ -1066,324 +992,6 @@ fn is_under_any_dir(path: &str, allowed_dirs: &[String]) -> bool {
 // See src/generated/rules.rs for the generated is_file_editing_command function.
 use crate::generated::rules::is_file_editing_command;
 
-// === Suggestion Generation ===
-
-/// Commands that should NEVER get "always allow" suggestions.
-/// These are too dangerous to encourage blanket approval.
-const NO_SUGGESTION_PROGRAMS: &[&str] = &[
-    "rm", "rmdir", "mv", "dd", "shred", "mkfs", "fdisk", "parted",
-    "truncate", // Destructive filesystem
-    "shutdown", "reboot", "poweroff", "halt", "init", // System control
-    "sudo", "doas", "su", "pkexec", // Privilege escalation
-    "kill", "pkill", "killall", "skill", "slay", "xkill", // Process control
-    "chmod", "chown", "chgrp", // Permission changes
-];
-
-/// Commands that are project-specific and shouldn't get global suggestions.
-/// These only get session and localSettings destinations.
-const PROJECT_SPECIFIC_PROGRAMS: &[&str] = &[
-    // Build systems - targets are project-specific
-    "make",
-    "rake",
-    "nx",
-    "turbo",
-    "bazel",
-    "buck",
-    "pants",
-    "just", // justfile task runner
-    // JVM build tools - project-specific build files
-    "gradle",
-    "gradlew",
-    "mvn",
-    "ant",
-    "sbt",
-    "lein", // Clojure
-    // Other language build/package tools with project-specific configs
-    "composer", // PHP
-    "bundle",   // Ruby
-    "mix",      // Elixir
-    "dotnet",   // .NET
-    "swift",    // Swift package manager
-    // Cloud infrastructure - too risky for blanket global allows
-    "aws",
-    "gcloud",
-    "az", // Cloud CLIs
-    "terraform",
-    "tofu",
-    "pulumi", // IaC tools
-    "kubectl",
-    "k",
-    "helm", // Kubernetes
-    "docker",
-    "podman", // Containers (can mount host filesystem)
-    // Remote access - hosts differ per project
-    "ssh",
-    "scp",
-    "sftp",
-    "rsync",
-    // Database clients - connection strings/hosts are project-specific
-    "psql",
-    "mysql",
-    "mongo",
-    "mongosh",
-    "redis-cli",
-    "sqlite3",
-    // Database migrations - config is project-specific
-    "migrate",
-    "goose",
-    "dbmate",
-    "flyway",
-    "alembic",
-    // OS package managers - affect system, not project
-    "apt",
-    "apt-get",
-    "dnf",
-    "yum",
-    "pacman",
-    "zypper",
-    "apk",
-    "brew",
-    "nix",
-    "nix-env",
-    "flatpak",
-    "snap",
-];
-
-/// Build a rule pattern for a command.
-/// Returns the pattern like "git push:*" for use in settings.json rules.
-fn build_rule_pattern(cmd: &CommandInfo) -> String {
-    let program = &cmd.program;
-
-    // Strip path prefixes (e.g., /usr/bin/npm -> npm)
-    let base_program = program.rsplit('/').next().unwrap_or(program);
-
-    if cmd.args.is_empty() {
-        // No args - just the program with :* suffix for any invocation
-        return format!("{base_program}:*");
-    }
-
-    // Programs with two-level subcommand hierarchies (e.g., "gh pr create", "aws s3 cp")
-    // For these, include both subcommand levels to avoid overly permissive patterns
-    // Example: "gh pr create:*" instead of "gh pr:*" (which would allow gh pr close)
-    const TWO_LEVEL_SUBCOMMAND_PROGRAMS: &[&str] = &[
-        "gh",      // gh pr create, gh issue list, gh repo clone
-        "aws",     // aws s3 cp, aws ec2 describe-instances
-        "gcloud",  // gcloud compute instances create
-        "az",      // az vm create, az storage blob upload
-        "kubectl", // kubectl get pods, kubectl apply -f
-        "docker",  // docker container run, docker image build
-        "podman",  // podman container run, podman image build
-    ];
-
-    // Get the first non-flag arg
-    let first_arg_idx = cmd.args.iter().position(|a| !a.starts_with('-'));
-    let Some(first_idx) = first_arg_idx else {
-        // All args are flags
-        return format!("{base_program}:*");
-    };
-
-    let first_arg = &cmd.args[first_idx];
-
-    // For two-level subcommand programs, try to include second subcommand
-    if TWO_LEVEL_SUBCOMMAND_PROGRAMS.contains(&base_program) {
-        // Look for second non-flag arg
-        let second_arg_idx = cmd.args[first_idx + 1..]
-            .iter()
-            .position(|a| !a.starts_with('-'))
-            .map(|i| i + first_idx + 1);
-
-        if let Some(second_idx) = second_arg_idx {
-            let second_arg = &cmd.args[second_idx];
-            // Only include if it looks like a subcommand (not a file path or argument)
-            if !second_arg.contains('/') && !second_arg.contains('.') {
-                return format!("{base_program} {first_arg} {second_arg}:*");
-            }
-        }
-    }
-
-    format!("{base_program} {first_arg}:*")
-}
-
-/// Check if a command should get suggestions.
-/// Returns true if we should generate "always allow" suggestions.
-fn should_generate_suggestions(cmd: &CommandInfo, decision: Decision) -> bool {
-    // Only generate suggestions for Ask decisions
-    if decision != Decision::Ask {
-        return false;
-    }
-
-    // Never suggest for dangerous programs
-    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
-    if NO_SUGGESTION_PROGRAMS.contains(&base_program) {
-        return false;
-    }
-
-    // Check for dangerous flags even on otherwise-suggestible commands
-    if has_dangerous_flags(cmd) {
-        return false;
-    }
-
-    true
-}
-
-/// Check if command has dangerous flags that should prevent suggestions.
-fn has_dangerous_flags(cmd: &CommandInfo) -> bool {
-    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
-
-    // Flags that are always dangerous regardless of program
-    // Note: --force-with-lease is intentionally excluded - it's a SAFETY mechanism
-    // that prevents force push if remote has been updated since last fetch
-    let always_dangerous = [
-        "--force",
-        "--hard",
-        "--delete",
-        "--del", // rsync alias for --delete-during
-        "--delete-force",
-        "--no-preserve-root",
-    ];
-
-    // Programs where -f means "force" (dangerous)
-    // For others like kubectl, helm, docker, tar, -f means "file" (safe)
-    // Note: tar/zip/unzip -f means "file/archive", touch/mkdir have no -f flag
-    let f_means_force = [
-        "git", "rm", "cp", "mv", "ln", "gzip", "bzip2", "xz", "zstd", "lz4", "pigz",
-    ];
-
-    for arg in &cmd.args {
-        // Check for combined short flags containing both 'r' and 'f' (like -rf, -rfv, -Rf, -fR)
-        // This catches rm -rf style flags in any order with any additional flags
-        if arg.starts_with('-') && !arg.starts_with("--") && arg.len() > 1 {
-            let chars: Vec<char> = arg.chars().skip(1).collect();
-            let has_r = chars.iter().any(|&c| c == 'r' || c == 'R');
-            let has_f = chars.contains(&'f');
-            if has_r && has_f {
-                return true;
-            }
-        }
-
-        // Check always-dangerous flags
-        for flag in always_dangerous {
-            if arg == flag {
-                return true;
-            }
-        }
-
-        // Check -f only for programs where it means "force"
-        if arg == "-f" && f_means_force.contains(&base_program) {
-            return true;
-        }
-
-        // Check -D for git branch (force delete without merge check)
-        if arg == "-D" && base_program == "git" {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Check if a program is project-specific (should not get userSettings suggestions).
-fn is_project_specific(cmd: &CommandInfo) -> bool {
-    let base_program = cmd.program.rsplit('/').next().unwrap_or(&cmd.program);
-    PROJECT_SPECIFIC_PROGRAMS.contains(&base_program)
-}
-
-/// Generate suggestions for a command.
-/// Returns a vec of suggestions for different scopes (session, project, global).
-pub fn generate_suggestions(cmd: &CommandInfo, decision: Decision) -> Vec<Suggestion> {
-    if !should_generate_suggestions(cmd, decision) {
-        return vec![];
-    }
-
-    let pattern = build_rule_pattern(cmd);
-    let rule = SuggestionRule {
-        tool_name: "Bash".to_string(),
-        rule_content: Some(pattern),
-    };
-
-    let mut suggestions = vec![
-        // Session-level (temporary)
-        Suggestion::AddRules {
-            rules: vec![rule.clone()],
-            behavior: SuggestionBehavior::Allow,
-            destination: SuggestionDestination::Session,
-        },
-        // Project-level (persisted to .claude/settings.json)
-        Suggestion::AddRules {
-            rules: vec![rule.clone()],
-            behavior: SuggestionBehavior::Allow,
-            destination: SuggestionDestination::LocalSettings,
-        },
-    ];
-
-    // Add global suggestion for non-project-specific commands
-    if !is_project_specific(cmd) {
-        suggestions.push(Suggestion::AddRules {
-            rules: vec![rule],
-            behavior: SuggestionBehavior::Allow,
-            destination: SuggestionDestination::UserSettings,
-        });
-    }
-
-    suggestions
-}
-
-/// Generate suggestions for multiple commands, combining patterns.
-pub fn generate_suggestions_for_commands(
-    _commands: &[CommandInfo],
-    decisions: &[(CommandInfo, Decision)],
-) -> Vec<Suggestion> {
-    // Collect all suggestible commands
-    let mut patterns: Vec<String> = Vec::new();
-    let mut any_project_specific = false;
-
-    for (cmd, decision) in decisions {
-        if should_generate_suggestions(cmd, *decision) {
-            patterns.push(build_rule_pattern(cmd));
-            if is_project_specific(cmd) {
-                any_project_specific = true;
-            }
-        }
-    }
-
-    if patterns.is_empty() {
-        return vec![];
-    }
-
-    // Build rules for each pattern
-    let rules: Vec<SuggestionRule> = patterns
-        .into_iter()
-        .map(|pattern| SuggestionRule {
-            tool_name: "Bash".to_string(),
-            rule_content: Some(pattern),
-        })
-        .collect();
-
-    let mut suggestions = vec![
-        Suggestion::AddRules {
-            rules: rules.clone(),
-            behavior: SuggestionBehavior::Allow,
-            destination: SuggestionDestination::Session,
-        },
-        Suggestion::AddRules {
-            rules: rules.clone(),
-            behavior: SuggestionBehavior::Allow,
-            destination: SuggestionDestination::LocalSettings,
-        },
-    ];
-
-    // Add global only if none are project-specific
-    if !any_project_specific {
-        suggestions.push(Suggestion::AddRules {
-            rules,
-            behavior: SuggestionBehavior::Allow,
-            destination: SuggestionDestination::UserSettings,
-        });
-    }
-
-    suggestions
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1405,21 +1013,6 @@ mod tests {
             .and_then(|o| o.permission_decision_reason.as_deref())
             .unwrap_or("")
     }
-
-    fn get_suggestions(result: &HookOutput) -> &Option<Vec<Suggestion>> {
-        result
-            .hook_specific_output
-            .as_ref()
-            .map_or(&None, |o| &o.suggestions)
-    }
-
-    fn has_suggestions(result: &HookOutput) -> bool {
-        get_suggestions(result)
-            .as_ref()
-            .is_some_and(|s| !s.is_empty())
-    }
-
-    // === Suggestion Generation ===
 
     // === Accept Edits Mode ===
 
@@ -2357,304 +1950,6 @@ mod tests {
                 resolved, "/home/other/file.txt",
                 "resolve_path should resolve .. components"
             );
-        }
-    }
-
-    mod suggestions {
-        use super::*;
-
-        #[test]
-        fn test_npm_install_gets_suggestions() {
-            let result = check_command("npm install");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(
-                has_suggestions(&result),
-                "npm install should have suggestions"
-            );
-
-            let suggestions = get_suggestions(&result).as_ref().unwrap();
-            assert_eq!(
-                suggestions.len(),
-                3,
-                "Should have session, local, and user suggestions"
-            );
-
-            // Check first suggestion is session
-            if let Suggestion::AddRules {
-                destination, rules, ..
-            } = &suggestions[0]
-            {
-                assert!(matches!(destination, SuggestionDestination::Session));
-                assert_eq!(rules[0].rule_content, Some("npm install:*".to_string()));
-            } else {
-                panic!("Expected AddRules suggestion");
-            }
-        }
-
-        #[test]
-        fn test_git_push_gets_suggestions() {
-            let result = check_command("git push");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(has_suggestions(&result), "git push should have suggestions");
-
-            let suggestions = get_suggestions(&result).as_ref().unwrap();
-            assert_eq!(suggestions.len(), 3);
-        }
-
-        #[test]
-        fn test_rm_no_suggestions() {
-            let result = check_command("rm file.txt");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(!has_suggestions(&result), "rm should NOT have suggestions");
-        }
-
-        #[test]
-        fn test_git_push_force_no_suggestions() {
-            let result = check_command("git push --force");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(
-                !has_suggestions(&result),
-                "git push --force should NOT have suggestions"
-            );
-        }
-
-        #[test]
-        fn test_make_no_user_settings() {
-            let result = check_command("make deploy");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(has_suggestions(&result), "make should have suggestions");
-
-            let suggestions = get_suggestions(&result).as_ref().unwrap();
-            assert_eq!(
-                suggestions.len(),
-                2,
-                "make should only have session and local (no user)"
-            );
-
-            // Verify no userSettings
-            for suggestion in suggestions {
-                if let Suggestion::AddRules { destination, .. } = suggestion {
-                    assert!(!matches!(destination, SuggestionDestination::UserSettings));
-                }
-            }
-        }
-
-        #[test]
-        fn test_compound_command_combines_suggestions() {
-            let result = check_command("npm install && git push");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(has_suggestions(&result));
-
-            let suggestions = get_suggestions(&result).as_ref().unwrap();
-            // Should have 3 suggestions (session, local, user) with 2 rules each
-            if let Suggestion::AddRules { rules, .. } = &suggestions[0] {
-                assert_eq!(rules.len(), 2, "Should combine rules from both commands");
-            }
-        }
-
-        #[test]
-        fn test_allowed_command_no_suggestions() {
-            let result = check_command("git status");
-            assert_eq!(get_decision(&result), "allow");
-            assert!(
-                !has_suggestions(&result),
-                "allowed commands don't need suggestions"
-            );
-        }
-
-        #[test]
-        fn test_blocked_command_no_suggestions() {
-            let result = check_command("rm -rf /");
-            assert_eq!(get_decision(&result), "deny");
-            assert!(
-                !has_suggestions(&result),
-                "blocked commands don't need suggestions"
-            );
-        }
-
-        #[test]
-        fn test_rule_pattern_strips_path() {
-            let cmd = CommandInfo {
-                raw: "/usr/bin/npm install".to_string(),
-                program: "/usr/bin/npm".to_string(),
-                args: vec!["install".to_string()],
-            };
-            let pattern = build_rule_pattern(&cmd);
-            assert_eq!(pattern, "npm install:*");
-        }
-
-        #[test]
-        fn test_rule_pattern_handles_flags() {
-            let cmd = CommandInfo {
-                raw: "npm -g install".to_string(),
-                program: "npm".to_string(),
-                args: vec!["-g".to_string(), "install".to_string()],
-            };
-            let pattern = build_rule_pattern(&cmd);
-            // Skips leading flags to find actual subcommand
-            assert_eq!(pattern, "npm install:*");
-        }
-
-        #[test]
-        fn test_rule_pattern_all_flags() {
-            let cmd = CommandInfo {
-                raw: "npm -g -v".to_string(),
-                program: "npm".to_string(),
-                args: vec!["-g".to_string(), "-v".to_string()],
-            };
-            let pattern = build_rule_pattern(&cmd);
-            // All flags means generic pattern
-            assert_eq!(pattern, "npm:*");
-        }
-
-        #[test]
-        fn test_kubectl_f_gets_suggestions() {
-            // -f means "file" for kubectl, not "force"
-            let result = check_command("kubectl apply -f deployment.yaml");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(
-                has_suggestions(&result),
-                "kubectl -f should have suggestions"
-            );
-        }
-
-        #[test]
-        fn test_helm_f_gets_suggestions() {
-            // -f means "values file" for helm, not "force"
-            let result = check_command("helm install release chart -f values.yaml");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(has_suggestions(&result), "helm -f should have suggestions");
-        }
-
-        #[test]
-        fn test_git_f_no_suggestions() {
-            // -f means "force" for git
-            let result = check_command("git checkout -f branch");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(
-                !has_suggestions(&result),
-                "git -f should NOT have suggestions"
-            );
-        }
-
-        #[test]
-        fn test_git_force_with_lease_gets_suggestions() {
-            // --force-with-lease is a SAFETY mechanism, should get suggestions
-            let result = check_command("git push --force-with-lease");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(
-                has_suggestions(&result),
-                "git --force-with-lease should have suggestions (it's safer than --force)"
-            );
-        }
-
-        #[test]
-        fn test_git_force_delete_no_suggestions() {
-            // -D means force delete without merge check
-            let result = check_command("git branch -D feature");
-            assert_eq!(get_decision(&result), "ask");
-            assert!(
-                !has_suggestions(&result),
-                "git -D should NOT have suggestions"
-            );
-        }
-
-        #[test]
-        fn test_combined_rf_variants_no_suggestions() {
-            // Various -rf combinations should block suggestions
-            for cmd in [
-                "rm -rf /tmp/foo",
-                "rm -rfv /tmp/foo",
-                "rm -Rf /tmp/foo",
-                "rm -fR /tmp/foo",
-                "rm -rfi /tmp/foo",
-            ] {
-                let result = check_command(cmd);
-                assert!(
-                    !has_suggestions(&result),
-                    "{cmd} should NOT have suggestions"
-                );
-            }
-        }
-
-        #[test]
-        fn test_two_level_subcommand_patterns() {
-            // gh pr create should generate "gh pr create:*" not "gh pr:*"
-            let cmd = CommandInfo {
-                raw: "gh pr create".to_string(),
-                program: "gh".to_string(),
-                args: vec!["pr".to_string(), "create".to_string()],
-            };
-            let pattern = build_rule_pattern(&cmd);
-            assert_eq!(pattern, "gh pr create:*");
-
-            // aws s3 cp should generate "aws s3 cp:*"
-            let cmd = CommandInfo {
-                raw: "aws s3 cp file s3://bucket/".to_string(),
-                program: "aws".to_string(),
-                args: vec![
-                    "s3".to_string(),
-                    "cp".to_string(),
-                    "file".to_string(),
-                    "s3://bucket/".to_string(),
-                ],
-            };
-            let pattern = build_rule_pattern(&cmd);
-            assert_eq!(pattern, "aws s3 cp:*");
-
-            // kubectl get pods should generate "kubectl get pods:*"
-            let cmd = CommandInfo {
-                raw: "kubectl get pods".to_string(),
-                program: "kubectl".to_string(),
-                args: vec!["get".to_string(), "pods".to_string()],
-            };
-            let pattern = build_rule_pattern(&cmd);
-            assert_eq!(pattern, "kubectl get pods:*");
-        }
-
-        #[test]
-        fn test_two_level_with_file_path_falls_back() {
-            // kubectl apply -f file.yaml - second arg is a file, should fall back
-            let cmd = CommandInfo {
-                raw: "kubectl apply -f deployment.yaml".to_string(),
-                program: "kubectl".to_string(),
-                args: vec![
-                    "apply".to_string(),
-                    "-f".to_string(),
-                    "deployment.yaml".to_string(),
-                ],
-            };
-            let pattern = build_rule_pattern(&cmd);
-            // deployment.yaml has a dot, so treated as file, falls back to single level
-            assert_eq!(pattern, "kubectl apply:*");
-        }
-
-        #[test]
-        fn test_cloud_commands_no_user_settings() {
-            // Cloud commands should only get session + local, not userSettings
-            for cmd in [
-                "aws s3 cp file s3://bucket",
-                "terraform apply",
-                "kubectl apply -f x.yaml",
-            ] {
-                let result = check_command(cmd);
-                if has_suggestions(&result) {
-                    let suggestions = get_suggestions(&result).as_ref().unwrap();
-                    assert_eq!(
-                        suggestions.len(),
-                        2,
-                        "Cloud command {cmd} should only have 2 suggestions"
-                    );
-                    for suggestion in suggestions {
-                        if let Suggestion::AddRules { destination, .. } = suggestion {
-                            assert!(
-                                !matches!(destination, SuggestionDestination::UserSettings),
-                                "Cloud command {cmd} should not have userSettings"
-                            );
-                        }
-                    }
-                }
-            }
         }
     }
 
