@@ -1082,8 +1082,9 @@ subcommand = "showsrc"
 [[programs.allow]]
 subcommand = "changelog"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "download"
+reason = "Downloading package files (writes to local filesystem)"
 
 [[programs.allow]]
 subcommand = "--version"

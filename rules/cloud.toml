@@ -226,8 +226,9 @@ subcommand = "container clusters list"
 [[programs.allow]]
 subcommand = "container clusters describe"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "container clusters get-credentials"
+reason = "Updating kubeconfig (writes to ~/.kube/config)"
 
 [[programs.allow]]
 subcommand = "storage ls"

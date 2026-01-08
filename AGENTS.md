@@ -346,8 +346,8 @@ Example settings.json:
 ```
 
 ### gh.rs - GitHub CLI
-- **Allow**: `pr list`, `issue view`, `repo view`, `search`, `api` (GET)
-- **Ask**: `pr create`, `pr merge`, `issue create`, `api` (POST/PUT/DELETE)
+- **Allow**: `pr list`, `issue view`, `repo view`, `repo list`, `search`, `api` (GET)
+- **Ask**: `pr create`, `pr merge`, `issue create`, `repo clone`, `gist clone`, `run download`, `release download`, `api` (POST/PUT/DELETE)
 - **Block**: `repo delete`, `auth logout`
 
 ### shortcut.rs - Shortcut.com CLI
@@ -357,12 +357,12 @@ Handles `short` CLI for Shortcut.com project management:
 
 ### git.rs - Git
 - **Allow**: `status`, `log`, `diff`, `show`, `branch -a`, `--dry-run` commands
-- **Ask**: `add`, `commit`, `push`, `pull`, `merge`, `checkout`, `branch -d`
+- **Ask**: `add`, `commit`, `push`, `pull`, `merge`, `checkout`, `branch -d`, `gc`, `prune`, `maintenance`
 - **Ask (warning)**: `push --force`, `reset --hard`, `clean -fd`
 
 ### cloud.rs - Cloud CLIs
 - **AWS**: `describe-*`/`list-*`/`get-*` allow, `create`/`delete`/`put` ask, `iam delete-user` block
-- **gcloud**: `list`/`describe` allow, `create`/`delete`/`deploy` ask
+- **gcloud**: `list`/`describe` allow, `create`/`delete`/`deploy`/`get-credentials` ask
 - **terraform/tofu**: `plan`/`show` allow, `apply`/`destroy` ask
 - **kubectl**: `get`/`describe`/`logs` allow, `apply`/`delete`/`exec` ask, `delete ns kube-system` block
 - **docker**: `ps`/`images`/`logs` allow, `run`/`build`/`push` ask; `compose` subcommands supported (handles flags like `-f`)
@@ -429,7 +429,7 @@ Handles ~50+ developer tools with write-flag detection:
 - **Block**: `shutdown`, `reboot`, `poweroff`, `halt`, `init`, `mkfs`, `fdisk`, `parted`, `gdisk`, `dd`, `shred`, `wipe`, `useradd`, `userdel`, `passwd`, `iptables`, `ufw`, `mount` (partial), `insmod`, `rmmod`, `modprobe`, `grub-install`
 
 ### system.rs - OS Package Managers
-- **apt/apt-get**: `list`/`search`/`show` allow, `install`/`remove`/`upgrade` ask
+- **apt/apt-get**: `list`/`search`/`show` allow, `install`/`remove`/`upgrade`/`download` ask
 - **dnf/yum**: `list`/`info`/`search` allow, `install`/`remove`/`update` ask
 - **pacman/yay/paru**: `-Q` (query) allow, `-S`/`-R` (sync/remove) ask
 - **brew**: `list`/`search`/`info` allow, `install`/`uninstall`/`upgrade` ask

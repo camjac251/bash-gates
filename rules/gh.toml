@@ -75,8 +75,9 @@ subcommand = "repo view"
 [[programs.allow]]
 subcommand = "repo list"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "repo clone"
+reason = "Cloning repo (writes to local filesystem)"
 
 # Search (read-only)
 [[programs.allow]]
@@ -118,8 +119,9 @@ subcommand = "run list"
 [[programs.allow]]
 subcommand = "run view"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "run download"
+reason = "Downloading artifacts (writes to local filesystem)"
 
 [[programs.allow]]
 subcommand = "workflow list"
@@ -134,8 +136,9 @@ subcommand = "release list"
 [[programs.allow]]
 subcommand = "release view"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "release download"
+reason = "Downloading release assets (writes to local filesystem)"
 
 # Gist viewing
 [[programs.allow]]
@@ -144,8 +147,9 @@ subcommand = "gist list"
 [[programs.allow]]
 subcommand = "gist view"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "gist clone"
+reason = "Cloning gist (writes to local filesystem)"
 
 # Labels
 [[programs.allow]]

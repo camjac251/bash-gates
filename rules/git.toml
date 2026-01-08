@@ -95,11 +95,13 @@ subcommand = "fsck"
 [[programs.allow]]
 subcommand = "count-objects"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "gc"
+reason = "Garbage collection (modifies .git directory)"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "prune"
+reason = "Pruning objects (deletes from .git directory)"
 
 [[programs.allow]]
 subcommand = "help"
@@ -401,8 +403,9 @@ subcommand = "bundle"
 reason = "Bundle operation"
 
 # Maintenance
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "maintenance"
+reason = "Running maintenance tasks (modifies .git directory)"
 
 # Sparse checkout
 [[programs.ask]]
