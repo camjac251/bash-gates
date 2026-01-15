@@ -600,6 +600,14 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
                 }
             }
         }
+
+        // kubectl delete via xargs (e.g., ... | xargs kubectl delete pod)
+        let kubectl_delete_pattern = r"xargs\s+.*kubectl\s+delete|xargs\s+kubectl\s+delete";
+        if let Ok(re) = Regex::new(kubectl_delete_pattern) {
+            if re.is_match(command_string) {
+                return Some(HookOutput::ask("xargs piping to kubectl delete"));
+            }
+        }
     }
 
     // find with destructive actions
@@ -2038,6 +2046,22 @@ mod tests {
                 let result = check_command(cmd);
                 assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
                 assert!(get_reason(&result).contains("xargs"), "Failed for: {cmd}");
+            }
+        }
+
+        #[test]
+        fn test_xargs_kubectl_delete() {
+            for cmd in [
+                "kubectl get pods | xargs kubectl delete pod",
+                "kubectl get pods -o name | xargs kubectl delete",
+                "jq -r '.items[].metadata.name' | xargs kubectl delete pod -n myapp",
+            ] {
+                let result = check_command(cmd);
+                assert_eq!(get_decision(&result), "ask", "Failed for: {cmd}");
+                assert!(
+                    get_reason(&result).contains("kubectl delete"),
+                    "Failed for: {cmd}"
+                );
             }
         }
 
