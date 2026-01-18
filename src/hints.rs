@@ -473,27 +473,26 @@ mod tests {
         }
     }
 
+    // Tests call hint_* functions directly to avoid dependency on installed tools.
+    // get_modern_hint() filters by tool availability which varies by environment.
+
     #[test]
     fn test_cat_hint() {
-        let hint = get_modern_hint(&cmd("cat", &["file.rs"]));
-        assert!(hint.is_some());
-        let hint = hint.unwrap();
+        let hint = hint_cat(&cmd("cat", &["file.rs"]));
         assert_eq!(hint.modern_command, "bat");
         assert!(hint.hint.contains("syntax highlighting"));
     }
 
     #[test]
     fn test_head_hint() {
-        let hint = get_modern_hint(&cmd("head", &["-n", "50", "file.txt"]));
-        assert!(hint.is_some());
-        let hint = hint.unwrap();
+        let hint = hint_head(&cmd("head", &["-n", "50", "file.txt"]));
         assert_eq!(hint.modern_command, "bat");
         assert!(hint.hint.contains("-r :50"));
     }
 
     #[test]
     fn test_tail_hint() {
-        let hint = get_modern_hint(&cmd("tail", &["-n", "30", "file.txt"]));
+        let hint = hint_tail(&cmd("tail", &["-n", "30", "file.txt"]));
         assert!(hint.is_some());
         let hint = hint.unwrap();
         assert!(hint.hint.contains("-r -30:"));
@@ -502,13 +501,13 @@ mod tests {
     #[test]
     fn test_tail_follow_no_hint() {
         // tail -f doesn't get a hint - it's the right tool for the job
-        let hint = get_modern_hint(&cmd("tail", &["-f", "file.txt"]));
+        let hint = hint_tail(&cmd("tail", &["-f", "file.txt"]));
         assert!(hint.is_none(), "tail -f should not get a hint");
     }
 
     #[test]
     fn test_grep_hint() {
-        let hint = get_modern_hint(&cmd("grep", &["-r", "pattern", "src/"]));
+        let hint = hint_grep(&cmd("grep", &["-r", "pattern", "src/"]));
         assert!(hint.is_some());
         let hint = hint.unwrap();
         assert_eq!(hint.modern_command, "rg");
@@ -517,47 +516,52 @@ mod tests {
 
     #[test]
     fn test_find_hint() {
-        let hint = get_modern_hint(&cmd("find", &[".", "-name", "*.rs"]));
-        assert!(hint.is_some());
-        assert!(hint.unwrap().hint.contains("fd"));
+        let hint = hint_find(&cmd("find", &[".", "-name", "*.rs"]));
+        assert!(hint.hint.contains("fd"));
     }
 
     #[test]
     fn test_sed_subst_hint() {
-        let hint = get_modern_hint(&cmd("sed", &["-i", "s/old/new/g", "file.txt"]));
+        let hint = hint_sed(&cmd("sed", &["-i", "s/old/new/g", "file.txt"]));
         assert!(hint.is_some());
         assert!(hint.unwrap().hint.contains("sd"));
     }
 
     #[test]
     fn test_ls_simple_no_hint() {
-        let hint = get_modern_hint(&cmd("ls", &[]));
+        let hint = hint_ls(&cmd("ls", &[]));
         assert!(hint.is_none()); // Simple ls doesn't need hint
     }
 
     #[test]
     fn test_ls_detailed_hint() {
-        let hint = get_modern_hint(&cmd("ls", &["-la"]));
+        let hint = hint_ls(&cmd("ls", &["-la"]));
         assert!(hint.is_some());
         assert!(hint.unwrap().hint.contains("eza"));
     }
 
     #[test]
+    fn test_ls_help_no_hint() {
+        // --help should not trigger hint (regression test for flag detection)
+        let hint = hint_ls(&cmd("ls", &["--help"]));
+        assert!(hint.is_none(), "ls --help should not get a hint");
+    }
+
+    #[test]
     fn test_du_hint() {
-        let hint = get_modern_hint(&cmd("du", &["-sh", "."]));
-        assert!(hint.is_some());
-        assert!(hint.unwrap().hint.contains("dust"));
+        let hint = hint_du(&cmd("du", &["-sh", "."]));
+        assert!(hint.hint.contains("dust"));
     }
 
     #[test]
     fn test_tokei_hint() {
-        let hint = get_modern_hint(&cmd("cloc", &["."]));
-        assert!(hint.is_some());
-        assert!(hint.unwrap().hint.contains("tokei"));
+        let hint = hint_cloc(&cmd("cloc", &["."]));
+        assert!(hint.hint.contains("tokei"));
     }
 
     #[test]
     fn test_unknown_command_no_hint() {
+        // This tests get_modern_hint's matching logic (unknown commands not handled)
         let hint = get_modern_hint(&cmd("rustfmt", &["file.rs"]));
         assert!(hint.is_none());
     }
