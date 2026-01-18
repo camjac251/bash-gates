@@ -20,6 +20,7 @@
 use bash_gates::models::{HookInput, HookOutput};
 use bash_gates::router::check_command_with_settings;
 use bash_gates::toml_export;
+use bash_gates::tool_cache;
 use std::env;
 use std::io::{self, Read};
 
@@ -36,6 +37,33 @@ fn main() {
         return;
     }
 
+    if args.iter().any(|a| a == "--refresh-tools") {
+        // Force refresh the tool availability cache
+        eprintln!("Refreshing tool cache...");
+        let cache = tool_cache::refresh_cache();
+        let available: Vec<_> = cache
+            .tools
+            .iter()
+            .filter(|(_, v)| **v)
+            .map(|(k, _)| k.as_str())
+            .collect();
+        eprintln!(
+            "Available modern tools: {}",
+            if available.is_empty() {
+                "none".to_string()
+            } else {
+                available.join(", ")
+            }
+        );
+        return;
+    }
+
+    if args.iter().any(|a| a == "--tools-status") {
+        // Show tool cache status
+        println!("{}", tool_cache::cache_status());
+        return;
+    }
+
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("bash-gates {}", env!("GIT_VERSION"));
         return;
@@ -47,11 +75,17 @@ fn main() {
         eprintln!("USAGE:");
         eprintln!("  bash-gates                   Read hook input from stdin (default)");
         eprintln!("  bash-gates --export-toml     Export Gemini CLI policy rules");
+        eprintln!("  bash-gates --refresh-tools   Refresh modern CLI tool detection cache");
+        eprintln!("  bash-gates --tools-status    Show which modern tools are detected");
         eprintln!("  bash-gates --help            Show this help");
         eprintln!("  bash-gates --version         Show version");
         eprintln!();
         eprintln!("GEMINI CLI SETUP:");
         eprintln!("  bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml");
+        eprintln!();
+        eprintln!("MODERN CLI HINTS:");
+        eprintln!("  bash-gates suggests modern alternatives (bat, rg, fd, etc.) when");
+        eprintln!("  legacy commands are used. Run --refresh-tools after installing new tools.");
         return;
     }
 

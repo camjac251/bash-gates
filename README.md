@@ -23,6 +23,7 @@ A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse
 | ------------------------- | ------------------------------------------------------------------------------------------------------ |
 | **Settings Integration**  | Respects your `settings.json` allow/deny/ask rules - won't bypass your explicit permissions            |
 | **Accept Edits Mode**     | Auto-allows file-editing commands (`sd`, `prettier --write`, etc.) when in acceptEdits mode            |
+| **Modern CLI Hints**      | Suggests modern alternatives (`bat`, `rg`, `fd`, etc.) via `additionalContext` for Claude to learn     |
 | **AST Parsing**           | Uses [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) for accurate command analysis |
 | **Compound Commands**     | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
 | **Security First**        | Catches pipe-to-shell, eval, command injection patterns                                                |
@@ -112,6 +113,45 @@ eslint --fix src/                 # Linting with fix
 - Git operations: `git push`, `git commit`
 - Deletions: `rm`, `mv`
 - Blocked commands: `rm -rf /` still denied
+
+### Modern CLI Hints
+
+*Requires Claude Code 1.0.20+*
+
+When Claude uses legacy commands, bash-gates suggests modern alternatives via `additionalContext`. This helps Claude learn better patterns over time without modifying the command.
+
+```bash
+# Claude runs: cat README.md
+# bash-gates returns:
+{
+  "hookSpecificOutput": {
+    "permissionDecision": "allow",
+    "additionalContext": "Tip: Use 'bat README.md' for syntax highlighting and line numbers (Markdown rendering)"
+  }
+}
+```
+
+| Legacy Command | Modern Alternative | Benefit |
+|----------------|-------------------|---------|
+| `cat`, `head`, `tail`, `less` | `bat` | Syntax highlighting, line numbers |
+| `grep -r` | `rg` | Faster, respects .gitignore |
+| `find` | `fd` | Simpler syntax, faster |
+| `ls -la` | `eza` | Git integration, icons |
+| `sed` | `sd` | Simpler syntax |
+| `du` | `dust` | Visual tree view |
+| `ps aux` | `procs` | Better formatting |
+| `diff` | `delta` | Syntax-highlighted diffs |
+| `cloc` | `tokei` | Faster code stats |
+
+**Only suggests installed tools.** Hints are cached (7-day TTL) to avoid repeated `which` calls.
+
+```bash
+# Refresh tool detection cache
+bash-gates --refresh-tools
+
+# Check which tools are detected
+bash-gates --tools-status
+```
 
 ---
 
@@ -347,6 +387,8 @@ src/
 ├── parser.rs         # tree-sitter-bash AST parsing
 ├── router.rs         # Security checks + gate routing
 ├── settings.rs       # settings.json parsing and pattern matching
+├── hints.rs          # Modern CLI hints (cat→bat, grep→rg, etc.)
+├── tool_cache.rs     # Tool availability cache for hints
 ├── mise.rs           # Mise task file parsing and command extraction
 ├── package_json.rs   # package.json script parsing and command extraction
 └── gates/            # 12 specialized permission gates

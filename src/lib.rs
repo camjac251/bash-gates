@@ -21,6 +21,7 @@
 
 pub mod gates;
 pub mod generated;
+pub mod hints;
 pub mod mise;
 pub mod models;
 pub mod package_json;
@@ -28,6 +29,7 @@ pub mod parser;
 pub mod router;
 pub mod settings;
 pub mod toml_export;
+pub mod tool_cache;
 
 pub use models::{CommandInfo, Decision, GateResult};
 pub use router::{check_command, check_command_with_settings};

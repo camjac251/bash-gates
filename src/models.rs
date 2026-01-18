@@ -132,6 +132,18 @@ impl HookInput {
     }
 }
 
+/// Updated tool input for modifying commands before execution
+#[derive(Debug, Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedInput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 /// Hook-specific output for `PreToolUse`
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -140,6 +152,12 @@ pub struct HookSpecificOutput {
     pub permission_decision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_decision_reason: Option<String>,
+    /// Modify the tool input before execution (e.g., rewrite command)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_input: Option<UpdatedInput>,
+    /// Additional context to inject into Claude's conversation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_context: Option<String>,
 }
 
 /// Output format for hooks
@@ -169,6 +187,22 @@ impl HookOutput {
                 hook_event_name: "PreToolUse".to_string(),
                 permission_decision: "allow".to_string(),
                 permission_decision_reason: reason.map(String::from),
+                updated_input: None,
+                additional_context: None,
+            }),
+        }
+    }
+
+    /// Return explicit allow with additional context for Claude
+    pub fn allow_with_context(reason: Option<&str>, context: &str) -> Self {
+        Self {
+            decision: None,
+            hook_specific_output: Some(HookSpecificOutput {
+                hook_event_name: "PreToolUse".to_string(),
+                permission_decision: "allow".to_string(),
+                permission_decision_reason: reason.map(String::from),
+                updated_input: None,
+                additional_context: Some(context.to_string()),
             }),
         }
     }
@@ -181,6 +215,44 @@ impl HookOutput {
                 hook_event_name: "PreToolUse".to_string(),
                 permission_decision: "ask".to_string(),
                 permission_decision_reason: Some(reason.to_string()),
+                updated_input: None,
+                additional_context: None,
+            }),
+        }
+    }
+
+    /// Return ask with additional context for Claude
+    pub fn ask_with_context(reason: &str, context: &str) -> Self {
+        Self {
+            decision: None,
+            hook_specific_output: Some(HookSpecificOutput {
+                hook_event_name: "PreToolUse".to_string(),
+                permission_decision: "ask".to_string(),
+                permission_decision_reason: Some(reason.to_string()),
+                updated_input: None,
+                additional_context: Some(context.to_string()),
+            }),
+        }
+    }
+
+    /// Return ask with a modified command (safer alternative)
+    pub fn ask_with_updated_command(
+        reason: &str,
+        new_command: &str,
+        context: Option<&str>,
+    ) -> Self {
+        Self {
+            decision: None,
+            hook_specific_output: Some(HookSpecificOutput {
+                hook_event_name: "PreToolUse".to_string(),
+                permission_decision: "ask".to_string(),
+                permission_decision_reason: Some(reason.to_string()),
+                updated_input: Some(UpdatedInput {
+                    command: Some(new_command.to_string()),
+                    timeout: None,
+                    description: None,
+                }),
+                additional_context: context.map(String::from),
             }),
         }
     }
@@ -193,6 +265,22 @@ impl HookOutput {
                 hook_event_name: "PreToolUse".to_string(),
                 permission_decision: "deny".to_string(),
                 permission_decision_reason: Some(reason.to_string()),
+                updated_input: None,
+                additional_context: None,
+            }),
+        }
+    }
+
+    /// Return deny with additional context explaining the danger
+    pub fn deny_with_context(reason: &str, context: &str) -> Self {
+        Self {
+            decision: None,
+            hook_specific_output: Some(HookSpecificOutput {
+                hook_event_name: "PreToolUse".to_string(),
+                permission_decision: "deny".to_string(),
+                permission_decision_reason: Some(reason.to_string()),
+                updated_input: None,
+                additional_context: Some(context.to_string()),
             }),
         }
     }

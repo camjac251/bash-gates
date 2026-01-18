@@ -14,6 +14,12 @@ echo '{"tool_name": "Bash", "tool_input": {"command": "gh pr list"}}' | ./target
 # Export Gemini CLI policy rules
 ./target/x86_64-unknown-linux-musl/release/bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
 
+# Refresh modern tool detection cache
+./target/x86_64-unknown-linux-musl/release/bash-gates --refresh-tools
+
+# Show detected modern tools
+./target/x86_64-unknown-linux-musl/release/bash-gates --tools-status
+
 # Run tests
 cargo test
 
@@ -52,6 +58,8 @@ src/
 ├── parser.rs        # tree-sitter-bash AST parsing → Vec<CommandInfo>
 ├── router.rs        # Raw string security checks + gate routing + task expansion
 ├── settings.rs      # settings.json parsing and pattern matching
+├── hints.rs         # Modern CLI hints (cat→bat, grep→rg, etc.)
+├── tool_cache.rs    # Tool availability cache for hints
 ├── mise.rs          # Mise task file parsing and command extraction
 ├── package_json.rs  # package.json script parsing and command extraction
 └── gates/           # 12 specialized permission gates
@@ -81,7 +89,8 @@ src/
 7. **Settings deny**: If command matches deny rules, deny immediately
 8. **Accept Edits Mode**: If `permission_mode` is `acceptEdits` and command is file-editing within allowed directories, auto-allow
 9. **Settings ask/allow**: Check remaining settings.json rules
-10. **Output**: JSON with `permissionDecision` (allow/ask/deny)
+10. **Hints**: For allowed commands, check if modern alternatives exist and add to `additionalContext`
+11. **Output**: JSON with `permissionDecision` (allow/ask/deny) and optional `additionalContext` (hints)
 
 ## Mise Task Expansion (mise.rs)
 
@@ -161,6 +170,114 @@ When bash-gates sees `npm run <script>`, `pnpm run <script>`, `yarn <script>`, e
 - `pnpm lint` → expands to `pnpm run lint`
 - `yarn test` → expands to `yarn run test`
 - `npm run build` → requires explicit `run`
+
+## Modern CLI Hints (hints.rs)
+
+*Requires Claude Code 1.0.20+ for `additionalContext` support.*
+
+When commands are allowed, bash-gates checks if modern alternatives exist and includes hints in `additionalContext`. This helps Claude learn better patterns without modifying the command.
+
+### How It Works
+
+1. Command is allowed by gates
+2. Check if command matches a legacy tool with a modern alternative
+3. Check tool cache to verify the modern tool is installed
+4. If available, add hint to `additionalContext` in the response
+
+### Supported Hints
+
+| Legacy Command | Modern Alternative | Hint Trigger |
+|----------------|-------------------|--------------|
+| `cat`, `head`, `tail`, `less`, `more` | `bat` | Always (tail -f excluded) |
+| `grep` | `rg` | Any grep usage |
+| `ag`, `ack` | `rg` | Always |
+| `find` | `fd` | Always |
+| `sed` | `sd` | Substitution patterns (`s/.../.../`) |
+| `awk` | `choose` | Field extraction (`print $`) |
+| `ls` | `eza` | With `-l` or `-a` flags |
+| `du` | `dust` | Always |
+| `ps` | `procs` | With `aux`, `-e`, `-A` flags |
+| `curl` | `xh` | JSON APIs or verbose mode |
+| `wget` | `xh` | Always |
+| `diff` | `delta` | Two-file comparisons |
+| `xxd`, `hexdump` | `hexyl` | Always |
+| `cloc` | `tokei` | Always |
+| `tree` | `eza -T` | Always |
+| `man` | `tldr` | Always |
+| `wc -l` | `rg -c` | Line counting |
+
+### Example Output
+
+```bash
+echo '{"tool_name": "Bash", "tool_input": {"command": "cat README.md"}}' | bash-gates
+```
+
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "allow",
+    "permissionDecisionReason": "Read-only operation",
+    "additionalContext": "Tip: Use 'bat README.md' for syntax highlighting and line numbers (Markdown rendering)"
+  }
+}
+```
+
+### Hints Only for Allowed Commands
+
+Hints are only included when the overall decision is `allow` or when allowed commands appear in compound commands that result in `ask`. Denied commands never get hints.
+
+## Tool Cache (tool_cache.rs)
+
+Modern CLI hints only suggest tools that are actually installed. Tool availability is cached to avoid repeated `which` calls.
+
+### Cache Location
+
+`~/.cache/bash-gates/available-tools.json`
+
+### Cache TTL
+
+7 days - cache is automatically refreshed when expired.
+
+### Detected Tools
+
+| Category | Tools |
+|----------|-------|
+| File viewing | `bat`, `batcat` |
+| Code search | `rg`, `ripgrep` |
+| File finding | `fd`, `fdfind` |
+| File listing | `eza`, `lsd` |
+| Text processing | `sd`, `choose`, `jq`, `gron` |
+| Disk usage | `dust` |
+| Process viewing | `procs` |
+| HTTP | `xh` |
+| Code stats | `tokei`, `scc` |
+| Hex viewing | `hexyl` |
+| Diff viewing | `delta`, `difft` |
+| Documentation | `tldr`, `tealdeer` |
+| Fuzzy finding | `fzf` |
+| Markdown | `glow` |
+
+### Aliases
+
+Some tools have different names on different distros:
+
+| Canonical | Aliases |
+|-----------|---------|
+| `bat` | `batcat` (Debian/Ubuntu) |
+| `fd` | `fdfind` (Debian/Ubuntu) |
+| `rg` | `ripgrep` |
+| `tldr` | `tealdeer` |
+
+### CLI Commands
+
+```bash
+# Refresh the tool cache (runs `which` for all tools)
+bash-gates --refresh-tools
+
+# Show cache status and detected tools
+bash-gates --tools-status
+```
 
 ## Settings.json Integration (settings.rs)
 

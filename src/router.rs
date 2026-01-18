@@ -1,6 +1,7 @@
 //! Main router that combines all gates.
 
 use crate::gates::{GATES, check_mcp_call};
+use crate::hints::{ModernHint, format_hints, get_modern_hint};
 use crate::mise::{
     extract_task_commands, find_mise_config, load_mise_config, parse_mise_invocation,
 };
@@ -18,6 +19,9 @@ use regex::Regex;
 /// and applying the strictest decision.
 ///
 /// Priority: BLOCK > ASK > ALLOW
+///
+/// For allowed commands that use legacy tools, includes hints about
+/// modern alternatives in the additionalContext field.
 pub fn check_command(command_string: &str) -> HookOutput {
     if command_string.trim().is_empty() {
         return HookOutput::approve();
@@ -40,13 +44,17 @@ pub fn check_command(command_string: &str) -> HookOutput {
     let mut block_reasons: Vec<String> = Vec::new();
     let mut ask_reasons: Vec<String> = Vec::new();
     let mut allow_reasons: Vec<String> = Vec::new();
-    let mut command_decisions: Vec<(CommandInfo, Decision)> = Vec::new();
+    let mut hints: Vec<ModernHint> = Vec::new();
 
     for cmd in &commands {
         let result = check_single_command(cmd);
 
-        // Track decisions for suggestion generation
-        command_decisions.push((cmd.clone(), result.decision));
+        // Collect hints for modern alternatives (only for allowed commands)
+        if result.decision == Decision::Allow {
+            if let Some(hint) = get_modern_hint(cmd) {
+                hints.push(hint);
+            }
+        }
 
         match result.decision {
             Decision::Block => {
@@ -102,6 +110,11 @@ pub fn check_command(command_string: &str) -> HookOutput {
             )
         };
 
+        // Include hints even for ask (Claude might learn for next time)
+        let hints_str = format_hints(&hints);
+        if !hints_str.is_empty() {
+            return HookOutput::ask_with_context(&combined, &hints_str);
+        }
         return HookOutput::ask(&combined);
     }
 
@@ -113,6 +126,13 @@ pub fn check_command(command_string: &str) -> HookOutput {
     } else {
         allow_reasons.join(", ")
     };
+
+    // Include modern CLI hints in additionalContext
+    let hints_str = format_hints(&hints);
+    if !hints_str.is_empty() {
+        return HookOutput::allow_with_context(Some(&allow_reason), &hints_str);
+    }
+
     HookOutput::allow(Some(&allow_reason))
 }
 
