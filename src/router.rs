@@ -534,6 +534,49 @@ fn check_command_expanded(command_string: &str, cwd: &str, permission_mode: &str
     HookOutput::approve()
 }
 
+/// Strip quoted strings from a command to avoid false positives on patterns inside quotes.
+/// Replaces content inside single and double quotes with underscores.
+/// Handles escaped quotes within quoted strings.
+fn strip_quoted_strings(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        let c = chars[i];
+
+        // Check for double or single quote
+        if c == '"' || c == '\'' {
+            let quote_char = c;
+            result.push('_'); // Replace opening quote
+            i += 1;
+
+            // Skip until closing quote (handling escapes)
+            while i < chars.len() {
+                if chars[i] == '\\' && i + 1 < chars.len() {
+                    // Skip escaped character
+                    result.push('_');
+                    result.push('_');
+                    i += 2;
+                } else if chars[i] == quote_char {
+                    // Found closing quote
+                    result.push('_');
+                    i += 1;
+                    break;
+                } else {
+                    result.push('_');
+                    i += 1;
+                }
+            }
+        } else {
+            result.push(c);
+            i += 1;
+        }
+    }
+
+    result
+}
+
 /// Check raw string patterns before parsing.
 fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     // Dangerous pipe patterns - use regex with word boundaries to avoid false positives
@@ -709,8 +752,12 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     // Excludes /dev/null (discarding output, not writing)
     // Note: [^0-9&=/$] excludes = for => (arrow operators), / for /> (JSX self-closing tags),
     //       and $ for ast-grep metavariables like $$>
+    //
+    // First, strip quoted strings to avoid false positives on patterns like `rg "\s*>\s*" file`
+    // where `>` inside quotes is part of a regex, not a shell redirection
+    let unquoted = strip_quoted_strings(command_string);
     if let Ok(re) = Regex::new(r"(^|[^0-9&=/$])>{1,2}\s*([^>&\s]+)") {
-        for cap in re.captures_iter(command_string) {
+        for cap in re.captures_iter(&unquoted) {
             if let Some(target) = cap.get(2) {
                 let target_str = target.as_str();
                 // Skip /dev/null - it's just discarding output
@@ -721,7 +768,7 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
         }
     }
     if let Ok(re) = Regex::new(r"&>\s*([^\s]+)") {
-        for cap in re.captures_iter(command_string) {
+        for cap in re.captures_iter(&unquoted) {
             if let Some(target) = cap.get(1) {
                 let target_str = target.as_str();
                 if target_str != "/dev/null" {
@@ -2228,6 +2275,27 @@ mod tests {
                 assert!(
                     !reason.contains("Output redirection"),
                     "False positive ast-grep metavar for: {cmd}"
+                );
+            }
+        }
+
+        #[test]
+        fn test_regex_operators_inside_quotes_not_redirection() {
+            // Regex operators like > inside quoted strings should not be flagged
+            for cmd in [
+                r#"rg "\s*>\s*" src/"#,
+                r#"rg "value > 100" src/"#,
+                r#"grep "> " file.txt"#,
+                r#"rg 'foo > bar' src/"#,
+                r#"rg "a >> b" src/"#,
+                r#"rg "x|y*>\d+" file.js"#,
+                r#"grep -E "size\s*>=?\s*\d+" logs/"#,
+            ] {
+                let result = check_command(cmd);
+                let reason = get_reason(&result);
+                assert!(
+                    !reason.contains("Output redirection"),
+                    "False positive regex operator in quotes for: {cmd}"
                 );
             }
         }
