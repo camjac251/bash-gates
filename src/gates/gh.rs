@@ -193,6 +193,55 @@ mod tests {
         assert_eq!(result.decision, Decision::Allow);
     }
 
+    #[test]
+    fn test_api_search_with_field_flags_allows() {
+        // search/ endpoints are always GET, even with -f flags
+        let result = check_gh(&cmd(&[
+            "api",
+            "search/repositories",
+            "-f",
+            "q=language:rust",
+            "-f",
+            "sort=stars",
+        ]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_api_search_issues_with_field_flags_allows() {
+        let result = check_gh(&cmd(&["api", "search/issues", "-f", "q=is:open"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_api_search_with_jq_and_field_flags_allows() {
+        // -q is jq filter, -f is query param - both should allow for search/
+        let result = check_gh(&cmd(&[
+            "api",
+            "search/repositories",
+            "-q",
+            ".items[:3]",
+            "-f",
+            "q=topic:cli",
+            "-f",
+            "sort=stars",
+        ]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_api_non_search_with_field_flags_still_asks() {
+        // Non-search endpoints with -f should still ask (implies POST)
+        let result = check_gh(&cmd(&[
+            "api",
+            "repos/owner/repo/issues",
+            "-f",
+            "title=Test",
+        ]));
+        assert_eq!(result.decision, Decision::Ask);
+        assert!(result.reason.as_ref().unwrap().contains("POST"));
+    }
+
     // === Non-gh Commands ===
 
     #[test]

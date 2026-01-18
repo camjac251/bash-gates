@@ -429,6 +429,9 @@ struct ApiRules {
     /// Flags that implicitly trigger POST (e.g., -f, --field for gh api)
     #[serde(default)]
     implicit_post_flags: Vec<String>,
+    /// Endpoint prefixes that are always GET (e.g., "search/" for GitHub API)
+    #[serde(default)]
+    read_only_endpoints: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1266,6 +1269,24 @@ fn generate_api_rules(name: &str, api: &ApiRules) -> String {
     output.push_str("            .and_then(|i| cmd.args.get(i + 1))\n");
     output.push_str("            .map(|s| s.to_uppercase());\n");
 
+    // Check for read-only endpoints (e.g., search/ for GitHub API)
+    let has_read_only = !api.read_only_endpoints.is_empty();
+    if has_read_only {
+        let read_only_prefixes: Vec<String> = api
+            .read_only_endpoints
+            .iter()
+            .map(|p| format!("\"{}\"", escape_rust_string(p)))
+            .collect();
+        // Find the endpoint: first arg after trigger that doesn't start with -
+        output.push_str("        let endpoint = cmd.args.iter()\n");
+        output.push_str("            .skip(1)  // skip 'api'\n");
+        output.push_str("            .find(|a| !a.starts_with('-'));\n");
+        output.push_str(&format!(
+            "        let is_read_only_endpoint = endpoint.is_some_and(|e| [{}].iter().any(|p| e.starts_with(p)));\n",
+            read_only_prefixes.join(", ")
+        ));
+    }
+
     // Check for implicit POST flags (e.g., -f, --field for gh api)
     if !api.implicit_post_flags.is_empty() {
         let implicit_flags: Vec<String> = api
@@ -1281,7 +1302,14 @@ fn generate_api_rules(name: &str, api: &ApiRules) -> String {
         ));
         output.push_str("        });\n");
         output.push_str("        let method = explicit_method.unwrap_or_else(|| {\n");
-        output.push_str("            if has_implicit_post {\n");
+        if has_read_only {
+            // Read-only endpoints ignore implicit POST flags
+            output.push_str("            if is_read_only_endpoint {\n");
+            output.push_str("                \"GET\".to_string()\n");
+            output.push_str("            } else if has_implicit_post {\n");
+        } else {
+            output.push_str("            if has_implicit_post {\n");
+        }
         output.push_str("                \"POST\".to_string()\n");
         output.push_str("            } else {\n");
         if let Some(ref default) = api.default_method {
