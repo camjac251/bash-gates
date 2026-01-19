@@ -623,9 +623,11 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
         (r"\|\s*node\b", "Piping to node"),
     ];
 
+    // Strip quoted strings to avoid false positives like `rg 'foo|bash|bar'`
+    let unquoted = strip_quoted_strings(command_string);
     for (pattern, reason) in pipe_patterns {
         if let Ok(re) = Regex::new(pattern) {
-            if re.is_match(command_string) {
+            if re.is_match(&unquoted) {
                 return Some(HookOutput::ask(reason));
             }
         }
@@ -2316,6 +2318,25 @@ mod tests {
                 assert!(
                     !reason.contains("Output redirection"),
                     "False positive regex operator in quotes for: {cmd}"
+                );
+            }
+        }
+
+        #[test]
+        fn test_pipe_patterns_inside_quotes_not_flagged() {
+            // Pipe to shell patterns inside quoted strings should not be flagged
+            for cmd in [
+                r#"rg 'alias|bash|zsh' ~"#,
+                r#"rg "foo|bash|bar" src/"#,
+                r#"eza -la ~ | rg -i 'alias|bash|zsh'"#,
+                r#"grep -E "python|ruby|perl" file.txt"#,
+                r#"rg "|sh" src/"#, // literal |sh in pattern
+            ] {
+                let result = check_command(cmd);
+                let reason = get_reason(&result);
+                assert!(
+                    !reason.starts_with("Piping to "),
+                    "False positive pipe pattern in quotes for: {cmd}"
                 );
             }
         }
