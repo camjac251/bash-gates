@@ -299,6 +299,37 @@ unknown_action = "allow"  # Just runs go build/run in watch mode
 name = "actionlint"
 unknown_action = "allow"
 
+# Gitleaks - secret scanner (read-only)
+[[programs]]
+name = "gitleaks"
+unknown_action = "allow"
+
+# Lefthook - git hooks manager
+[[programs]]
+name = "lefthook"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "run"
+
+[[programs.allow]]
+subcommand = "version"
+
+[[programs.allow]]
+subcommand = "dump"
+
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing git hooks"
+
+[[programs.ask]]
+subcommand = "uninstall"
+reason = "Removing git hooks"
+
+[[programs.ask]]
+subcommand = "add"
+reason = "Adding hook configuration"
+
 # =============================================================================
 # VITE (dev server / build tool)
 # =============================================================================

@@ -369,8 +369,37 @@ reason = "Running database migration"
 name = "alembic"
 unknown_action = "ask"
 
+# Read-only commands
+[[programs.allow]]
+subcommand = "history"
+
+[[programs.allow]]
+subcommand = "current"
+
+[[programs.allow]]
+subcommand = "heads"
+
+[[programs.allow]]
+subcommand = "branches"
+
+[[programs.allow]]
+subcommand = "show"
+
 [[programs.ask]]
+subcommand = "upgrade"
 reason = "Running database migration"
+
+[[programs.ask]]
+subcommand = "downgrade"
+reason = "Rolling back database migration"
+
+[[programs.ask]]
+subcommand = "revision"
+reason = "Creating new migration"
+
+[[programs.ask]]
+subcommand = "stamp"
+reason = "Stamping database version"
 
 # =============================================================================
 # MYSQL

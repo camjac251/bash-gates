@@ -683,9 +683,8 @@ fn check_python_run_command(cmd: &CommandInfo, pm_name: &str) -> Option<GateResu
         if !matches!(result.decision, Decision::Skip) {
             return Some(GateResult {
                 decision: result.decision,
-                reason: result
-                    .reason
-                    .map(|r| format!("{pm_name} run {run_cmd}: {r}")),
+                // Gate reasons already include the program name, so just add pm context
+                reason: result.reason.map(|r| format!("{pm_name} run: {r}")),
             });
         }
     }
@@ -697,11 +696,14 @@ fn check_python_run_command(cmd: &CommandInfo, pm_name: &str) -> Option<GateResu
             Some(GateResult::allow())
         }
         // Type checkers - safe
-        "mypy" | "pyright" | "pytype" | "pyre" => Some(GateResult::allow()),
+        "mypy" | "pyright" | "basedpyright" | "pytype" | "pyre" | "ty" => Some(GateResult::allow()),
+        // Linters - safe (read-only)
+        "lint-imports" | "pylint" | "flake8" | "bandit" | "vulture" | "pyflakes"
+        | "pycodestyle" | "pydocstyle" => Some(GateResult::allow()),
         // Build tools - safe
         "build" | "flit" | "hatchling" | "maturin" | "setuptools" => Some(GateResult::allow()),
         // Documentation - safe
-        "sphinx-build" | "mkdocs" | "pdoc" => Some(GateResult::allow()),
+        "sphinx-build" | "mkdocs" | "pdoc" | "pydoc" => Some(GateResult::allow()),
         // Unknown - let it through (will be caught by outer logic)
         _ => None,
     }
@@ -911,6 +913,24 @@ mod tests {
     fn test_uv_pip_install_asks() {
         let result = check_package_managers(&cmd("uv", &["pip", "install", "requests"]));
         assert_eq!(result.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn test_uv_run_ty_check_allows() {
+        let result = check_package_managers(&cmd("uv", &["run", "ty", "check"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_uv_run_ty_with_flags_allows() {
+        let result = check_package_managers(&cmd("uv", &["run", "--only-dev", "ty", "check"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_uv_run_basedpyright_allows() {
+        let result = check_package_managers(&cmd("uv", &["run", "basedpyright", "."]));
+        assert_eq!(result.decision, Decision::Allow);
     }
 
     // === poetry ===
