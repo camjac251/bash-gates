@@ -38,20 +38,24 @@ use std::env;
 use std::io::{self, Read};
 
 fn main() {
-    // Check for CLI flags
     let args: Vec<String> = env::args().collect();
 
+    // Handle subcommands first
+    if args.len() > 1 && args[1] == "hooks" {
+        handle_hooks_subcommand(&args[2..]);
+        return;
+    }
+
+    // Handle global flags
     if args
         .iter()
         .any(|a| a == "--export-toml" || a == "--gemini-policy")
     {
-        // Export Gemini CLI policy rules
         print!("{}", toml_export::generate_toml());
         return;
     }
 
     if args.iter().any(|a| a == "--refresh-tools") {
-        // Force refresh the tool availability cache
         eprintln!("Refreshing tool cache...");
         let cache = tool_cache::refresh_cache();
         let available: Vec<_> = cache
@@ -72,7 +76,6 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--tools-status") {
-        // Show tool cache status
         println!("{}", tool_cache::cache_status());
         return;
     }
@@ -83,22 +86,7 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        eprintln!("bash-gates - Intelligent bash command permission gate");
-        eprintln!();
-        eprintln!("USAGE:");
-        eprintln!("  bash-gates                   Read hook input from stdin (default)");
-        eprintln!("  bash-gates --export-toml     Export Gemini CLI policy rules");
-        eprintln!("  bash-gates --refresh-tools   Refresh modern CLI tool detection cache");
-        eprintln!("  bash-gates --tools-status    Show which modern tools are detected");
-        eprintln!("  bash-gates --help            Show this help");
-        eprintln!("  bash-gates --version         Show version");
-        eprintln!();
-        eprintln!("GEMINI CLI SETUP:");
-        eprintln!("  bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml");
-        eprintln!();
-        eprintln!("MODERN CLI HINTS:");
-        eprintln!("  bash-gates suggests modern alternatives (bat, rg, fd, etc.) when");
-        eprintln!("  legacy commands are used. Run --refresh-tools after installing new tools.");
+        print_main_help();
         return;
     }
 
@@ -199,6 +187,349 @@ fn handle_permission_request_hook(input: &str) {
         }
     }
     // If None, we don't output anything - lets the normal permission prompt show
+}
+
+fn get_binary_path() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.canonicalize().ok())
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "bash-gates".to_string())
+}
+
+fn generate_hook_entry(binary_path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "matcher": "Bash",
+        "hooks": [{"type": "command", "command": binary_path, "timeout": 10}]
+    })
+}
+
+fn generate_hooks_json(binary_path: &str) -> serde_json::Value {
+    serde_json::json!({
+        "PreToolUse": [generate_hook_entry(binary_path)],
+        "PermissionRequest": [generate_hook_entry(binary_path)]
+    })
+}
+
+/// Get the settings file path based on scope
+/// - "user" → ~/.claude/settings.json (global user settings)
+/// - "project" → .claude/settings.json (committed, shared with team)
+/// - "local" → .claude/settings.local.json (not committed, user+project specific)
+fn get_settings_path(scope: &str) -> std::path::PathBuf {
+    match scope {
+        "user" => dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".claude")
+            .join("settings.json"),
+        "project" => std::path::PathBuf::from(".claude").join("settings.json"),
+        "local" => std::path::PathBuf::from(".claude").join("settings.local.json"),
+        _ => {
+            eprintln!(
+                "Error: Invalid scope '{}'. Use: user, project, or local",
+                scope
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Check if bash-gates hook already exists in a hook array
+fn has_bash_gates_hook(hooks_array: &serde_json::Value) -> bool {
+    if let Some(arr) = hooks_array.as_array() {
+        for entry in arr {
+            if entry.get("matcher").and_then(|m| m.as_str()) == Some("Bash") {
+                if let Some(hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
+                    for hook in hooks {
+                        if let Some(cmd) = hook.get("command").and_then(|c| c.as_str()) {
+                            if cmd.contains("bash-gates") {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Install hooks into settings.json
+fn install_hooks(scope: &str, dry_run: bool) {
+    let binary_path = get_binary_path();
+    let settings_path = get_settings_path(scope);
+
+    eprintln!("bash-gates installer");
+    eprintln!("Binary: {}", binary_path);
+    eprintln!("Target: {} ({})", settings_path.display(), scope);
+    eprintln!();
+
+    // Read existing settings or create new
+    let mut settings: serde_json::Value = if settings_path.exists() {
+        match std::fs::read_to_string(&settings_path) {
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Error: Failed to parse {}: {}", settings_path.display(), e);
+                    std::process::exit(1);
+                }
+            },
+            Err(e) => {
+                eprintln!("Error: Failed to read {}: {}", settings_path.display(), e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        serde_json::json!({})
+    };
+
+    // Ensure hooks object exists
+    if settings.get("hooks").is_none() {
+        settings["hooks"] = serde_json::json!({});
+    }
+
+    let hooks = settings.get_mut("hooks").unwrap();
+    let hook_entry = generate_hook_entry(&binary_path);
+    let mut changes = Vec::new();
+
+    // Check and add PreToolUse
+    if hooks.get("PreToolUse").is_none() {
+        hooks["PreToolUse"] = serde_json::json!([]);
+    }
+    if has_bash_gates_hook(&hooks["PreToolUse"]) {
+        eprintln!("✓ PreToolUse hook already configured");
+    } else {
+        hooks["PreToolUse"]
+            .as_array_mut()
+            .unwrap()
+            .push(hook_entry.clone());
+        changes.push("PreToolUse");
+        eprintln!("+ Adding PreToolUse hook");
+    }
+
+    // Check and add PermissionRequest
+    if hooks.get("PermissionRequest").is_none() {
+        hooks["PermissionRequest"] = serde_json::json!([]);
+    }
+    if has_bash_gates_hook(&hooks["PermissionRequest"]) {
+        eprintln!("✓ PermissionRequest hook already configured");
+    } else {
+        hooks["PermissionRequest"]
+            .as_array_mut()
+            .unwrap()
+            .push(hook_entry);
+        changes.push("PermissionRequest");
+        eprintln!("+ Adding PermissionRequest hook");
+    }
+
+    if changes.is_empty() {
+        eprintln!("\nNo changes needed - bash-gates already installed.");
+        return;
+    }
+
+    if dry_run {
+        eprintln!("\n--dry-run: Would write to {}", settings_path.display());
+        eprintln!("\nResulting hooks configuration:");
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&settings["hooks"]).unwrap()
+        );
+        return;
+    }
+
+    // Create parent directory if needed
+    if let Some(parent) = settings_path.parent() {
+        if !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                eprintln!("Error: Failed to create {}: {}", parent.display(), e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Write settings
+    match std::fs::write(
+        &settings_path,
+        serde_json::to_string_pretty(&settings).unwrap() + "\n",
+    ) {
+        Ok(_) => {
+            eprintln!("\n✓ Installed to {}", settings_path.display());
+            eprintln!("\nHooks added: {}", changes.join(", "));
+            eprintln!("\nBoth hooks are required:");
+            eprintln!("  - PreToolUse: Command safety for main session");
+            eprintln!("  - PermissionRequest: Safe commands work in subagents");
+        }
+        Err(e) => {
+            eprintln!("Error: Failed to write {}: {}", settings_path.display(), e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Handle `bash-gates hooks` subcommand
+fn handle_hooks_subcommand(args: &[String]) {
+    if args.is_empty() || args.iter().any(|a| a == "--help" || a == "-h") {
+        print_hooks_help();
+        return;
+    }
+
+    let subcommand = &args[0];
+    let sub_args = &args[1..];
+
+    match subcommand.as_str() {
+        "add" => handle_hooks_add(sub_args),
+        "status" => handle_hooks_status(),
+        "json" => print_hooks_json(),
+        _ => {
+            eprintln!("Unknown hooks subcommand: {}", subcommand);
+            eprintln!("Run 'bash-gates hooks --help' for usage.");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Handle `bash-gates hooks add`
+fn handle_hooks_add(args: &[String]) {
+    let dry_run = args.iter().any(|a| a == "--dry-run" || a == "-n");
+
+    // Parse --scope option
+    let scope = args
+        .iter()
+        .position(|a| a == "--scope" || a == "-s")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str());
+
+    // No scope specified: show help
+    if scope.is_none() && !dry_run {
+        eprintln!("Error: --scope (-s) is required\n");
+        print_hooks_add_help();
+        std::process::exit(1);
+    }
+
+    let scope = scope.unwrap_or("user");
+    install_hooks(scope, dry_run);
+}
+
+/// Handle `bash-gates hooks status`
+fn handle_hooks_status() {
+    let scopes = [
+        ("user", get_settings_path("user")),
+        ("project", get_settings_path("project")),
+        ("local", get_settings_path("local")),
+    ];
+
+    eprintln!("bash-gates hook status\n");
+
+    for (scope, path) in &scopes {
+        eprint!("{:8} {} ", scope, path.display());
+
+        if !path.exists() {
+            eprintln!("(not found)");
+            continue;
+        }
+
+        match std::fs::read_to_string(path) {
+            Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(settings) => {
+                    let hooks = settings.get("hooks");
+                    let has_pre = hooks
+                        .and_then(|h| h.get("PreToolUse"))
+                        .map(has_bash_gates_hook)
+                        .unwrap_or(false);
+                    let has_perm = hooks
+                        .and_then(|h| h.get("PermissionRequest"))
+                        .map(has_bash_gates_hook)
+                        .unwrap_or(false);
+
+                    if has_pre && has_perm {
+                        eprintln!("✓ installed");
+                    } else if has_pre || has_perm {
+                        eprintln!(
+                            "⚠ partial (missing {})",
+                            if has_pre {
+                                "PermissionRequest"
+                            } else {
+                                "PreToolUse"
+                            }
+                        );
+                    } else {
+                        eprintln!("- not installed");
+                    }
+                }
+                Err(_) => eprintln!("(parse error)"),
+            },
+            Err(_) => eprintln!("(read error)"),
+        }
+    }
+}
+
+/// Print hooks JSON only
+fn print_hooks_json() {
+    let binary_path = get_binary_path();
+    let hooks = generate_hooks_json(&binary_path);
+    println!("{}", serde_json::to_string_pretty(&hooks).unwrap());
+}
+
+fn print_main_help() {
+    eprintln!("bash-gates - Intelligent bash command permission gate");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  bash-gates                   Read hook input from stdin (default)");
+    eprintln!("  bash-gates hooks <command>   Manage Claude Code hooks");
+    eprintln!("  bash-gates --export-toml     Export Gemini CLI policy rules");
+    eprintln!("  bash-gates --refresh-tools   Refresh modern CLI tool detection");
+    eprintln!("  bash-gates --tools-status    Show detected modern tools");
+    eprintln!("  bash-gates --help            Show this help");
+    eprintln!("  bash-gates --version         Show version");
+    eprintln!();
+    eprintln!("COMMANDS:");
+    eprintln!("  hooks add -s <scope>   Add hooks to Claude Code settings");
+    eprintln!("  hooks status           Show hook installation status");
+    eprintln!("  hooks json             Output hooks JSON for manual config");
+    eprintln!();
+    eprintln!("SCOPES:");
+    eprintln!("  user     ~/.claude/settings.json (global, recommended)");
+    eprintln!("  project  .claude/settings.json (shared with team)");
+    eprintln!("  local    .claude/settings.local.json (personal, not committed)");
+    eprintln!();
+    eprintln!("EXAMPLES:");
+    eprintln!("  bash-gates hooks add -s user        # Install for personal use");
+    eprintln!("  bash-gates hooks add -s project     # Share with team");
+    eprintln!("  bash-gates hooks status             # Check installation");
+    eprintln!();
+    eprintln!("  bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml");
+}
+
+fn print_hooks_help() {
+    eprintln!("bash-gates hooks - Manage Claude Code hooks");
+    eprintln!();
+    eprintln!("USAGE:");
+    eprintln!("  bash-gates hooks add -s <scope>   Add hooks to settings file");
+    eprintln!("  bash-gates hooks status           Show hook installation status");
+    eprintln!("  bash-gates hooks json             Output hooks JSON only");
+    eprintln!();
+    eprintln!("SCOPES:");
+    eprintln!("  user     ~/.claude/settings.json (global user settings)");
+    eprintln!("  project  .claude/settings.json (committed, shared with team)");
+    eprintln!("  local    .claude/settings.local.json (not committed)");
+    eprintln!();
+    eprintln!("EXAMPLES:");
+    eprintln!("  bash-gates hooks add -s user         # Recommended for personal use");
+    eprintln!("  bash-gates hooks add -s project      # Share hooks with team");
+    eprintln!("  bash-gates hooks add -s user --dry-run  # Preview changes");
+}
+
+fn print_hooks_add_help() {
+    eprintln!("USAGE:");
+    eprintln!("  bash-gates hooks add -s <scope> [--dry-run]");
+    eprintln!();
+    eprintln!("SCOPES:");
+    eprintln!("  user     ~/.claude/settings.json");
+    eprintln!("  project  .claude/settings.json");
+    eprintln!("  local    .claude/settings.local.json");
+    eprintln!();
+    eprintln!("OPTIONS:");
+    eprintln!("  -s, --scope <scope>   Target settings file (required)");
+    eprintln!("  -n, --dry-run         Preview changes without writing");
 }
 
 fn print_approve() {

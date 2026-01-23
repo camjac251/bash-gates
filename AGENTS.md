@@ -21,17 +21,23 @@ bash-gates supports two Claude Code hooks:
 ## Quick Reference
 
 ```bash
+# Install to Claude Code settings
+bash-gates hooks add -s user       # ~/.claude/settings.json (recommended)
+bash-gates hooks add -s project    # .claude/settings.json (shared with team)
+bash-gates hooks add -s local      # .claude/settings.local.json (not committed)
+bash-gates hooks add -s user --dry-run  # Preview changes
+bash-gates hooks status            # Check installation status
+bash-gates hooks json              # Output hooks JSON for manual config
+
 # Test a command
-echo '{"tool_name": "Bash", "tool_input": {"command": "gh pr list"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
+echo '{"tool_name": "Bash", "tool_input": {"command": "gh pr list"}}' | bash-gates
 
 # Export Gemini CLI policy rules
-./target/x86_64-unknown-linux-musl/release/bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
+bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
 
-# Refresh modern tool detection cache
-./target/x86_64-unknown-linux-musl/release/bash-gates --refresh-tools
-
-# Show detected modern tools
-./target/x86_64-unknown-linux-musl/release/bash-gates --tools-status
+# Modern CLI hints
+bash-gates --refresh-tools   # Refresh tool detection cache
+bash-gates --tools-status    # Show detected modern tools
 
 # Run tests
 cargo test
@@ -851,7 +857,36 @@ For `&&`, `||`, `|`, `;` chains, **strictest decision wins**:
 
 ## Claude Code Integration
 
-In `~/.claude/settings.json`:
+### Automatic Installation
+
+```bash
+# Install to user settings (recommended)
+bash-gates hooks add -s user
+
+# Install to project settings (shared with team)
+bash-gates hooks add -s project
+
+# Install to local project settings (not committed)
+bash-gates hooks add -s local
+
+# Preview changes without writing
+bash-gates hooks add -s user --dry-run
+
+# Check installation status across all scopes
+bash-gates hooks status
+```
+
+### Scopes
+
+| Scope | File | Description |
+|-------|------|-------------|
+| `user` | `~/.claude/settings.json` | Global user settings (recommended) |
+| `project` | `.claude/settings.json` | Shared with team (committed) |
+| `local` | `.claude/settings.local.json` | Personal project settings (not committed) |
+
+### Manual Installation
+
+Add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -861,7 +896,7 @@ In `~/.claude/settings.json`:
         "matcher": "Bash",
         "hooks": [{
           "type": "command",
-          "command": "/path/to/bash-gates/target/x86_64-unknown-linux-musl/release/bash-gates",
+          "command": "/path/to/bash-gates",
           "timeout": 10
         }]
       }
@@ -871,7 +906,7 @@ In `~/.claude/settings.json`:
         "matcher": "Bash",
         "hooks": [{
           "type": "command",
-          "command": "/path/to/bash-gates/target/x86_64-unknown-linux-musl/release/bash-gates",
+          "command": "/path/to/bash-gates",
           "timeout": 10
         }]
       }

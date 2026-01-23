@@ -185,6 +185,42 @@ cargo build --release
 
 ### Configure Claude Code
 
+Use the `hooks` subcommand to configure Claude Code:
+
+```bash
+# Install to user settings (recommended)
+bash-gates hooks add -s user
+
+# Install to project settings (shared with team)
+bash-gates hooks add -s project
+
+# Install to local project settings (not committed)
+bash-gates hooks add -s local
+
+# Preview changes without writing
+bash-gates hooks add -s user --dry-run
+
+# Check installation status
+bash-gates hooks status
+
+# Output hooks JSON for manual config
+bash-gates hooks json
+```
+
+**Scopes:**
+| Scope | File | Use case |
+|-------|------|----------|
+| `user` | `~/.claude/settings.json` | Personal use (recommended) |
+| `project` | `.claude/settings.json` | Share with team |
+| `local` | `.claude/settings.local.json` | Personal project overrides |
+
+**Both hooks are required:**
+- `PreToolUse` - Handles command safety for main session
+- `PermissionRequest` - Makes safe commands work in subagents (where PreToolUse's allow is ignored)
+
+<details>
+<summary>Manual installation</summary>
+
 Add to `~/.claude/settings.json`:
 
 ```json
@@ -193,17 +229,20 @@ Add to `~/.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.local/bin/bash-gates"
-          }
-        ]
+        "hooks": [{"type": "command", "command": "~/.local/bin/bash-gates", "timeout": 10}]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [{"type": "command", "command": "~/.local/bin/bash-gates", "timeout": 10}]
       }
     ]
   }
 }
 ```
+
+</details>
 
 ---
 
