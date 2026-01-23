@@ -826,7 +826,14 @@ pub fn check_command_result(command_string: &str) -> GateResult {
     let mut strictest = GateResult::skip();
 
     for cmd in &commands {
-        let result = check_single_command(cmd);
+        let mut result = check_single_command(cmd);
+
+        // Convert Skip to Ask immediately (unknown commands need approval)
+        // This must happen before comparison so unknown commands in pipelines
+        // are properly flagged even when combined with allowed commands
+        if result.decision == Decision::Skip {
+            result = GateResult::ask(format!("Unknown command: {}", cmd.program));
+        }
 
         if result.decision > strictest.decision {
             strictest = result;
@@ -836,11 +843,6 @@ pub fn check_command_result(command_string: &str) -> GateResult {
         if strictest.decision == Decision::Block {
             return strictest;
         }
-    }
-
-    // Convert Skip to Ask (unknown commands need approval)
-    if strictest.decision == Decision::Skip {
-        return GateResult::ask("Unknown command");
     }
 
     strictest
