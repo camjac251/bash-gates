@@ -38,37 +38,31 @@ A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse
 ```mermaid
 flowchart TD
     CC[Claude Code] --> CMD[Bash Command]
-    CMD --> BG
 
-    subgraph BG [bash-gates]
-        SETTINGS[Check settings.json]
-        SETTINGS -->|deny/ask rule| DEFER[Defer to Claude Code]
-        SETTINGS -->|allow/no rule| SEC[Security Checks]
-        SEC --> AST[AST Parsing]
-        AST --> GATES
-
-        subgraph GATES [Permission Gates]
-            direction LR
-            G1[basics]
-            G2[beads]
-            G3[mcp]
-            G4[gh]
-            G5[git]
-            G6[shortcut]
-            G7[cloud]
-            G8[filesystem]
-            G9[network]
-            G10[devtools]
-            G11[pkg mgrs]
-            G12[system]
-        end
+    subgraph PTU [PreToolUse Hook]
+        direction TB
+        PTU_CHECK[bash-gates check] --> PTU_DEC{Decision}
+        PTU_DEC -->|dangerous| PTU_DENY[deny]
+        PTU_DEC -->|risky| PTU_ASK[ask]
+        PTU_DEC -->|safe| PTU_CTX{Context?}
+        PTU_CTX -->|main session| PTU_ALLOW[allow ✓]
+        PTU_CTX -->|subagent| PTU_IGNORED[ignored by Claude]
     end
 
-    BG --> DECISION{Decision}
-    DECISION -->|safe| ALLOW[allow]
-    DECISION -->|risky| ASK[ask]
-    DECISION -->|dangerous| DENY[deny]
+    CMD --> PTU
+    PTU_IGNORED --> INTERNAL[Claude internal checks]
+    INTERNAL -->|path outside cwd| PR_HOOK
+
+    subgraph PR_HOOK [PermissionRequest Hook]
+        direction TB
+        PR_CHECK[bash-gates re-check] --> PR_DEC{Decision}
+        PR_DEC -->|safe| PR_ALLOW[allow ✓]
+        PR_DEC -->|dangerous| PR_DENY[deny]
+        PR_DEC -->|risky| PR_PROMPT[show prompt]
+    end
 ```
+
+**Why two hooks?** In subagents, PreToolUse's `allow` is ignored (security feature). PermissionRequest runs after Claude's internal checks decide to "ask", and its `allow` IS respected - enabling safe commands like `rg` to work in subagents.
 
 **Decision Priority:** `BLOCK > ASK > ALLOW > SKIP`
 
