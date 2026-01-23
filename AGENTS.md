@@ -792,31 +792,31 @@ cargo test -- --ignored
 ### Manual Testing
 ```bash
 # Allow (known safe)
-echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | ./target/release/bash-gates
+echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"allow",...}}
 
 # Ask (known risky)
-echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}}' | ./target/release/bash-gates
+echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages"}}
 
 # Ask (unknown command)
-echo '{"tool_name": "Bash", "tool_input": {"command": "mamba install numpy"}}' | ./target/release/bash-gates
+echo '{"tool_name": "Bash", "tool_input": {"command": "mamba install numpy"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"conda: Installing packages"}}
 
 # Block (dangerous)
-echo '{"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}' | ./target/release/bash-gates
+echo '{"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"deny",...}}
 
 # Accept Edits Mode - auto-allow file editing
-echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new file.txt"}, "permission_mode": "acceptEdits"}' | ./target/release/bash-gates
+echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new file.txt"}, "permission_mode": "acceptEdits"}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"allow","permissionDecisionReason":"Auto-allowed in acceptEdits mode"}}
 
 # Accept Edits Mode - still asks for non-file-editing
-echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}, "permission_mode": "acceptEdits"}' | ./target/release/bash-gates
+echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}, "permission_mode": "acceptEdits"}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"ask",...}}
 
 # Accept Edits Mode - asks for paths outside cwd
-echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new /other/file.txt"}, "permission_mode": "acceptEdits", "cwd": "/home/user/project"}' | ./target/release/bash-gates
+echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new /other/file.txt"}, "permission_mode": "acceptEdits", "cwd": "/home/user/project"}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
 # → {"hookSpecificOutput":{"permissionDecision":"ask",...}}
 ```
 
