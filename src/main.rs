@@ -1,5 +1,9 @@
 //! Bash Gates - Intelligent bash command permission gate for Claude Code.
 //!
+//! Supports two hook types:
+//! - `PreToolUse`: Block dangerous commands, allow safe ones, provide hints
+//! - `PermissionRequest`: Approve safe commands for subagents
+//!
 //! Usage:
 //!   `echo '{"tool_name": "Bash", "tool_input": {"command": "gh pr list"}}' | bash-gates`
 //!
@@ -13,11 +17,20 @@
 //!           "command": "/path/to/bash-gates",
 //!           "timeout": 10
 //!         }]
+//!       }],
+//!       "PermissionRequest": [{
+//!         "matcher": "Bash",
+//!         "hooks": [{
+//!           "type": "command",
+//!           "command": "/path/to/bash-gates",
+//!           "timeout": 10
+//!         }]
 //!       }]
 //!     }
 //!   }
 
-use bash_gates::models::{HookInput, HookOutput};
+use bash_gates::models::{HookInput, HookOutput, PermissionRequestInput};
+use bash_gates::permission_request::handle_permission_request;
 use bash_gates::router::check_command_with_settings;
 use bash_gates::toml_export;
 use bash_gates::tool_cache;
@@ -102,8 +115,29 @@ fn main() {
         return;
     }
 
-    // Parse JSON input
-    let hook_input: HookInput = match serde_json::from_str(&input) {
+    // First, try to detect hook type from raw JSON
+    let hook_event: Option<String> = serde_json::from_str::<serde_json::Value>(&input)
+        .ok()
+        .and_then(|v| {
+            v.get("hook_event_name")
+                .and_then(|h| h.as_str().map(String::from))
+        });
+
+    // Route based on hook event type
+    match hook_event.as_deref() {
+        Some("PermissionRequest") => {
+            handle_permission_request_hook(&input);
+        }
+        _ => {
+            // Default: PreToolUse or unspecified
+            handle_pre_tool_use_hook(&input);
+        }
+    }
+}
+
+/// Handle PreToolUse hook (existing behavior)
+fn handle_pre_tool_use_hook(input: &str) {
+    let hook_input: HookInput = match serde_json::from_str(input) {
         Ok(hi) => hi,
         Err(e) => {
             eprintln!("Error: Invalid JSON input: {e}");
@@ -135,6 +169,36 @@ fn main() {
             print_approve();
         }
     }
+}
+
+/// Handle PermissionRequest hook (for subagent approval)
+fn handle_permission_request_hook(input: &str) {
+    let perm_input: PermissionRequestInput = match serde_json::from_str(input) {
+        Ok(pi) => pi,
+        Err(e) => {
+            eprintln!("Error: Invalid PermissionRequest JSON: {e}");
+            // Don't output anything - let normal prompt show
+            return;
+        }
+    };
+
+    // Only process Bash tools
+    if perm_input.tool_name != "Bash" {
+        // Don't output anything - let normal prompt show
+        return;
+    }
+
+    // Check if we should approve this
+    if let Some(output) = handle_permission_request(&perm_input) {
+        match serde_json::to_string(&output) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("Error serializing PermissionRequest output: {e}");
+                // Don't output anything - let normal prompt show
+            }
+        }
+    }
+    // If None, we don't output anything - lets the normal permission prompt show
 }
 
 fn print_approve() {

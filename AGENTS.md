@@ -2,8 +2,21 @@
 
 Intelligent bash command permission gate using tree-sitter AST parsing. Auto-allows known safe operations, asks for writes and unknown commands, blocks dangerous patterns.
 
-**Claude Code:** Use as a PreToolUse hook (native integration)
+**Claude Code:** Use as PreToolUse + PermissionRequest hooks (native integration)
 **Gemini CLI:** Use `--export-toml` to generate policy rules
+
+## Hook Types
+
+bash-gates supports two Claude Code hooks:
+
+| Hook | Purpose | When it runs |
+|------|---------|--------------|
+| **PreToolUse** | Block dangerous commands, allow safe ones, provide hints | Before any permission check |
+| **PermissionRequest** | Approve safe commands for subagents | After internal checks decide to "ask" |
+
+**Why two hooks?** In subagents, PreToolUse's `allow` decision is ignored by Claude Code (security feature). But PermissionRequest's `allow` IS respected. So:
+- PreToolUse handles command safety for the main session
+- PermissionRequest makes those same decisions work for subagents
 
 ## Quick Reference
 
@@ -80,6 +93,10 @@ src/
 
 ## How It Works
 
+bash-gates handles two hook types with different flows:
+
+### PreToolUse Flow
+
 1. **Input**: JSON from Claude Code's PreToolUse hook (includes `cwd`, `permission_mode`)
 2. **Mise expansion**: If command is `mise run <task>` or `mise <task>`, expand to underlying commands
 3. **Package.json expansion**: If command is `npm run <script>`, `pnpm run <script>`, etc., expand to underlying command
@@ -91,6 +108,40 @@ src/
 9. **Settings ask/allow**: Check remaining settings.json rules
 10. **Hints**: For allowed commands, check if modern alternatives exist and add to `additionalContext`
 11. **Output**: JSON with `permissionDecision` (allow/ask/deny) and optional `additionalContext` (hints)
+
+### PermissionRequest Flow
+
+Runs when Claude Code's internal checks decide to show a permission prompt. This is critical for **subagents**, where PreToolUse's `allow` is ignored.
+
+1. **Input**: JSON with `hook_event_name: "PermissionRequest"`, `tool_input`, `decision_reason`, `blocked_path`, `agent_id`
+2. **Gate analysis**: Re-check the command with our gates
+3. **If allowed by gates**: Return `allow` with optional `updatedPermissions` to add blocked path to session
+4. **If blocked by gates**: Return `deny` with reason
+5. **If ask by gates**: Return nothing (let normal prompt show)
+
+| Input Field | Description |
+|-------------|-------------|
+| `tool_input` | The command being requested (e.g., `{"command": "rg pattern /path"}`) |
+| `decision_reason` | Why Claude Code is asking (e.g., "Path is outside allowed working directories") |
+| `blocked_path` | The specific path that triggered the prompt |
+| `agent_id` | The subagent ID (present for subagents, absent for main session) |
+
+**Example PermissionRequest output (approve):**
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PermissionRequest",
+    "decision": {
+      "behavior": "allow",
+      "updated_permissions": [{
+        "type": "addDirectories",
+        "directories": ["/path/to/allow"],
+        "destination": "session"
+      }]
+    }
+  }
+}
+```
 
 ## Mise Task Expansion (mise.rs)
 
@@ -814,10 +865,22 @@ In `~/.claude/settings.json`:
           "timeout": 10
         }]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [{
+          "type": "command",
+          "command": "/path/to/bash-gates/target/x86_64-unknown-linux-musl/release/bash-gates",
+          "timeout": 10
+        }]
+      }
     ]
   }
 }
 ```
+
+**Note:** Both hooks use the same binary. bash-gates detects the hook type from `hook_event_name` in the input JSON and responds appropriately.
 
 ## Gemini CLI Integration
 

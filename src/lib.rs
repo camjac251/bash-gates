@@ -1,7 +1,9 @@
 //! Bash Gates - Intelligent bash command permission gate.
 //!
 //! This library provides command parsing and permission checking for bash commands,
-//! designed for use as a Claude Code PreToolUse hook.
+//! designed for use as Claude Code hooks:
+//! - `PreToolUse`: Block dangerous commands, allow safe ones, provide hints
+//! - `PermissionRequest`: Approve safe commands for subagents (where PreToolUse allow is ignored)
 //!
 //! # Example
 //!
@@ -26,10 +28,12 @@ pub mod mise;
 pub mod models;
 pub mod package_json;
 pub mod parser;
+pub mod permission_request;
 pub mod router;
 pub mod settings;
 pub mod toml_export;
 pub mod tool_cache;
 
 pub use models::{CommandInfo, Decision, GateResult};
-pub use router::{check_command, check_command_with_settings};
+pub use permission_request::handle_permission_request;
+pub use router::{check_command, check_command_result, check_command_with_settings};

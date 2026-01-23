@@ -1,4 +1,8 @@
 //! Core types for the bash gates permission system.
+//!
+//! Supports two hook types:
+//! - `PreToolUse`: Runs before tool execution, can allow/deny/ask
+//! - `PermissionRequest`: Runs when internal checks want to ask, can approve for subagents
 
 use serde::{Deserialize, Serialize};
 
@@ -282,6 +286,165 @@ impl HookOutput {
                 updated_input: None,
                 additional_context: Some(context.to_string()),
             }),
+        }
+    }
+}
+
+// === PermissionRequest Hook Types ===
+
+/// Permission suggestion from Claude Code (what it wants to add)
+#[derive(Debug, Deserialize, Clone)]
+pub struct PermissionSuggestion {
+    #[serde(rename = "type")]
+    pub suggestion_type: String,
+    #[serde(default)]
+    pub directories: Vec<String>,
+    #[serde(default)]
+    pub rules: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub behavior: Option<String>,
+    #[serde(default)]
+    pub destination: Option<String>,
+}
+
+/// Input received by `PermissionRequest` hook
+#[derive(Debug, Deserialize, Default)]
+#[allow(dead_code)]
+pub struct PermissionRequestInput {
+    #[serde(default)]
+    pub hook_event_name: String,
+    #[serde(default)]
+    pub tool_name: String,
+    #[serde(default)]
+    pub tool_input: ToolInputVariant,
+    #[serde(default)]
+    pub permission_suggestions: Vec<PermissionSuggestion>,
+    #[serde(default)]
+    pub blocked_path: Option<String>,
+    #[serde(default)]
+    pub decision_reason: Option<String>,
+    #[serde(default)]
+    pub tool_use_id: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub cwd: String,
+}
+
+impl PermissionRequestInput {
+    /// Extract command string from `tool_input`
+    pub fn get_command(&self) -> String {
+        match &self.tool_input {
+            ToolInputVariant::Structured(ti) => ti.command.clone(),
+            ToolInputVariant::Map(m) => m
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            ToolInputVariant::Empty => String::new(),
+        }
+    }
+}
+
+/// Decision for PermissionRequest - allow or deny
+#[derive(Debug, Serialize)]
+#[serde(tag = "behavior")]
+pub enum PermissionRequestDecision {
+    #[serde(rename = "allow")]
+    Allow {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        updated_input: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        updated_permissions: Option<Vec<UpdatedPermission>>,
+    },
+    #[serde(rename = "deny")]
+    Deny {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        interrupt: Option<bool>,
+    },
+}
+
+/// Permission update to add (e.g., addDirectories)
+#[derive(Debug, Serialize, Clone)]
+pub struct UpdatedPermission {
+    #[serde(rename = "type")]
+    pub permission_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directories: Option<Vec<String>>,
+    pub destination: String,
+}
+
+/// Hook-specific output for `PermissionRequest`
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRequestSpecificOutput {
+    pub hook_event_name: String,
+    pub decision: PermissionRequestDecision,
+}
+
+/// Output format for PermissionRequest hooks
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionRequestOutput {
+    pub hook_specific_output: PermissionRequestSpecificOutput,
+}
+
+impl PermissionRequestOutput {
+    /// Approve the permission request (command will execute)
+    pub fn allow() -> Self {
+        Self {
+            hook_specific_output: PermissionRequestSpecificOutput {
+                hook_event_name: "PermissionRequest".to_string(),
+                decision: PermissionRequestDecision::Allow {
+                    updated_input: None,
+                    updated_permissions: None,
+                },
+            },
+        }
+    }
+
+    /// Approve and also add directories to session permissions
+    pub fn allow_with_directories(directories: Vec<String>) -> Self {
+        Self {
+            hook_specific_output: PermissionRequestSpecificOutput {
+                hook_event_name: "PermissionRequest".to_string(),
+                decision: PermissionRequestDecision::Allow {
+                    updated_input: None,
+                    updated_permissions: Some(vec![UpdatedPermission {
+                        permission_type: "addDirectories".to_string(),
+                        directories: Some(directories),
+                        destination: "session".to_string(),
+                    }]),
+                },
+            },
+        }
+    }
+
+    /// Deny the permission request
+    pub fn deny(message: &str) -> Self {
+        Self {
+            hook_specific_output: PermissionRequestSpecificOutput {
+                hook_event_name: "PermissionRequest".to_string(),
+                decision: PermissionRequestDecision::Deny {
+                    message: Some(message.to_string()),
+                    interrupt: None,
+                },
+            },
+        }
+    }
+
+    /// Deny and interrupt the agent
+    pub fn deny_and_interrupt(message: &str) -> Self {
+        Self {
+            hook_specific_output: PermissionRequestSpecificOutput {
+                hook_event_name: "PermissionRequest".to_string(),
+                decision: PermissionRequestDecision::Deny {
+                    message: Some(message.to_string()),
+                    interrupt: Some(true),
+                },
+            },
         }
     }
 }
