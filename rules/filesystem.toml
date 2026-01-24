@@ -97,6 +97,7 @@ unknown_action = "ask"
 
 [[programs.ask]]
 reason = "Creating directory"
+accept_edits_auto_allow = true
 
 # =============================================================================
 # TOUCH (always asks)

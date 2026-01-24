@@ -1262,6 +1262,25 @@ mod tests {
         }
 
         #[test]
+        fn test_mkdir_allowed_in_accept_edits() {
+            // mkdir within project directory should be auto-allowed
+            let result =
+                check_command_with_settings("mkdir -p src/components", "/tmp", "acceptEdits");
+            assert_eq!(get_decision(&result), "allow");
+        }
+
+        #[test]
+        fn test_mkdir_outside_project_asks_in_accept_edits() {
+            // mkdir outside project should still ask
+            let result = check_command_with_settings(
+                "mkdir /other/path",
+                "/home/user/project",
+                "acceptEdits",
+            );
+            assert_eq!(get_decision(&result), "ask");
+        }
+
+        #[test]
         fn test_npm_install_still_asks_in_accept_edits() {
             // npm install is NOT a file-editing command - it's package management
             let result = check_command_with_settings("npm install", "/tmp", "acceptEdits");
