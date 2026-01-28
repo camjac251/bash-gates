@@ -10,8 +10,37 @@ use crate::package_json::{
     find_package_json, get_script_command, load_package_json, parse_script_invocation,
 };
 use crate::parser::extract_commands;
+use crate::patterns::suggest_patterns;
 use crate::settings::{Settings, SettingsDecision};
 use regex::Regex;
+
+/// Generate approval instruction context for "ask" responses.
+///
+/// Includes suggested patterns and the command to run for approval.
+fn generate_approval_context(command_string: &str) -> String {
+    let commands = extract_commands(command_string);
+
+    // Collect unique patterns from all commands
+    let mut all_patterns: Vec<String> = commands.iter().flat_map(suggest_patterns).collect();
+
+    // Deduplicate
+    all_patterns.sort();
+    all_patterns.dedup();
+
+    if all_patterns.is_empty() {
+        return String::new();
+    }
+
+    // Take top 3 patterns (most specific first - they come first from suggest_patterns)
+    let top_patterns: Vec<_> = all_patterns.into_iter().take(3).collect();
+
+    let mut context = String::from("\n\nTo always allow this command, run:");
+    for pattern in &top_patterns {
+        context.push_str(&format!("\n  bash-gates approve '{}' -s local", pattern));
+    }
+
+    context
+}
 
 /// Check a bash command string and return the appropriate hook output.
 ///
@@ -223,6 +252,27 @@ pub fn check_command_with_settings(
         }
         SettingsDecision::NoMatch => {
             // No match - use gate result
+        }
+    }
+
+    // Enhance "ask" results with approval instructions
+    if let Some(ref hso) = gate_result.hook_specific_output {
+        if hso.permission_decision == "ask" {
+            let approval_context = generate_approval_context(command_string);
+            if !approval_context.is_empty() {
+                let existing_context = hso.additional_context.as_deref().unwrap_or("");
+                let combined_context = if existing_context.is_empty() {
+                    approval_context
+                } else {
+                    format!("{}{}", existing_context, approval_context)
+                };
+                return HookOutput::ask_with_context(
+                    hso.permission_decision_reason
+                        .as_deref()
+                        .unwrap_or("Requires approval"),
+                    &combined_context,
+                );
+            }
         }
     }
 

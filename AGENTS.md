@@ -2,21 +2,23 @@
 
 Intelligent bash command permission gate using tree-sitter AST parsing. Auto-allows known safe operations, asks for writes and unknown commands, blocks dangerous patterns.
 
-**Claude Code:** Use as PreToolUse + PermissionRequest hooks (native integration)
+**Claude Code:** Use as PreToolUse + PermissionRequest + PostToolUse hooks (native integration)
 **Gemini CLI:** Use `--export-toml` to generate policy rules
 
 ## Hook Types
 
-bash-gates supports two Claude Code hooks:
+bash-gates supports three Claude Code hooks:
 
 | Hook | Purpose | When it runs |
 |------|---------|--------------|
-| **PreToolUse** | Block dangerous commands, allow safe ones, provide hints | Before any permission check |
+| **PreToolUse** | Block dangerous commands, allow safe ones, provide hints, track "ask" decisions | Before any permission check |
 | **PermissionRequest** | Approve safe commands for subagents | After internal checks decide to "ask" |
+| **PostToolUse** | Detect successful execution, add to pending approval queue | After command completes |
 
-**Why two hooks?** In subagents, PreToolUse's `allow` decision is ignored by Claude Code (security feature). But PermissionRequest's `allow` IS respected. So:
-- PreToolUse handles command safety for the main session
-- PermissionRequest makes those same decisions work for subagents
+**Why three hooks?**
+- PreToolUse handles command safety for the main session and tracks commands that return "ask"
+- PermissionRequest makes those same decisions work for subagents (where PreToolUse's `allow` is ignored)
+- PostToolUse detects when "ask" commands complete successfully and queues them for permanent approval
 
 ## Quick Reference
 
@@ -28,6 +30,13 @@ bash-gates hooks add -s local      # .claude/settings.local.json (not committed)
 bash-gates hooks add -s user --dry-run  # Preview changes
 bash-gates hooks status            # Check installation status
 bash-gates hooks json              # Output hooks JSON for manual config
+
+# Approval system - learn from approved commands
+bash-gates pending list            # Show pending approvals
+bash-gates review                  # Interactive TUI to approve/skip
+bash-gates approve 'npm*' -s local # Add allow rule directly
+bash-gates rules list              # Show all permission rules
+bash-gates rules remove 'pattern'  # Remove a rule
 
 # Test a command
 echo '{"tool_name": "Bash", "tool_input": {"command": "gh pr list"}}' | bash-gates
@@ -71,7 +80,7 @@ statically linked
 
 ```
 src/
-├── main.rs          # Entry point - reads stdin JSON, outputs decision
+├── main.rs          # Entry point - reads stdin JSON, outputs decision, CLI commands
 ├── lib.rs           # Library root
 ├── models.rs        # Serde models (HookInput, HookOutput, Decision)
 ├── parser.rs        # tree-sitter-bash AST parsing → Vec<CommandInfo>
@@ -81,6 +90,15 @@ src/
 ├── tool_cache.rs    # Tool availability cache for hints
 ├── mise.rs          # Mise task file parsing and command extraction
 ├── package_json.rs  # package.json script parsing and command extraction
+├── tracking.rs      # PreToolUse→PostToolUse correlation (15min TTL)
+├── pending.rs       # Pending approval queue (JSONL format)
+├── patterns.rs      # Pattern suggestion algorithm
+├── post_tool_use.rs # PostToolUse handler
+├── settings_writer.rs # Write rules to Claude settings files
+├── tui/             # Interactive approval TUI
+│   ├── mod.rs       # Module exports
+│   ├── app.rs       # Application state and event loop
+│   └── ui.rs        # ratatui widget rendering
 └── gates/           # 12 specialized permission gates
     ├── mod.rs           # Gate registry
     ├── basics.rs        # Safe shell commands (echo, cat, ls, grep, etc.)
@@ -99,11 +117,11 @@ src/
 
 ## How It Works
 
-bash-gates handles two hook types with different flows:
+bash-gates handles three hook types with different flows:
 
 ### PreToolUse Flow
 
-1. **Input**: JSON from Claude Code's PreToolUse hook (includes `cwd`, `permission_mode`)
+1. **Input**: JSON from Claude Code's PreToolUse hook (includes `cwd`, `permission_mode`, `tool_use_id`)
 2. **Mise expansion**: If command is `mise run <task>` or `mise <task>`, expand to underlying commands
 3. **Package.json expansion**: If command is `npm run <script>`, `pnpm run <script>`, etc., expand to underlying command
 4. **Gate analysis**: Security checks (raw string patterns) + tree-sitter parsing + gate checks; strictest decision wins
@@ -113,7 +131,8 @@ bash-gates handles two hook types with different flows:
 8. **Accept Edits Mode**: If `permission_mode` is `acceptEdits` and command is file-editing within allowed directories, auto-allow
 9. **Settings ask/allow**: Check remaining settings.json rules
 10. **Hints**: For allowed commands, check if modern alternatives exist and add to `additionalContext`
-11. **Output**: JSON with `permissionDecision` (allow/ask/deny) and optional `additionalContext` (hints)
+11. **Track "ask" decisions**: If returning "ask", track command with `tool_use_id` for PostToolUse correlation
+12. **Output**: JSON with `permissionDecision` (allow/ask/deny) and optional `additionalContext` (hints + approval instructions)
 
 ### PermissionRequest Flow
 
@@ -148,6 +167,93 @@ Runs when Claude Code's internal checks decide to show a permission prompt. This
   }
 }
 ```
+
+### PostToolUse Flow
+
+Runs after a command completes. Used to detect successful execution and queue for permanent approval.
+
+1. **Input**: JSON with `hook_event_name: "PostToolUse"`, `tool_use_id`, `tool_response`
+2. **Lookup tracking**: Check if `tool_use_id` was tracked as an "ask" decision
+3. **If tracked + success**: Extract exit code from `tool_response`, if 0 (success), add to pending queue
+4. **Pending queue**: Appends to `~/.cache/bash-gates/pending.jsonl` (tracks project via `project_id` from transcript_path)
+5. **Output**: Currently empty (silent) to avoid cluttering Claude's context
+
+| Input Field | Description |
+|-------------|-------------|
+| `tool_use_id` | Unique ID to correlate with PreToolUse tracking |
+| `tool_response` | Command result including `exit_code`, `stdout`, `stderr` |
+
+## Approval System
+
+bash-gates learns from user-approved commands and can permanently save patterns to Claude Code settings.
+
+### How It Works
+
+```mermaid
+flowchart LR
+    subgraph PreToolUse
+        A[Gate check] -->|returns ask| B[Track in tracking.json]
+    end
+
+    subgraph PostToolUse
+        C[Lookup tracking.json] -->|is_success?| D[Append to pending.jsonl]
+    end
+
+    subgraph CLI Review
+        E[Load pending.jsonl] --> F[TUI: select pattern]
+        F --> G[Write to settings.json]
+    end
+
+    B -.->|correlate via tool_use_id| C
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `bash-gates pending list` | Show pending approvals with suggested patterns |
+| `bash-gates pending clear` | Clear pending queue |
+| `bash-gates review` | Interactive TUI for batch approval |
+| `bash-gates approve '<pattern>' -s <scope>` | Add allow rule directly |
+| `bash-gates rules list` | List all permission rules by scope |
+| `bash-gates rules remove '<pattern>' -s <scope>` | Remove a rule |
+
+### TUI (`bash-gates review`)
+
+```mermaid
+block-beta
+    columns 2
+    Header["bash-gates review (N pending)"]:2
+    Commands["Commands List\n• npm install\n• git push..."]:1
+    Detail["Command Detail\n─────────────\nPatterns: ● npm install* ○ npm*\nScope: [L]ocal [U]ser [P]roject"]:1
+    Footer["↑/↓ nav  Tab pattern  s scope  Enter approve  d skip  q quit"]:2
+```
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` or `j`/`k` | Navigate commands |
+| `Tab` or `1-9` | Select pattern |
+| `s` | Cycle scope (Local → User → Project) |
+| `Enter` or `a` | Approve with selected pattern |
+| `d` or `Delete` | Skip (remove from pending) |
+| `q` or `Esc` | Quit |
+
+### File Locations
+
+| File | Purpose |
+|------|---------|
+| `~/.cache/bash-gates/tracking.json` | Short-lived PreToolUse→PostToolUse correlation (15min TTL) |
+| `~/.cache/bash-gates/pending.jsonl` | Pending approval queue (all projects, filtered by `project_id`) |
+
+### Pattern Suggestions
+
+When a command returns "ask", bash-gates suggests patterns from most specific to most broad:
+
+| Example Command | Suggested Patterns |
+|-----------------|-------------------|
+| `npm install lodash` | `npm install lodash`, `npm install*`, `npm*` |
+| `cargo test` | `cargo test*`, `cargo*` |
+| `aws ec2 describe-instances` | `aws ec2 describe*`, `aws ec2*` |
 
 ## Mise Task Expansion (mise.rs)
 
@@ -340,22 +446,19 @@ bash-gates --tools-status
 
 bash-gates combines gate analysis with your Claude Code permission rules. Gate blocks take priority (dangerous commands always denied), then settings.json deny rules, then acceptEdits mode:
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Decision Flow                             │
-├─────────────────────────────────────────────────────────────┤
-│  1. Run bash-gates analysis first                           │
-│     └─ gate blocks  → deny directly (dangerous always blocked) │
-│  2. Load settings.json (all locations, merged)              │
-│  3. Check settings.json DENY rules                          │
-│     └─ matches deny  → deny directly                        │
-│  4. acceptEdits mode + file-editing command                 │
-│     └─ auto-allow (if not blocked or denied above)          │
-│  5. Check settings.json ask/allow rules                     │
-│     ├─ matches ask   → return ask (defer to CC)             │
-│     └─ matches allow → return allow                         │
-│  6. No settings match → use gate result (allow/ask)         │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A[Command received] --> B{Gate blocks?}
+    B -->|Yes| C[DENY - dangerous]
+    B -->|No| D[Load settings.json]
+    D --> E{Settings DENY match?}
+    E -->|Yes| F[DENY]
+    E -->|No| G{acceptEdits mode + file-edit?}
+    G -->|Yes| H[ALLOW - auto-approved]
+    G -->|No| I{Settings ASK/ALLOW match?}
+    I -->|matches ask| J[ASK - defer to Claude Code]
+    I -->|matches allow| K[ALLOW]
+    I -->|no match| L[Use gate result]
 ```
 
 ### Settings File Locations
@@ -854,6 +957,10 @@ For `&&`, `||`, `|`, `;` chains, **strictest decision wins**:
 - `serde` + `serde_json` - JSON serialization
 - `regex` - Pattern matching
 - `dirs` - Home directory detection for settings.json
+- `chrono` - Timestamp handling for tracking TTL
+- `fs2` - File locking for concurrent access
+- `uuid` - Unique IDs for pending approvals
+- `ratatui` + `crossterm` - Terminal UI for `bash-gates review`
 
 ## Claude Code Integration
 
@@ -910,12 +1017,22 @@ Add to `~/.claude/settings.json`:
           "timeout": 10
         }]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{
+          "type": "command",
+          "command": "/path/to/bash-gates",
+          "timeout": 10
+        }]
+      }
     ]
   }
 }
 ```
 
-**Note:** Both hooks use the same binary. bash-gates detects the hook type from `hook_event_name` in the input JSON and responds appropriately.
+**Note:** All three hooks use the same binary. bash-gates detects the hook type from `hook_event_name` in the input JSON and responds appropriately.
 
 ## Gemini CLI Integration
 

@@ -21,6 +21,7 @@ A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse
 
 | Feature                   | Description                                                                                            |
 | ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Approval Learning**     | Tracks approved commands and saves patterns to settings.json via TUI or CLI                            |
 | **Settings Integration**  | Respects your `settings.json` allow/deny/ask rules - won't bypass your explicit permissions            |
 | **Accept Edits Mode**     | Auto-allows file-editing commands (`sd`, `prettier --write`, etc.) when in acceptEdits mode            |
 | **Modern CLI Hints**      | Suggests modern alternatives (`bat`, `rg`, `fd`, etc.) via `additionalContext` for Claude to learn     |
@@ -43,7 +44,7 @@ flowchart TD
         direction TB
         PTU_CHECK[bash-gates check] --> PTU_DEC{Decision}
         PTU_DEC -->|dangerous| PTU_DENY[deny]
-        PTU_DEC -->|risky| PTU_ASK[ask]
+        PTU_DEC -->|risky| PTU_ASK[ask + track]
         PTU_DEC -->|safe| PTU_CTX{Context?}
         PTU_CTX -->|main session| PTU_ALLOW[allow ✓]
         PTU_CTX -->|subagent| PTU_IGNORED[ignored by Claude]
@@ -60,9 +61,26 @@ flowchart TD
         PR_DEC -->|dangerous| PR_DENY[deny]
         PR_DEC -->|risky| PR_PROMPT[show prompt]
     end
+
+    PTU_ASK --> EXEC[Command Executes]
+    PR_PROMPT --> USER_APPROVE[User Approves] --> EXEC
+
+    subgraph POST [PostToolUse Hook]
+        direction TB
+        POST_CHECK[check tracking] --> POST_DEC{Tracked + Success?}
+        POST_DEC -->|yes| PENDING[add to pending queue]
+        POST_DEC -->|no| POST_SKIP[skip]
+    end
+
+    EXEC --> POST
+    PENDING --> REVIEW[bash-gates review]
+    REVIEW --> SETTINGS[settings.json]
 ```
 
-**Why two hooks?** In subagents, PreToolUse's `allow` is ignored (security feature). PermissionRequest runs after Claude's internal checks decide to "ask", and its `allow` IS respected - enabling safe commands like `rg` to work in subagents.
+**Why three hooks?**
+- **PreToolUse**: Gates commands for main session, tracks "ask" decisions
+- **PermissionRequest**: Gates commands for subagents (where PreToolUse's `allow` is ignored)
+- **PostToolUse**: Detects successful execution, queues for permanent approval
 
 **Decision Priority:** `BLOCK > ASK > ALLOW > SKIP`
 
@@ -147,6 +165,33 @@ bash-gates --refresh-tools
 bash-gates --tools-status
 ```
 
+### Approval Learning
+
+When you approve commands (via Claude Code's permission prompt), bash-gates tracks them and lets you permanently save patterns to settings.json.
+
+```bash
+# After approving some commands, review pending approvals
+bash-gates pending list
+
+# Interactive TUI for batch approval
+bash-gates review
+
+# Or approve directly via CLI
+bash-gates approve 'npm install*' -s local
+bash-gates approve 'cargo*' -s user
+
+# Manage existing rules
+bash-gates rules list
+bash-gates rules remove 'pattern' -s local
+```
+
+**Scopes:**
+| Scope | File | Use case |
+|-------|------|----------|
+| `local` | `.claude/settings.local.json` | Personal project overrides (not committed) |
+| `user` | `~/.claude/settings.json` | Global personal use |
+| `project` | `.claude/settings.json` | Share with team |
+
 ---
 
 ## Installation
@@ -214,9 +259,10 @@ bash-gates hooks json
 | `project` | `.claude/settings.json` | Share with team |
 | `local` | `.claude/settings.local.json` | Personal project overrides |
 
-**Both hooks are required:**
-- `PreToolUse` - Handles command safety for main session
-- `PermissionRequest` - Makes safe commands work in subagents (where PreToolUse's allow is ignored)
+**All three hooks are installed:**
+- `PreToolUse` - Gates commands for main session, tracks "ask" decisions
+- `PermissionRequest` - Gates commands for subagents (where PreToolUse's allow is ignored)
+- `PostToolUse` - Detects successful execution, queues for permanent approval
 
 <details>
 <summary>Manual installation</summary>
@@ -233,6 +279,12 @@ Add to `~/.claude/settings.json`:
       }
     ],
     "PermissionRequest": [
+      {
+        "matcher": "Bash",
+        "hooks": [{"type": "command", "command": "~/.local/bin/bash-gates", "timeout": 10}]
+      }
+    ],
+    "PostToolUse": [
       {
         "matcher": "Bash",
         "hooks": [{"type": "command", "command": "~/.local/bin/bash-gates", "timeout": 10}]
@@ -415,7 +467,7 @@ echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' | bash-gates
 
 ```
 src/
-├── main.rs           # Entry point
+├── main.rs           # Entry point, CLI commands
 ├── models.rs         # Types (HookInput, HookOutput, Decision)
 ├── parser.rs         # tree-sitter-bash AST parsing
 ├── router.rs         # Security checks + gate routing
@@ -424,6 +476,12 @@ src/
 ├── tool_cache.rs     # Tool availability cache for hints
 ├── mise.rs           # Mise task file parsing and command extraction
 ├── package_json.rs   # package.json script parsing and command extraction
+├── tracking.rs       # PreToolUse→PostToolUse correlation (5min TTL)
+├── pending.rs        # Pending approval queue (JSONL format)
+├── patterns.rs       # Pattern suggestion algorithm
+├── post_tool_use.rs  # PostToolUse handler
+├── settings_writer.rs # Write rules to Claude settings files
+├── tui/              # Interactive approval TUI (bash-gates review)
 └── gates/            # 12 specialized permission gates
     ├── basics.rs     # Safe commands (~130+)
     ├── beads.rs      # Beads issue tracker (bd) - github.com/steveyegge/beads

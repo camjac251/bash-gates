@@ -6,6 +6,14 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Sanitize a path to match Claude Code's project ID format.
+/// Replaces non-alphanumeric characters with `-`.
+fn sanitize_path(path: &str) -> String {
+    path.chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
 /// Permission decision types with priority: Block > Ask > Allow > Skip
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Decision {
@@ -109,6 +117,8 @@ pub struct HookInput {
     pub tool_name: String,
     #[serde(default)]
     pub tool_input: ToolInputVariant,
+    #[serde(default)]
+    pub tool_use_id: String,
 }
 
 /// Tool input can be either structured or a raw map
@@ -133,6 +143,25 @@ impl HookInput {
                 .to_string(),
             ToolInputVariant::Empty => String::new(),
         }
+    }
+
+    /// Extract stable project identifier from `transcript_path`.
+    ///
+    /// The transcript_path format is:
+    /// `~/.claude/projects/<sanitized-project-path>/<session>.jsonl`
+    ///
+    /// Returns the sanitized project path (e.g., "-home-user-projects-myapp")
+    /// which is stable across the session even if `cwd` changes.
+    pub fn project_id(&self) -> String {
+        // Parse: ~/.claude/projects/<project-id>/<session>.jsonl
+        if let Some(projects_idx) = self.transcript_path.find("/projects/") {
+            let after_projects = &self.transcript_path[projects_idx + 10..];
+            if let Some(slash_idx) = after_projects.find('/') {
+                return after_projects[..slash_idx].to_string();
+            }
+        }
+        // Fallback to sanitized cwd if transcript_path not available
+        sanitize_path(&self.cwd)
     }
 }
 
@@ -445,6 +474,95 @@ impl PermissionRequestOutput {
                     interrupt: Some(true),
                 },
             },
+        }
+    }
+}
+
+// === PostToolUse Hook Types ===
+
+/// Input received by `PostToolUse` hook
+#[derive(Debug, Deserialize, Default)]
+#[allow(dead_code)]
+pub struct PostToolUseInput {
+    #[serde(default)]
+    pub hook_event_name: String,
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub cwd: String,
+    #[serde(default)]
+    pub tool_name: String,
+    #[serde(default)]
+    pub tool_input: ToolInputVariant,
+    #[serde(default)]
+    pub tool_use_id: String,
+    /// Response from the tool execution
+    #[serde(default)]
+    pub tool_response: Option<serde_json::Value>,
+}
+
+impl PostToolUseInput {
+    /// Extract command string from `tool_input`
+    pub fn get_command(&self) -> String {
+        match &self.tool_input {
+            ToolInputVariant::Structured(ti) => ti.command.clone(),
+            ToolInputVariant::Map(m) => m
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            ToolInputVariant::Empty => String::new(),
+        }
+    }
+
+    /// Check if the tool response indicates success
+    pub fn is_success(&self) -> bool {
+        self.tool_response
+            .as_ref()
+            .and_then(|r| {
+                // Check for exit_code field (Bash tool response)
+                r.get("exit_code")
+                    .or_else(|| r.get("exitCode"))
+                    .and_then(|c| c.as_i64())
+                    .map(|c| c == 0)
+            })
+            .unwrap_or(false)
+    }
+}
+
+/// Hook-specific output for `PostToolUse`
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostToolUseSpecificOutput {
+    pub hook_event_name: String,
+    /// Additional context to inject into Claude's conversation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additional_context: Option<String>,
+}
+
+/// Output format for PostToolUse hooks
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostToolUseOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_specific_output: Option<PostToolUseSpecificOutput>,
+}
+
+impl PostToolUseOutput {
+    /// Return empty output (no action needed)
+    pub fn none() -> Self {
+        Self {
+            hook_specific_output: None,
+        }
+    }
+
+    /// Return output with additional context
+    pub fn with_context(context: &str) -> Self {
+        Self {
+            hook_specific_output: Some(PostToolUseSpecificOutput {
+                hook_event_name: "PostToolUse".to_string(),
+                additional_context: Some(context.to_string()),
+            }),
         }
     }
 }
