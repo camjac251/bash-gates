@@ -43,7 +43,7 @@ uuid = { version = "1", features = ["v4"] }
 
 # TUI for interactive review
 ratatui = "0.30"
-crossterm = "0.28"
+crossterm = "0.29"
 
 [dev-dependencies]
 proptest = "1"  # Property-based/fuzz testing
