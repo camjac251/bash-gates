@@ -36,10 +36,17 @@ impl Scope {
 
     pub fn path(&self) -> PathBuf {
         match self {
-            Self::User => dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".claude")
-                .join("settings.json"),
+            Self::User => {
+                // Check CLAUDE_CONFIG_DIR env var first, fall back to ~/.claude
+                let config_dir = std::env::var("CLAUDE_CONFIG_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| {
+                        dirs::home_dir()
+                            .unwrap_or_else(|| PathBuf::from("."))
+                            .join(".claude")
+                    });
+                config_dir.join("settings.json")
+            }
             Self::Project | Self::Local => {
                 // Resolve to absolute path at call time to avoid issues if cwd changes
                 let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -50,6 +57,19 @@ impl Scope {
                 };
                 cwd.join(".claude").join(filename)
             }
+        }
+    }
+
+    /// Get the settings file path for a specific project directory
+    pub fn path_for_project(&self, project_path: &str) -> PathBuf {
+        match self {
+            Self::User => self.path(), // User scope ignores project
+            Self::Project => PathBuf::from(project_path)
+                .join(".claude")
+                .join("settings.json"),
+            Self::Local => PathBuf::from(project_path)
+                .join(".claude")
+                .join("settings.local.json"),
         }
     }
 }
@@ -99,8 +119,14 @@ fn with_exclusive_settings<F, R>(scope: Scope, f: F) -> std::io::Result<R>
 where
     F: FnOnce(&mut Value) -> R,
 {
-    let path = scope.path();
+    with_exclusive_settings_path(&scope.path(), f)
+}
 
+/// Atomically modify settings at a specific path
+fn with_exclusive_settings_path<F, R>(path: &PathBuf, f: F) -> std::io::Result<R>
+where
+    F: FnOnce(&mut Value) -> R,
+{
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -112,7 +138,7 @@ where
         .write(true)
         .create(true)
         .truncate(false)
-        .open(&path)?;
+        .open(path)?;
 
     #[allow(clippy::incompatible_msrv)] // fs2 crate method, not std
     file.lock_exclusive()?;
@@ -131,7 +157,7 @@ where
     // Execute the modification function
     let result = f(&mut settings);
 
-    // Write back - truncate and seek to start
+    // Write back
     file.set_len(0)?;
     file.seek(std::io::SeekFrom::Start(0))?;
 
@@ -179,6 +205,46 @@ pub fn add_rule(scope: Scope, pattern: &str, rule_type: RuleType) -> std::io::Re
         let rules = permissions[rule_key].as_array_mut().unwrap();
 
         // Add the rule (we just removed any existing, so no need to check)
+        rules.push(json!(formatted));
+    })
+}
+
+/// Add a permission rule to a specific project's settings file
+pub fn add_rule_to_project(
+    scope: Scope,
+    project_path: &str,
+    pattern: &str,
+    rule_type: RuleType,
+) -> std::io::Result<()> {
+    let formatted = format_pattern(pattern);
+    let path = scope.path_for_project(project_path);
+
+    with_exclusive_settings_path(&path, |settings| {
+        // Ensure permissions object exists
+        if settings.get("permissions").is_none() {
+            settings["permissions"] = json!({});
+        }
+
+        let permissions = settings.get_mut("permissions").unwrap();
+
+        // Remove from ALL rule arrays to prevent conflicts
+        for other_type in ["allow", "ask", "deny"] {
+            if let Some(arr) = permissions
+                .get_mut(other_type)
+                .and_then(|v| v.as_array_mut())
+            {
+                arr.retain(|r| r.as_str() != Some(&formatted));
+            }
+        }
+
+        let rule_key = rule_type.as_str();
+
+        // Ensure the rule array exists
+        if permissions.get(rule_key).is_none() {
+            permissions[rule_key] = json!([]);
+        }
+
+        let rules = permissions[rule_key].as_array_mut().unwrap();
         rules.push(json!(formatted));
     })
 }
@@ -301,5 +367,21 @@ mod tests {
         assert_eq!(Scope::parse("project"), Some(Scope::Project));
         assert_eq!(Scope::parse("local"), Some(Scope::Local));
         assert_eq!(Scope::parse("invalid"), None);
+    }
+
+    #[test]
+    fn test_user_scope_respects_config_dir_env() {
+        let temp_dir = TempDir::new().unwrap();
+        let custom_path = temp_dir.path().to_string_lossy().to_string();
+
+        // Set the env var
+        unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", &custom_path) };
+
+        let path = Scope::User.path();
+        assert!(path.starts_with(temp_dir.path()));
+        assert!(path.ends_with("settings.json"));
+
+        // Clean up
+        unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
     }
 }

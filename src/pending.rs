@@ -241,6 +241,130 @@ pub fn pending_count(filter_project: Option<&str>) -> usize {
     read_pending(filter_project).len()
 }
 
+/// A group of similar commands across projects
+#[derive(Debug, Clone)]
+pub struct CommandGroup {
+    /// The base command pattern (e.g., "npm install")
+    pub base_command: String,
+    /// All pending entries in this group
+    pub entries: Vec<PendingApproval>,
+    /// Unique project paths that have this command
+    pub projects: Vec<String>,
+}
+
+impl CommandGroup {
+    /// Get the combined patterns from all entries (deduplicated)
+    pub fn patterns(&self) -> Vec<String> {
+        let mut patterns = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for entry in &self.entries {
+            for pattern in &entry.patterns {
+                if seen.insert(pattern.clone()) {
+                    patterns.push(pattern.clone());
+                }
+            }
+        }
+        patterns
+    }
+
+    /// Get total count across all entries
+    pub fn total_count(&self) -> u32 {
+        self.entries.iter().map(|e| e.count).sum()
+    }
+}
+
+/// Group pending approvals by base command
+pub fn group_pending(entries: Vec<PendingApproval>) -> Vec<CommandGroup> {
+    let mut groups: std::collections::HashMap<String, CommandGroup> =
+        std::collections::HashMap::new();
+
+    for entry in entries {
+        let base = extract_base_command(&entry.command);
+
+        let group = groups.entry(base.clone()).or_insert_with(|| CommandGroup {
+            base_command: base.clone(),
+            entries: Vec::new(),
+            projects: Vec::new(),
+        });
+
+        // Track unique projects
+        let project = expand_project_path(&entry.project_id);
+        if !group.projects.contains(&project) {
+            group.projects.push(project);
+        }
+
+        group.entries.push(entry);
+    }
+
+    let mut result: Vec<CommandGroup> = groups.into_values().collect();
+    // Sort by most recent first
+    result.sort_by(|a, b| {
+        let a_latest = a.entries.iter().map(|e| e.last_seen).max();
+        let b_latest = b.entries.iter().map(|e| e.last_seen).max();
+        b_latest.cmp(&a_latest)
+    });
+    result
+}
+
+/// Extract the base command (program + first subcommand) for grouping
+fn extract_base_command(command: &str) -> String {
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    match parts.len() {
+        0 => command.to_string(),
+        1 => parts[0].to_string(),
+        _ => {
+            // For package managers, include subcommand
+            let program = parts[0];
+            let subcmd = parts[1];
+            if [
+                "npm", "pnpm", "yarn", "bun", "cargo", "pip", "uv", "go", "mise", "git", "gh",
+                "docker", "kubectl",
+            ]
+            .contains(&program)
+            {
+                format!("{} {}", program, subcmd)
+            } else {
+                program.to_string()
+            }
+        }
+    }
+}
+
+/// Expand project_id back to a readable path
+pub fn expand_project_path(project_id: &str) -> String {
+    // project_id is like "-home-user-projects-myapp"
+    // Convert back to "/home/user/projects/myapp"
+    if project_id.starts_with('-') {
+        let path = project_id.replacen('-', "/", 1).replace('-', "/");
+        // Collapse home directory
+        if let Some(home) = dirs::home_dir() {
+            let home_str = home.to_string_lossy();
+            if path.starts_with(home_str.as_ref()) {
+                return path.replacen(home_str.as_ref(), "~", 1);
+            }
+        }
+        path
+    } else {
+        project_id.to_string()
+    }
+}
+
+/// Convert expanded path back to project_id format for matching
+pub fn collapse_project_path(path: &str) -> String {
+    let expanded = if path.starts_with('~') {
+        if let Some(home) = dirs::home_dir() {
+            path.replacen('~', &home.to_string_lossy(), 1)
+        } else {
+            path.to_string()
+        }
+    } else {
+        path.to_string()
+    };
+
+    // Convert /home/user/projects to -home-user-projects
+    expanded.replace('/', "-")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

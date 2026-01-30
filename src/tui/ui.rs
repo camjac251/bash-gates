@@ -1,6 +1,7 @@
 //! UI rendering for the review TUI.
 
-use super::app::App;
+use super::app::{App, Focus};
+use crate::pending::CommandGroup;
 use crate::settings_writer::Scope;
 use ratatui::{
     Frame,
@@ -26,7 +27,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
-    let title = format!(" bash-gates review ({} pending) ", app.entries.len());
+    let total = app.total_pending();
+    let groups = app.groups.len();
+    let title = format!(
+        " bash-gates review ({} commands in {} groups) ",
+        total, groups
+    );
 
     let header = Paragraph::new(Line::from(vec![Span::styled(
         title,
@@ -45,27 +51,27 @@ fn draw_main(f: &mut Frame, app: &mut App, area: Rect) {
         .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
         .split(area);
 
-    draw_entry_list(f, app, chunks[0]);
-    draw_entry_detail(f, app, chunks[1]);
+    draw_group_list(f, app, chunks[0]);
+    draw_group_detail(f, app, chunks[1]);
 }
 
-fn draw_entry_list(f: &mut Frame, app: &mut App, area: Rect) {
+fn draw_group_list(f: &mut Frame, app: &mut App, area: Rect) {
+    let is_focused = app.focus == Focus::CommandList;
+
     let items: Vec<ListItem> = app
-        .entries
+        .groups
         .iter()
         .enumerate()
-        .map(|(i, entry)| {
-            // Show project_id (already abbreviated from transcript_path)
-            let project_indicator = abbreviate_project_id(&entry.approval.project_id);
-
-            let cmd = if entry.approval.command.chars().count() > 35 {
-                let truncated: String = entry.approval.command.chars().take(32).collect();
+        .map(|(i, group)| {
+            // Show base command and project count
+            let cmd = if group.base_command.chars().count() > 30 {
+                let truncated: String = group.base_command.chars().take(27).collect();
                 format!("{}...", truncated)
             } else {
-                entry.approval.command.clone()
+                group.base_command.clone()
             };
 
-            let style = if i == app.selected {
+            let style = if i == app.selected_group {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
@@ -73,29 +79,42 @@ fn draw_entry_list(f: &mut Frame, app: &mut App, area: Rect) {
                 Style::default()
             };
 
-            let prefix = if i == app.selected { "▶ " } else { "  " };
+            let prefix = if i == app.selected_group {
+                "▶ "
+            } else {
+                "  "
+            };
+
+            let project_count = format!("({})", group.projects.len());
 
             ListItem::new(Line::from(vec![
                 Span::styled(prefix, style),
-                Span::styled(
-                    format!("[{}] ", project_indicator),
-                    Style::default().fg(Color::DarkGray),
-                ),
                 Span::styled(cmd, style),
+                Span::styled(" ", Style::default()),
+                Span::styled(project_count, Style::default().fg(Color::DarkGray)),
             ]))
         })
         .collect();
 
-    let list = List::new(items)
-        .block(Block::default().title(" Commands ").borders(Borders::ALL))
-        .highlight_style(Style::default()); // Already highlighted via our custom styling
+    let border_style = if is_focused {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default()
+    };
 
-    f.render_stateful_widget(list, area, &mut app.list_state.clone());
+    let list = List::new(items).block(
+        Block::default()
+            .title(" Commands ")
+            .borders(Borders::ALL)
+            .border_style(border_style),
+    );
+
+    f.render_stateful_widget(list, area, &mut app.list_state);
 }
 
-fn draw_entry_detail(f: &mut Frame, app: &App, area: Rect) {
-    let Some(entry) = app.current_entry() else {
-        let empty = Paragraph::new("No entry selected")
+fn draw_group_detail(f: &mut Frame, app: &App, area: Rect) {
+    let Some(group) = app.current_group() else {
+        let empty = Paragraph::new("No commands to review")
             .block(Block::default().title(" Details ").borders(Borders::ALL));
         f.render_widget(empty, area);
         return;
@@ -104,24 +123,56 @@ fn draw_entry_detail(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Command
-            Constraint::Min(5),    // Patterns
-            Constraint::Length(5), // Scope selection
-            Constraint::Length(3), // Message
+            Constraint::Length(3),                                        // Command
+            Constraint::Length(group.patterns().len().min(6) as u16 + 2), // Patterns
+            Constraint::Length(5),                                        // Scope selection
+            Constraint::Min(4),                                           // Projects
+            Constraint::Length(3),                                        // Message
         ])
         .split(area);
 
     // Command
-    let cmd_block = Paragraph::new(entry.approval.command.clone())
+    let example_cmd = group
+        .entries
+        .first()
+        .map(|e| e.command.as_str())
+        .unwrap_or(&group.base_command);
+
+    let cmd_block = Paragraph::new(example_cmd.to_string())
         .style(Style::default().fg(Color::White))
         .block(Block::default().title(" Command ").borders(Borders::ALL))
         .wrap(Wrap { trim: false });
     f.render_widget(cmd_block, chunks[0]);
 
     // Patterns
-    let pattern_items: Vec<ListItem> = entry
-        .approval
-        .patterns
+    draw_patterns_section(f, app, group, chunks[1]);
+
+    // Scope selection
+    draw_scope_section(f, app, chunks[2]);
+
+    // Projects
+    draw_projects_section(f, app, group, chunks[3]);
+
+    // Message
+    let msg_text = app.message.as_deref().unwrap_or("");
+    let msg_style = if msg_text.contains("Approved") {
+        Style::default().fg(Color::Green)
+    } else if msg_text.contains("Error") {
+        Style::default().fg(Color::Red)
+    } else {
+        Style::default().fg(Color::Yellow)
+    };
+
+    let msg_block = Paragraph::new(Span::styled(msg_text, msg_style))
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(msg_block, chunks[4]);
+}
+
+fn draw_patterns_section(f: &mut Frame, app: &App, group: &CommandGroup, area: Rect) {
+    let is_focused = app.focus == Focus::PatternList;
+    let patterns = group.patterns();
+
+    let pattern_items: Vec<ListItem> = patterns
         .iter()
         .enumerate()
         .map(|(i, pattern)| {
@@ -145,53 +196,129 @@ fn draw_entry_detail(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    let border_style = if is_focused {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default()
+    };
+
     let patterns_list = List::new(pattern_items).block(
         Block::default()
-            .title(" Patterns (Tab/1-9 to select) ")
-            .borders(Borders::ALL),
+            .title(" Patterns (1-9 to select) ")
+            .borders(Borders::ALL)
+            .border_style(border_style),
     );
-    f.render_widget(patterns_list, chunks[1]);
+    f.render_widget(patterns_list, area);
+}
 
-    // Scope selection
+fn draw_scope_section(f: &mut Frame, app: &App, area: Rect) {
+    let is_focused = app.focus == Focus::ScopeSelect;
+
     let scope_text = vec![
         Line::from(vec![
             Span::raw("Scope: "),
-            scope_span(Scope::Local, app.scope),
-            Span::raw(" "),
             scope_span(Scope::User, app.scope),
-            Span::raw(" "),
+            Span::raw("  "),
             scope_span(Scope::Project, app.scope),
+            Span::raw("  "),
+            scope_span(Scope::Local, app.scope),
         ]),
         Line::from(vec![Span::styled(
-            "Press 's' to change scope",
+            format!("Target: {}", app.target_path()),
             Style::default().fg(Color::DarkGray),
         )]),
     ];
 
-    let scope_block =
-        Paragraph::new(scope_text).block(Block::default().title(" Target ").borders(Borders::ALL));
-    f.render_widget(scope_block, chunks[2]);
-
-    // Message
-    let msg_text = app.message.as_deref().unwrap_or("");
-    let msg_style = if msg_text.starts_with('✓') {
-        Style::default().fg(Color::Green)
-    } else if msg_text.starts_with("Error") {
-        Style::default().fg(Color::Red)
+    let border_style = if is_focused {
+        Style::default().fg(Color::Cyan)
     } else {
-        Style::default().fg(Color::Yellow)
+        Style::default()
     };
 
-    let msg_block = Paragraph::new(Span::styled(msg_text, msg_style))
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(msg_block, chunks[3]);
+    let scope_block = Paragraph::new(scope_text).block(
+        Block::default()
+            .title(" Scope (u/p/l) ")
+            .borders(Borders::ALL)
+            .border_style(border_style),
+    );
+    f.render_widget(scope_block, area);
+}
+
+fn draw_projects_section(f: &mut Frame, app: &App, group: &CommandGroup, area: Rect) {
+    let is_focused = app.focus == Focus::ProjectList;
+    let show_projects = app.scope != Scope::User;
+
+    if !show_projects || group.projects.is_empty() {
+        let text = if app.scope == Scope::User {
+            "Applies to all projects (global)"
+        } else {
+            "No projects"
+        };
+
+        let block = Paragraph::new(text)
+            .style(Style::default().fg(Color::DarkGray))
+            .block(Block::default().title(" Projects ").borders(Borders::ALL));
+        f.render_widget(block, area);
+        return;
+    }
+
+    let items: Vec<ListItem> = group
+        .projects
+        .iter()
+        .enumerate()
+        .map(|(i, project)| {
+            let is_checked = app.selected_projects.contains(&i);
+            let checkbox = if is_checked { "[x]" } else { "[ ]" };
+            let checkbox_style = if is_checked {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            // Truncate long paths (char-safe for UTF-8)
+            let display_path = if project.chars().count() > 40 {
+                let suffix: String = project
+                    .chars()
+                    .rev()
+                    .take(37)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect();
+                format!("...{}", suffix)
+            } else {
+                project.clone()
+            };
+
+            ListItem::new(Line::from(vec![
+                Span::styled(checkbox, checkbox_style),
+                Span::styled(" ", Style::default()),
+                Span::styled(display_path, Style::default()),
+            ]))
+        })
+        .collect();
+
+    let border_style = if is_focused {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default()
+    };
+
+    let title = format!(" Projects ({} selected) ", app.selected_projects.len());
+    let list = List::new(items).block(
+        Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(border_style),
+    );
+    f.render_widget(list, area);
 }
 
 fn scope_span(scope: Scope, current: Scope) -> Span<'static> {
     let text = match scope {
-        Scope::Local => "[L]ocal",
         Scope::User => "[U]ser",
         Scope::Project => "[P]roject",
+        Scope::Local => "[L]ocal",
     };
 
     if scope == current {
@@ -208,13 +335,15 @@ fn scope_span(scope: Scope, current: Scope) -> Span<'static> {
 
 fn draw_footer(f: &mut Frame, _app: &App, area: Rect) {
     let help_text = Line::from(vec![
+        Span::styled("Tab", Style::default().fg(Color::Yellow)),
+        Span::raw(" focus  "),
         Span::styled("↑/↓", Style::default().fg(Color::Yellow)),
         Span::raw(" nav  "),
-        Span::styled("Tab", Style::default().fg(Color::Yellow)),
+        Span::styled("1-9", Style::default().fg(Color::Yellow)),
         Span::raw(" pattern  "),
-        Span::styled("s", Style::default().fg(Color::Yellow)),
+        Span::styled("u/p/l", Style::default().fg(Color::Yellow)),
         Span::raw(" scope  "),
-        Span::styled("Enter/a", Style::default().fg(Color::Green)),
+        Span::styled("Enter", Style::default().fg(Color::Green)),
         Span::raw(" approve  "),
         Span::styled("d", Style::default().fg(Color::Red)),
         Span::raw(" skip  "),
@@ -225,17 +354,4 @@ fn draw_footer(f: &mut Frame, _app: &App, area: Rect) {
     let footer = Paragraph::new(help_text).block(Block::default().borders(Borders::ALL));
 
     f.render_widget(footer, area);
-}
-
-/// Abbreviate a project_id for display
-/// The project_id format is like "-home-user-projects-myapp"
-/// We extract the last segment (after the last dash that follows a letter)
-fn abbreviate_project_id(project_id: &str) -> String {
-    // Project ID is sanitized path like "-home-user-projects-myapp"
-    // Find last meaningful segment
-    project_id
-        .rsplit('-')
-        .find(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| project_id.to_string())
 }

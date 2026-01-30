@@ -75,8 +75,13 @@ impl Settings {
         let mut merged = Settings::default();
 
         // 4. User settings (~/.claude/settings.json) - lowest priority
-        if let Some(home) = dirs::home_dir() {
-            let user_path = home.join(".claude/settings.json");
+        // Check CLAUDE_CONFIG_DIR env var first, fall back to ~/.claude
+        let user_config_dir = std::env::var("CLAUDE_CONFIG_DIR")
+            .map(PathBuf::from)
+            .ok()
+            .or_else(|| dirs::home_dir().map(|h| h.join(".claude")));
+        if let Some(config_dir) = user_config_dir {
+            let user_path = config_dir.join("settings.json");
             if let Ok(s) = Self::load_file(&user_path) {
                 merged.merge(s);
             }

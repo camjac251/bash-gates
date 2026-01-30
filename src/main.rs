@@ -306,15 +306,22 @@ fn generate_hooks_json(binary_path: &str) -> serde_json::Value {
 }
 
 /// Get the settings file path based on scope
-/// - "user" → ~/.claude/settings.json (global user settings)
+/// - "user" → ~/.claude/settings.json (or CLAUDE_CONFIG_DIR/settings.json)
 /// - "project" → .claude/settings.json (committed, shared with team)
 /// - "local" → .claude/settings.local.json (not committed, user+project specific)
 fn get_settings_path(scope: &str) -> std::path::PathBuf {
     match scope {
-        "user" => dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".claude")
-            .join("settings.json"),
+        "user" => {
+            // Check CLAUDE_CONFIG_DIR env var first, fall back to ~/.claude
+            std::env::var("CLAUDE_CONFIG_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| {
+                    dirs::home_dir()
+                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                        .join(".claude")
+                })
+                .join("settings.json")
+        }
         "project" => std::path::PathBuf::from(".claude").join("settings.json"),
         "local" => std::path::PathBuf::from(".claude").join("settings.local.json"),
         _ => {
