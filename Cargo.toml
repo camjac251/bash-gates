@@ -42,7 +42,7 @@ fs2 = "0.4"
 uuid = { version = "1", features = ["v4"] }
 
 # TUI for interactive review
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = "0.28"
 
 [dev-dependencies]
