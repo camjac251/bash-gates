@@ -680,7 +680,8 @@ Handles ~50+ developer tools with write-flag detection:
   - `rubocop`/`standardrb`: safe, `-a`/`--auto-correct` asks
   - `patch`: `--dry-run` safe, otherwise asks
   - `clang-format`/`autopep8`: safe, `-i` asks
-- **Always ask**: `sd` (always writes), `watchexec` (runs commands), `dos2unix`/`unix2dos`, `dartfmt`, `elm-format`
+- **Safe in pipe mode, ask with file args**: `sd` (no file args = stdin→stdout filter; with files = in-place edit)
+- **Always ask**: `watchexec` (runs commands), `dos2unix`/`unix2dos`, `dartfmt`, `elm-format`
 
 ### package_managers.rs - Package Managers
 - **Allow**: `list`, `show`, `test`, `build`, `check`, `lint`, `dev`

@@ -1,7 +1,7 @@
 # Developer Tools Permission Gate
 #
 # Handles developer tools that can modify files:
-# - sd: Stream editor (always asks)
+# - sd: Stream editor (pipe mode safe, file args ask)
 # - sad: Search and replace with preview
 # - ast-grep: AST-based code search/rewrite
 # - yq: YAML processor
@@ -25,17 +25,22 @@ description = "Developer tools permission gate"
 priority = 25
 
 # =============================================================================
-# SD (always asks - in-place editor)
+# SD (pipe mode safe, file args ask)
 # =============================================================================
 
 [[programs]]
 name = "sd"
 unknown_action = "ask"
 
-# sd is always a write operation
+# sd modifies files in-place when file args given, but reads stdin when piped
 [[programs.ask]]
 reason = "In-place text replacement"
 accept_edits_auto_allow = true
+
+[[custom_handlers]]
+program = "sd"
+handler = "check_sd"
+description = "sd without file args is a stdin→stdout pipe filter (safe); with file args it modifies in-place (ask)"
 
 # =============================================================================
 # SAD (preview mode safe, --commit asks)

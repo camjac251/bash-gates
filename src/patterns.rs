@@ -127,7 +127,7 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
 
         // sd (text replacement) - be careful, suggest exact or with args
         "sd" => {
-            // sd is always a write operation, suggest program-level
+            // sd with file args is a write operation, suggest program-level
             patterns.push("sd*".to_string());
         }
 
