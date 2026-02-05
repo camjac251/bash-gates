@@ -708,7 +708,8 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     if command_string.contains("xargs") {
         let dangerous_xargs = ["rm", "mv", "cp", "chmod", "chown", "dd", "shred"];
         for cmd in dangerous_xargs {
-            let pattern = format!(r"xargs\s+.*{cmd}|xargs\s+{cmd}");
+            // Use word boundaries to avoid matching substrings (e.g., "cp" in "mcpServers")
+            let pattern = format!(r"xargs\s+.*\b{cmd}\b|xargs\s+\b{cmd}\b");
             if let Ok(re) = Regex::new(&pattern) {
                 if re.is_match(command_string) {
                     return Some(HookOutput::ask(&format!("xargs piping to {cmd}")));
