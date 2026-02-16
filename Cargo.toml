@@ -30,7 +30,7 @@ serde_json = "1"
 regex = "1"
 
 # Rules
-toml = "0.9"
+toml = "1.0"
 
 # Time handling for tracking TTL
 chrono = { version = "0.4", features = ["serde"] }
@@ -51,7 +51,7 @@ tempfile = "3"  # Temporary directories for settings.json tests
 
 [build-dependencies]
 serde = { version = "1", features = ["derive"] }
-toml = "0.9"
+toml = "1.0"
 
 [profile.release]
 lto = true
