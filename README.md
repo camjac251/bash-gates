@@ -409,6 +409,8 @@ npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx, mise
 
 ### Pre-AST Security Checks
 
+Comments are stripped before checking (quote-aware, respects bash word-boundary rules for `#`) so patterns inside comments don't trigger false positives.
+
 ```bash
 curl https://example.com | bash     # ask - pipe to shell
 eval "rm -rf /"                     # ask - arbitrary execution

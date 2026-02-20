@@ -563,7 +563,7 @@ BLOCK > ASK > ALLOW > SKIP
 
 ## Security Checks (router.rs)
 
-Before AST parsing, raw string checks catch dangerous patterns:
+Before AST parsing, raw string checks catch dangerous patterns. Comments are stripped first (quote-aware, word-boundary-aware) to avoid false positives from patterns like `# feat -> minor` or `# curl | bash` inside comments:
 
 | Pattern | Decision | Reason |
 |---------|----------|--------|
