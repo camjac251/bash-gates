@@ -1721,21 +1721,46 @@ mod tests {
         use std::fs;
         use tempfile::TempDir;
 
+        /// Get a command that produces a gate hint on this system.
+        /// Returns (command, expected_hint_substring) or None if no hintable tools are installed.
+        fn find_hintable_command() -> Option<(&'static str, &'static str)> {
+            use crate::tool_cache::get_cache;
+            let cache = get_cache();
+            // grep -> rg/sg hint (rg must be installed)
+            if cache.is_available("rg") {
+                return Some(("grep -r pattern logs/", "rg"));
+            }
+            // cat -> bat hint
+            if cache.is_available("bat") {
+                return Some(("cat README.md", "bat"));
+            }
+            // find -> fd hint
+            if cache.is_available("fd") {
+                return Some(("find . -name '*.rs'", "fd"));
+            }
+            None
+        }
+
         #[test]
         fn test_settings_allow_preserves_gate_hint_context() {
+            let Some((command, hint_keyword)) = find_hintable_command() else {
+                // No modern tools installed on this system; skip test
+                eprintln!("SKIP: no modern CLI tools available for hint test");
+                return;
+            };
+
             let temp_dir = TempDir::new().unwrap();
             let claude_dir = temp_dir.path().join(".claude");
             fs::create_dir(&claude_dir).unwrap();
 
-            let settings_content = r#"{
-                "permissions": {
-                    "allow": ["Bash(grep:*)"]
-                }
-            }"#;
-            fs::write(claude_dir.join("settings.json"), settings_content).unwrap();
+            // Build a settings allow rule for the command's program
+            let program = command.split_whitespace().next().unwrap();
+            let settings_content =
+                format!(r#"{{"permissions":{{"allow":["Bash({program}:*)"]}}}}"#);
+            fs::write(claude_dir.join("settings.json"), &settings_content).unwrap();
 
             let cwd = temp_dir.path().to_str().unwrap();
-            let result = check_command_with_settings("grep foo file.txt", cwd, "default");
+            let result = check_command_with_settings(command, cwd, "default");
 
             assert_eq!(get_decision(&result), "allow");
             assert!(
@@ -1745,26 +1770,28 @@ mod tests {
             );
             let context = get_context(&result).unwrap_or("");
             assert!(
-                context.contains("rg"),
-                "Expected modern-tool hint context to be preserved, got: {context}"
+                context.contains(hint_keyword),
+                "Expected hint containing '{hint_keyword}' to be preserved, got: {context}"
             );
         }
 
         #[test]
         fn test_settings_ask_preserves_gate_hint_context() {
+            let Some((command, hint_keyword)) = find_hintable_command() else {
+                eprintln!("SKIP: no modern CLI tools available for hint test");
+                return;
+            };
+
             let temp_dir = TempDir::new().unwrap();
             let claude_dir = temp_dir.path().join(".claude");
             fs::create_dir(&claude_dir).unwrap();
 
-            let settings_content = r#"{
-                "permissions": {
-                    "ask": ["Bash(grep:*)"]
-                }
-            }"#;
-            fs::write(claude_dir.join("settings.json"), settings_content).unwrap();
+            let program = command.split_whitespace().next().unwrap();
+            let settings_content = format!(r#"{{"permissions":{{"ask":["Bash({program}:*)"]}}}}"#);
+            fs::write(claude_dir.join("settings.json"), &settings_content).unwrap();
 
             let cwd = temp_dir.path().to_str().unwrap();
-            let result = check_command_with_settings("grep foo file.txt", cwd, "default");
+            let result = check_command_with_settings(command, cwd, "default");
 
             assert_eq!(get_decision(&result), "ask");
             assert!(
@@ -1774,8 +1801,8 @@ mod tests {
             );
             let context = get_context(&result).unwrap_or("");
             assert!(
-                context.contains("rg"),
-                "Expected modern-tool hint context to be preserved, got: {context}"
+                context.contains(hint_keyword),
+                "Expected hint containing '{hint_keyword}' to be preserved, got: {context}"
             );
         }
     }
