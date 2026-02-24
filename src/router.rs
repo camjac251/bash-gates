@@ -904,51 +904,6 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     None
 }
 
-/// Check a full command string and return the aggregate GateResult.
-/// This is used by PermissionRequest to re-check commands.
-pub fn check_command_result(command_string: &str) -> GateResult {
-    if command_string.trim().is_empty() {
-        return GateResult::allow();
-    }
-
-    // Check for patterns at the raw string level
-    if check_raw_string_patterns(command_string).is_some() {
-        return GateResult::ask("Raw string pattern requires approval");
-    }
-
-    // Parse the command into individual commands
-    let commands = extract_commands(command_string);
-
-    if commands.is_empty() {
-        return GateResult::allow();
-    }
-
-    // Get strictest result across all commands
-    let mut strictest = GateResult::skip();
-
-    for cmd in &commands {
-        let mut result = check_single_command(cmd);
-
-        // Convert Skip to Ask immediately (unknown commands need approval)
-        // This must happen before comparison so unknown commands in pipelines
-        // are properly flagged even when combined with allowed commands
-        if result.decision == Decision::Skip {
-            result = GateResult::ask(format!("Unknown command: {}", cmd.program));
-        }
-
-        if result.decision > strictest.decision {
-            strictest = result;
-        }
-
-        // Early return on Block
-        if strictest.decision == Decision::Block {
-            return strictest;
-        }
-    }
-
-    strictest
-}
-
 /// Check a single command against all gates.
 pub fn check_single_command(cmd: &crate::models::CommandInfo) -> GateResult {
     let mut strictest = GateResult::skip();

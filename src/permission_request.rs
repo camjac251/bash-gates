@@ -10,6 +10,8 @@
 //! - Pass through to show the normal permission prompt
 //!
 //! Key insight: PermissionRequest's `allow` IS respected for subagents, unlike PreToolUse.
+//! Note: `blocked_path` and `decision_reason` may be missing in real hook payloads,
+//! so this handler treats them as optional metadata.
 
 use crate::models::{Decision, HookOutput, PermissionRequestInput, PermissionRequestOutput};
 use crate::router::check_command_with_settings;
@@ -198,6 +200,22 @@ mod tests {
         input.tool_name = "Write".to_string();
         let result = handle_permission_request(&input);
         assert!(result.is_none(), "Should pass through for non-Bash tools");
+    }
+
+    #[test]
+    fn test_safe_command_without_path_metadata_approves_without_directory_update() {
+        let mut input = make_input("rg pattern file.txt", None);
+        input.blocked_path = None;
+        input.decision_reason = None;
+
+        let result = handle_permission_request(&input);
+        assert!(result.is_some(), "safe command should still be approved");
+
+        let json = serde_json::to_string(&result.unwrap()).unwrap();
+        assert!(
+            !json.contains("addDirectories"),
+            "should not add directory permissions when blocked_path is missing"
+        );
     }
 
     #[test]

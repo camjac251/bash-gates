@@ -349,8 +349,12 @@ pub struct PermissionRequestInput {
     #[serde(default)]
     pub permission_suggestions: Vec<PermissionSuggestion>,
     #[serde(default)]
+    /// Optional path that triggered the permission prompt.
+    /// May be absent depending on Claude Code version/runtime path.
     pub blocked_path: Option<String>,
     #[serde(default)]
+    /// Optional reason from Claude Code for why it prompted.
+    /// May be absent depending on Claude Code version/runtime path.
     pub decision_reason: Option<String>,
     #[serde(default)]
     pub tool_use_id: Option<String>,

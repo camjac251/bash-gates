@@ -43,4 +43,4 @@ pub mod tui;
 
 pub use models::{CommandInfo, Decision, GateResult};
 pub use permission_request::handle_permission_request;
-pub use router::{check_command, check_command_result, check_command_with_settings};
+pub use router::{check_command, check_command_with_settings};

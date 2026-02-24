@@ -82,6 +82,8 @@ flowchart TD
 - **PermissionRequest**: Gates commands for subagents (where PreToolUse's `allow` is ignored)
 - **PostToolUse**: Detects successful execution, queues for permanent approval
 
+> `PermissionRequest` metadata like `blocked_path` and `decision_reason` is optional in Claude Code payloads. bash-gates treats those fields as best-effort context, not required inputs.
+
 **Decision Priority:** `BLOCK > ASK > ALLOW > SKIP`
 
 | Decision  | Effect                      |
