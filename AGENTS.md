@@ -158,7 +158,7 @@ Runs when Claude Code's internal checks decide to show a permission prompt. This
     "hookEventName": "PermissionRequest",
     "decision": {
       "behavior": "allow",
-      "updated_permissions": [{
+      "updatedPermissions": [{
         "type": "addDirectories",
         "directories": ["/path/to/allow"],
         "destination": "session"
@@ -892,6 +892,11 @@ cargo test test_git_status_allows
 # Run only ignored (slow) tests
 cargo test -- --ignored
 ```
+
+### Test Rules
+
+- **CI portability**: Tests must not assume specific CLI tools (rg, bat, fd, etc.) are installed. CI runners have a minimal environment. If a test depends on tool availability, detect it at runtime and skip gracefully.
+- **Serde output verification**: Any struct or enum serialized to JSON for Claude Code must have a test asserting the exact field casing. The CLI expects camelCase (`updatedPermissions`, `hookEventName`). Use `serde_json::to_string` and assert key names to catch `rename_all` omissions.
 
 ### Manual Testing
 ```bash
