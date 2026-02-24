@@ -385,7 +385,7 @@ impl PermissionRequestInput {
 #[derive(Debug, Serialize)]
 #[serde(tag = "behavior")]
 pub enum PermissionRequestDecision {
-    #[serde(rename = "allow")]
+    #[serde(rename = "allow", rename_all = "camelCase")]
     Allow {
         #[serde(skip_serializing_if = "Option::is_none")]
         updated_input: Option<serde_json::Value>,
@@ -596,5 +596,31 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("allow"));
         assert!(json.contains("Read-only operation"));
+    }
+
+    #[test]
+    fn test_permission_request_allow_uses_camel_case() {
+        let output = PermissionRequestOutput::allow_with_directories(vec!["/tmp".to_string()]);
+        let json = serde_json::to_string(&output).unwrap();
+        assert!(
+            json.contains("updatedPermissions"),
+            "expected camelCase 'updatedPermissions', got: {json}"
+        );
+        assert!(
+            !json.contains("updated_permissions"),
+            "should not contain snake_case 'updated_permissions', got: {json}"
+        );
+    }
+
+    #[test]
+    fn test_permission_request_deny_uses_camel_case() {
+        let output = PermissionRequestOutput::deny_and_interrupt("dangerous");
+        let json = serde_json::to_string(&output).unwrap();
+        // 'message' and 'interrupt' are single words so casing doesn't matter,
+        // but 'hookEventName' from the wrapper must be camelCase
+        assert!(
+            json.contains("hookEventName"),
+            "expected camelCase 'hookEventName', got: {json}"
+        );
     }
 }
