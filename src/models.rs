@@ -358,6 +358,8 @@ pub struct PermissionRequestInput {
     pub agent_id: Option<String>,
     #[serde(default)]
     pub cwd: String,
+    #[serde(default)]
+    pub permission_mode: String,
 }
 
 impl PermissionRequestInput {

@@ -11,8 +11,8 @@
 //!
 //! Key insight: PermissionRequest's `allow` IS respected for subagents, unlike PreToolUse.
 
-use crate::models::{Decision, PermissionRequestInput, PermissionRequestOutput};
-use crate::router::check_command_result;
+use crate::models::{Decision, HookOutput, PermissionRequestInput, PermissionRequestOutput};
+use crate::router::check_command_with_settings;
 
 /// Reasons that indicate a path-based permission check (safe to override if command is safe)
 const PATH_BASED_REASONS: &[&str] = &[
@@ -40,7 +40,7 @@ fn is_path_based_reason(reason: &Option<String>) -> bool {
 ///
 /// Strategy:
 /// 1. If not a Bash tool, pass through (return None)
-/// 2. Re-check the command with our gates
+/// 2. Re-check command policy using the same settings-aware path as PreToolUse
 /// 3. If our gates say "allow" AND the reason is path-based, approve it
 /// 4. If our gates say "deny", deny it
 /// 5. Otherwise, pass through (return None to let normal prompt show)
@@ -57,10 +57,16 @@ pub fn handle_permission_request(
         return None;
     }
 
-    // Re-check the command with our gates
-    let gate_result = check_command_result(&command);
+    // Re-check policy using the same evaluator as PreToolUse to keep behavior aligned.
+    let mode = if input.permission_mode.is_empty() {
+        "default"
+    } else {
+        input.permission_mode.as_str()
+    };
+    let policy_output = check_command_with_settings(&command, &input.cwd, mode);
+    let (decision, reason) = output_to_decision(policy_output);
 
-    match gate_result.decision {
+    match decision {
         Decision::Allow => {
             // Our gates say it's safe. Check if this is a path-based restriction.
             if is_path_based_reason(&input.decision_reason) {
@@ -83,10 +89,9 @@ pub fn handle_permission_request(
         }
         Decision::Block => {
             // Our gates say it's dangerous - deny it
-            let reason = gate_result
-                .reason
-                .unwrap_or_else(|| "Blocked by bash-gates".to_string());
-            Some(PermissionRequestOutput::deny(&reason))
+            Some(PermissionRequestOutput::deny(
+                &reason.unwrap_or_else(|| "Blocked by bash-gates".to_string()),
+            ))
         }
         Decision::Ask => {
             // Our gates want to ask - let the normal prompt show
@@ -100,6 +105,24 @@ pub fn handle_permission_request(
     }
 }
 
+fn output_to_decision(output: HookOutput) -> (Decision, Option<String>) {
+    if let Some(hso) = output.hook_specific_output {
+        let decision = match hso.permission_decision.as_str() {
+            "allow" => Decision::Allow,
+            "deny" => Decision::Block,
+            "ask" => Decision::Ask,
+            _ => Decision::Ask,
+        };
+        return (decision, hso.permission_decision_reason);
+    }
+
+    match output.decision.as_deref() {
+        Some("approve") => (Decision::Allow, None),
+        Some("block") => (Decision::Block, None),
+        _ => (Decision::Ask, None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,6 +132,8 @@ mod tests {
         PermissionRequestInput {
             hook_event_name: "PermissionRequest".to_string(),
             tool_name: "Bash".to_string(),
+            cwd: "/tmp".to_string(),
+            permission_mode: "default".to_string(),
             tool_input: ToolInputVariant::Map({
                 let mut map = serde_json::Map::new();
                 map.insert(
@@ -173,6 +198,48 @@ mod tests {
         input.tool_name = "Write".to_string();
         let result = handle_permission_request(&input);
         assert!(result.is_none(), "Should pass through for non-Bash tools");
+    }
+
+    #[test]
+    fn test_settings_allow_rule_approves() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let claude_dir = temp_dir.path().join(".claude");
+        fs::create_dir(&claude_dir).unwrap();
+        fs::write(
+            claude_dir.join("settings.json"),
+            r#"{"permissions":{"allow":["Bash(grep:*)"]}}"#,
+        )
+        .unwrap();
+
+        let mut input = make_input("grep foo file.txt", Some("Some other reason"));
+        input.cwd = temp_dir.path().to_string_lossy().to_string();
+
+        let result = handle_permission_request(&input);
+        assert!(result.is_some(), "settings allow should approve");
+    }
+
+    #[test]
+    fn test_settings_ask_rule_passes_through() {
+        use std::fs;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let claude_dir = temp_dir.path().join(".claude");
+        fs::create_dir(&claude_dir).unwrap();
+        fs::write(
+            claude_dir.join("settings.json"),
+            r#"{"permissions":{"ask":["Bash(grep:*)"]}}"#,
+        )
+        .unwrap();
+
+        let mut input = make_input("grep foo file.txt", Some("Some other reason"));
+        input.cwd = temp_dir.path().to_string_lossy().to_string();
+
+        let result = handle_permission_request(&input);
+        assert!(result.is_none(), "settings ask should pass through");
     }
 
     #[test]
