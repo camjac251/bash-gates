@@ -203,6 +203,10 @@ pub fn check_command_with_settings(
 
     // Run gate analysis first - blocks take priority
     let gate_result = check_command(command_string);
+    let gate_context = gate_result
+        .hook_specific_output
+        .as_ref()
+        .and_then(|o| o.additional_context.clone());
 
     // If gates block, deny directly (dangerous commands should never be deferred)
     if let Some(ref output) = gate_result.hook_specific_output {
@@ -240,10 +244,19 @@ pub fn check_command_with_settings(
     match settings.check_command_excluding_deny(command_string) {
         SettingsDecision::Ask => {
             // User wants to be asked - defer to Claude Code
+            if let Some(context) = gate_context.as_deref() {
+                return HookOutput::ask_with_context("Matched settings.json ask rule", context);
+            }
             return HookOutput::ask("Matched settings.json ask rule");
         }
         SettingsDecision::Allow => {
             // User explicitly allows - return allow immediately
+            if let Some(context) = gate_context.as_deref() {
+                return HookOutput::allow_with_context(
+                    Some("Matched settings.json allow rule"),
+                    context,
+                );
+            }
             return HookOutput::allow(Some("Matched settings.json allow rule"));
         }
         SettingsDecision::Deny => {
@@ -1277,6 +1290,13 @@ mod tests {
             .unwrap_or("")
     }
 
+    fn get_context(result: &HookOutput) -> Option<&str> {
+        result
+            .hook_specific_output
+            .as_ref()
+            .and_then(|o| o.additional_context.as_deref())
+    }
+
     // === Accept Edits Mode ===
 
     mod accept_edits_mode {
@@ -1737,6 +1757,70 @@ mod tests {
             assert!(
                 get_reason(&result).contains("acceptEdits"),
                 "Should be auto-allowed by acceptEdits"
+            );
+        }
+    }
+
+    mod settings_context_preservation {
+        use super::*;
+        use std::fs;
+        use tempfile::TempDir;
+
+        #[test]
+        fn test_settings_allow_preserves_gate_hint_context() {
+            let temp_dir = TempDir::new().unwrap();
+            let claude_dir = temp_dir.path().join(".claude");
+            fs::create_dir(&claude_dir).unwrap();
+
+            let settings_content = r#"{
+                "permissions": {
+                    "allow": ["Bash(grep:*)"]
+                }
+            }"#;
+            fs::write(claude_dir.join("settings.json"), settings_content).unwrap();
+
+            let cwd = temp_dir.path().to_str().unwrap();
+            let result = check_command_with_settings("grep foo file.txt", cwd, "default");
+
+            assert_eq!(get_decision(&result), "allow");
+            assert!(
+                get_reason(&result).contains("settings.json allow"),
+                "Expected settings allow reason, got: {}",
+                get_reason(&result)
+            );
+            let context = get_context(&result).unwrap_or("");
+            assert!(
+                context.contains("rg"),
+                "Expected modern-tool hint context to be preserved, got: {context}"
+            );
+        }
+
+        #[test]
+        fn test_settings_ask_preserves_gate_hint_context() {
+            let temp_dir = TempDir::new().unwrap();
+            let claude_dir = temp_dir.path().join(".claude");
+            fs::create_dir(&claude_dir).unwrap();
+
+            let settings_content = r#"{
+                "permissions": {
+                    "ask": ["Bash(grep:*)"]
+                }
+            }"#;
+            fs::write(claude_dir.join("settings.json"), settings_content).unwrap();
+
+            let cwd = temp_dir.path().to_str().unwrap();
+            let result = check_command_with_settings("grep foo file.txt", cwd, "default");
+
+            assert_eq!(get_decision(&result), "ask");
+            assert!(
+                get_reason(&result).contains("settings.json ask"),
+                "Expected settings ask reason, got: {}",
+                get_reason(&result)
+            );
+            let context = get_context(&result).unwrap_or("");
+            assert!(
+                context.contains("rg"),
+                "Expected modern-tool hint context to be preserved, got: {context}"
             );
         }
     }
