@@ -148,7 +148,8 @@ When Claude uses legacy commands, bash-gates suggests modern alternatives via `a
 | Legacy Command | Modern Alternative | Benefit |
 |----------------|-------------------|---------|
 | `cat`, `head`, `tail`, `less` | `bat` | Syntax highlighting, line numbers |
-| `grep -r` | `rg` | Faster, respects .gitignore |
+| `grep` (code patterns) | `sg` | AST-aware code search (fewer false matches) |
+| `grep` (text/log/config) | `rg` | Faster, respects .gitignore |
 | `find` | `fd` | Simpler syntax, faster |
 | `ls -la` | `eza` | Git integration, icons |
 | `sed` | `sd` | Simpler syntax |

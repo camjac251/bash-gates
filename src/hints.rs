@@ -173,9 +173,41 @@ fn hint_tail(cmd: &CommandInfo) -> Option<ModernHint> {
 }
 
 fn hint_grep(cmd: &CommandInfo) -> Option<ModernHint> {
-    // Don't hint if already using rg or if it's a simple pipe case
     if cmd.args.is_empty() {
         return None;
+    }
+
+    // Extract non-flag args (pattern + targets) for context-aware hints.
+    let mut non_flag_args: Vec<&str> = Vec::new();
+    let mut iter = cmd.args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            // Flags with a following value
+            "-e" | "--regexp" | "-f" | "--file" => {
+                if let Some(value) = iter.next() {
+                    non_flag_args.push(value.as_str());
+                }
+            }
+            _ if !arg.starts_with('-') => non_flag_args.push(arg.as_str()),
+            _ => {}
+        }
+    }
+
+    let pattern = non_flag_args.first().copied().unwrap_or("");
+    let targets = if non_flag_args.len() > 1 {
+        &non_flag_args[1..]
+    } else {
+        &[]
+    };
+
+    let code_search =
+        looks_like_code_pattern(pattern) || targets.iter().any(|t| is_code_search_target(t));
+    if code_search {
+        return Some(ModernHint {
+            legacy_command: "grep",
+            modern_command: "sg",
+            hint: "Tip: For code syntax searches, prefer 'sg -p <pattern> <path>' (AST-aware). Use 'rg' for plain text/log/config search.".to_string(),
+        });
     }
 
     // Check for flags that rg handles better
@@ -204,23 +236,110 @@ fn hint_grep(cmd: &CommandInfo) -> Option<ModernHint> {
 }
 
 fn hint_find(cmd: &CommandInfo) -> ModernHint {
-    // Check for common patterns
-    let has_name = cmd.args.iter().any(|a| a == "-name" || a == "-iname");
-    let has_type = cmd.args.iter().any(|a| a == "-type");
+    // Check for common patterns and provide direct replacements.
+    let mut name_pattern: Option<&str> = None;
+    let mut type_filter: Option<&str> = None;
 
-    let hint = if has_name {
-        "Tip: Use 'fd <pattern>' - simpler syntax, respects .gitignore, much faster. Example: fd '*.rs' instead of find . -name '*.rs'"
-    } else if has_type {
-        "Tip: Use 'fd -t <type> <pattern>' - e.g., 'fd -t f' for files, 'fd -t d' for directories"
+    let mut iter = cmd.args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "-name" | "-iname" => {
+                if let Some(pattern) = iter.next() {
+                    name_pattern = Some(pattern);
+                }
+            }
+            "-type" => {
+                if let Some(kind) = iter.next() {
+                    type_filter = Some(kind);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let hint = if let Some(pattern) = name_pattern {
+        if let Some(kind) = type_filter {
+            format!(
+                "Tip: Use 'fd -t {} {} .' instead of 'find ... -type {} -name {}' (faster, simpler, .gitignore-aware)",
+                kind, pattern, kind, pattern
+            )
+        } else {
+            format!(
+                "Tip: Use 'fd {} .' instead of 'find ... -name {}' (faster, simpler, .gitignore-aware)",
+                pattern, pattern
+            )
+        }
+    } else if let Some(kind) = type_filter {
+        format!(
+            "Tip: Use 'fd -t {} .' instead of 'find ... -type {}' (faster, simpler, .gitignore-aware)",
+            kind, kind
+        )
     } else {
-        "Tip: Use 'fd <pattern>' for faster, simpler file finding with smart defaults"
+        "Tip: Use 'fd <pattern> <path>' for faster, simpler file finding with smart defaults"
+            .to_string()
     };
 
     ModernHint {
         legacy_command: "find",
         modern_command: "fd",
-        hint: hint.to_string(),
+        hint,
     }
+}
+
+fn is_code_search_target(target: &str) -> bool {
+    let lower = target
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_ascii_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+
+    const CODE_DIR_MARKERS: &[&str] = &[
+        "src", "lib", "app", "pkg", "cmd", "internal", "tests", "test", "spec", "crates",
+        "include", "examples",
+    ];
+    if CODE_DIR_MARKERS.iter().any(|marker| {
+        lower == *marker
+            || lower.starts_with(&format!("{marker}/"))
+            || lower.starts_with(&format!("./{marker}/"))
+            || lower.contains(&format!("/{marker}/"))
+    }) {
+        return true;
+    }
+
+    const CODE_EXTENSIONS: &[&str] = &[
+        ".rs", ".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".java", ".kt", ".kts", ".c", ".h",
+        ".cpp", ".hpp", ".cs", ".rb", ".php", ".swift", ".scala", ".sh", ".bash", ".zsh", ".sql",
+        ".yaml", ".yml", ".toml", ".json", ".md",
+    ];
+    CODE_EXTENSIONS.iter().any(|ext| lower.ends_with(ext))
+}
+
+fn looks_like_code_pattern(pattern: &str) -> bool {
+    let lower = pattern.to_ascii_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+
+    [
+        "function ",
+        "class ",
+        "import ",
+        "export ",
+        "def ",
+        "struct ",
+        "enum ",
+        "impl ",
+        "fn ",
+        "const ",
+        "let ",
+        "var ",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+        || lower.contains("::")
+        || lower.contains("=>")
+        || lower.contains("->")
 }
 
 fn hint_sed(cmd: &CommandInfo) -> Option<ModernHint> {
@@ -507,7 +626,7 @@ mod tests {
 
     #[test]
     fn test_grep_hint() {
-        let hint = hint_grep(&cmd("grep", &["-r", "pattern", "src/"]));
+        let hint = hint_grep(&cmd("grep", &["-r", "pattern", "logs/"]));
         assert!(hint.is_some());
         let hint = hint.unwrap();
         assert_eq!(hint.modern_command, "rg");
@@ -515,9 +634,24 @@ mod tests {
     }
 
     #[test]
+    fn test_grep_code_hint_prefers_sg() {
+        let hint = hint_grep(&cmd("grep", &["-r", "handleAuth(", "src/"]));
+        assert!(hint.is_some());
+        let hint = hint.unwrap();
+        assert_eq!(hint.modern_command, "sg");
+        assert!(hint.hint.contains("AST-aware"));
+    }
+
+    #[test]
     fn test_find_hint() {
         let hint = hint_find(&cmd("find", &[".", "-name", "*.rs"]));
-        assert!(hint.hint.contains("fd"));
+        assert!(hint.hint.contains("fd *.rs ."));
+    }
+
+    #[test]
+    fn test_find_hint_with_type_rewrite() {
+        let hint = hint_find(&cmd("find", &[".", "-type", "f", "-name", "*.rs"]));
+        assert!(hint.hint.contains("fd -t f *.rs ."));
     }
 
     #[test]

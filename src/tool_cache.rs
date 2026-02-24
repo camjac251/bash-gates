@@ -19,6 +19,7 @@ const MODERN_TOOLS: &[&str] = &[
     "bat", "batcat", // bat is sometimes installed as batcat on Debian/Ubuntu
     // Code search
     "rg", "ripgrep", // ripgrep - faster grep (may be installed as either)
+    "sg", "ast-grep", // ast-grep (often invoked as sg)
     // File finding
     "fd", "fdfind", // fd is sometimes fdfind on Debian/Ubuntu
     // File listing
@@ -77,6 +78,10 @@ impl ToolCache {
                 self.tools.get("rg").copied().unwrap_or(false)
                     || self.tools.get("ripgrep").copied().unwrap_or(false)
             }
+            "sg" => {
+                self.tools.get("sg").copied().unwrap_or(false)
+                    || self.tools.get("ast-grep").copied().unwrap_or(false)
+            }
             "tldr" => {
                 self.tools.get("tldr").copied().unwrap_or(false)
                     || self.tools.get("tealdeer").copied().unwrap_or(false)
@@ -97,6 +102,13 @@ impl ToolCache {
             .unwrap_or(0);
 
         now.saturating_sub(self.checked_at) < CACHE_TTL_SECS
+    }
+
+    /// Check if the cache contains entries for all known modern tools.
+    fn has_all_known_tools(&self) -> bool {
+        MODERN_TOOLS
+            .iter()
+            .all(|tool| self.tools.contains_key(*tool))
     }
 }
 
@@ -166,7 +178,7 @@ pub fn detect_tools() -> ToolCache {
 pub fn get_cache() -> ToolCache {
     // Try to load existing cache
     if let Some(cache) = load_cache() {
-        if cache.is_valid() {
+        if cache.is_valid() && cache.has_all_known_tools() {
             return cache;
         }
     }
@@ -247,13 +259,31 @@ mod tests {
     }
 
     #[test]
+    fn test_cache_completeness() {
+        let mut cache = ToolCache {
+            checked_at: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            ..Default::default()
+        };
+        cache.tools.insert("bat".to_string(), true);
+        assert!(
+            !cache.has_all_known_tools(),
+            "partial cache should be considered incomplete"
+        );
+    }
+
+    #[test]
     fn test_tool_aliases() {
         let mut cache = ToolCache::default();
         cache.tools.insert("batcat".to_string(), true);
         cache.tools.insert("fdfind".to_string(), true);
+        cache.tools.insert("ast-grep".to_string(), true);
 
         assert!(cache.is_available("bat"), "bat alias should work");
         assert!(cache.is_available("fd"), "fd alias should work");
+        assert!(cache.is_available("sg"), "sg alias should work");
         assert!(
             !cache.is_available("rg"),
             "missing tool should return false"
