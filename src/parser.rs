@@ -157,7 +157,7 @@ fn extract_command(cursor: &mut TreeCursor, source: &str) -> Option<CommandInfo>
         loop {
             let child = cursor.node();
             match child.kind() {
-                "word" | "simple_expansion" => {
+                "word" | "simple_expansion" | "number" => {
                     if let Ok(text) = child.utf8_text(source.as_bytes()) {
                         parts.push(text.to_string());
                     }
@@ -473,6 +473,22 @@ mod tests {
         let cmds = extract_commands("echo hello # this is a comment");
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].program, "echo");
+    }
+
+    #[test]
+    fn test_numeric_arguments_preserved_head() {
+        let cmds = extract_commands("head -n 10 file.txt");
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].program, "head");
+        assert_eq!(cmds[0].args, vec!["-n", "10", "file.txt"]);
+    }
+
+    #[test]
+    fn test_numeric_arguments_preserved_tail() {
+        let cmds = extract_commands("tail -n 20 file.txt");
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].program, "tail");
+        assert_eq!(cmds[0].args, vec!["-n", "20", "file.txt"]);
     }
 
     #[test]
