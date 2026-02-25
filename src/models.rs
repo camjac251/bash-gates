@@ -521,18 +521,21 @@ impl PostToolUseInput {
         }
     }
 
-    /// Check if the tool response indicates success
+    /// Check if the tool response indicates success.
+    ///
+    /// PostToolUse only fires for successful tool calls — failures trigger
+    /// the separate PostToolUseFailure event. So we default to `true` unless
+    /// an explicit non-zero exit code is present.
     pub fn is_success(&self) -> bool {
         self.tool_response
             .as_ref()
             .and_then(|r| {
-                // Check for exit_code field (Bash tool response)
                 r.get("exit_code")
                     .or_else(|| r.get("exitCode"))
                     .and_then(|c| c.as_i64())
                     .map(|c| c == 0)
             })
-            .unwrap_or(false)
+            .unwrap_or(true)
     }
 }
 

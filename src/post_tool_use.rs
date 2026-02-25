@@ -75,11 +75,23 @@ mod tests {
 
     #[test]
     fn test_is_success_with_no_response() {
+        // PostToolUse only fires for successful calls, so missing
+        // tool_response should default to success
         let input = PostToolUseInput {
             tool_response: None,
             ..Default::default()
         };
-        assert!(!input.is_success());
+        assert!(input.is_success());
+    }
+
+    #[test]
+    fn test_is_success_with_string_response() {
+        // Bash tool_response may be a plain string (stdout), not a JSON object
+        let input = PostToolUseInput {
+            tool_response: Some(json!("some command output")),
+            ..Default::default()
+        };
+        assert!(input.is_success());
     }
 
     #[test]
