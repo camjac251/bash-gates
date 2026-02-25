@@ -373,7 +373,7 @@ mod tests {
     fn test_pending_approval_creation() {
         let approval = PendingApproval::new(
             "npm install".to_string(),
-            vec!["npm install*".to_string()],
+            vec!["npm install:*".to_string()],
             vec![],
             "/tmp".to_string(),
             "session1".to_string(),

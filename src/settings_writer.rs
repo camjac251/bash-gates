@@ -351,13 +351,13 @@ mod tests {
 
     #[test]
     fn test_format_pattern() {
-        assert_eq!(format_pattern("npm install*"), "Bash(npm install*)");
+        assert_eq!(format_pattern("npm install:*"), "Bash(npm install:*)");
         assert_eq!(format_pattern("Bash(git*)"), "Bash(git*)");
     }
 
     #[test]
     fn test_parse_pattern() {
-        assert_eq!(parse_pattern("Bash(npm install*)"), "npm install*");
+        assert_eq!(parse_pattern("Bash(npm install:*)"), "npm install:*");
         assert_eq!(parse_pattern("git*"), "git*");
     }
 

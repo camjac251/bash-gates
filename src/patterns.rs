@@ -13,7 +13,7 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
     // Package managers - suggest subcommand-specific first
     match cmd.program.as_str() {
         "npm" | "pnpm" | "yarn" | "bun" => {
-            // npm run <script> → "npm run script", "npm run*", "npm*"
+            // npm run <script> → "npm run script", "npm run:*", "npm:*"
             if let Some(subcmd) = cmd.args.first() {
                 if subcmd == "run" || subcmd == "exec" {
                     if let Some(script) = cmd.args.get(1) {
@@ -21,40 +21,40 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
                         // For nested scripts like "test:unit", also suggest "test*" prefix
                         if let Some(prefix) = script.split(':').next() {
                             if prefix != script {
-                                patterns.push(format!("{} {} {}*", cmd.program, subcmd, prefix));
+                                patterns.push(format!("{} {} {}*", cmd.program, subcmd, prefix)); // glob: match test:unit, test:e2e etc.
                             }
                         }
                     }
-                    patterns.push(format!("{} {}*", cmd.program, subcmd));
+                    patterns.push(format!("{} {}:*", cmd.program, subcmd));
                 } else if subcmd == "install" || subcmd == "add" || subcmd == "remove" {
-                    // npm install <pkg> → "npm install pkg", "npm install*"
+                    // npm install <pkg> → "npm install pkg", "npm install:*"
                     if let Some(pkg) = cmd.args.get(1) {
                         if !pkg.starts_with('-') {
                             patterns.push(format!("{} {} {}", cmd.program, subcmd, pkg));
                         }
                     }
-                    patterns.push(format!("{} {}*", cmd.program, subcmd));
+                    patterns.push(format!("{} {}:*", cmd.program, subcmd));
                 } else {
-                    patterns.push(format!("{} {}*", cmd.program, subcmd));
+                    patterns.push(format!("{} {}:*", cmd.program, subcmd));
                 }
             }
-            patterns.push(format!("{}*", cmd.program));
+            patterns.push(format!("{}:*", cmd.program));
         }
 
         // Cargo - similar to package managers
         "cargo" => {
             if let Some(subcmd) = cmd.args.first() {
-                patterns.push(format!("cargo {}*", subcmd));
+                patterns.push(format!("cargo {}:*", subcmd));
             }
-            patterns.push("cargo*".to_string());
+            patterns.push("cargo:*".to_string());
         }
 
         // pip/uv/poetry
         "pip" | "pip3" | "uv" | "poetry" => {
             if let Some(subcmd) = cmd.args.first() {
-                patterns.push(format!("{} {}*", cmd.program, subcmd));
+                patterns.push(format!("{} {}:*", cmd.program, subcmd));
             }
-            patterns.push(format!("{}*", cmd.program));
+            patterns.push(format!("{}:*", cmd.program));
         }
 
         // mise tasks
@@ -63,12 +63,12 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
                 if let Some(task) = cmd.args.get(1) {
                     patterns.push(format!("mise run {}", task));
                 }
-                patterns.push("mise run*".to_string());
+                patterns.push("mise run:*".to_string());
             } else if let Some(task) = cmd.args.first() {
                 // mise <task> shorthand
                 patterns.push(format!("mise {}", task));
             }
-            patterns.push("mise*".to_string());
+            patterns.push("mise:*".to_string());
         }
 
         // Git - subcommand patterns
@@ -76,7 +76,7 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
             if let Some(subcmd) = cmd.args.first() {
                 // git commit with message patterns
                 if subcmd == "commit" || subcmd == "push" || subcmd == "pull" {
-                    patterns.push(format!("git {}*", subcmd));
+                    patterns.push(format!("git {}:*", subcmd));
                 }
                 // git checkout/switch with branch
                 else if subcmd == "checkout" || subcmd == "switch" {
@@ -85,9 +85,9 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
                             patterns.push(format!("git {} {}", subcmd, branch));
                         }
                     }
-                    patterns.push(format!("git {}*", subcmd));
+                    patterns.push(format!("git {}:*", subcmd));
                 } else {
-                    patterns.push(format!("git {}*", subcmd));
+                    patterns.push(format!("git {}:*", subcmd));
                 }
             }
             // Don't suggest "git*" - too broad for a version control system
@@ -95,17 +95,17 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
 
         // Cloud CLIs - be specific
         "aws" | "gcloud" | "az" | "kubectl" | "docker" | "terraform" | "pulumi" => {
-            // aws ec2 describe-instances → "aws ec2 describe*", "aws ec2*"
+            // aws ec2 describe-instances → "aws ec2 describe:*", "aws ec2:*"
             if cmd.args.len() >= 2 {
                 let service = &cmd.args[0];
                 let action = &cmd.args[1];
                 if action.contains('-') {
                     let prefix = action.split('-').next().unwrap_or(action);
-                    patterns.push(format!("{} {} {}*", cmd.program, service, prefix));
+                    patterns.push(format!("{} {} {}:*", cmd.program, service, prefix));
                 }
-                patterns.push(format!("{} {}*", cmd.program, service));
+                patterns.push(format!("{} {}:*", cmd.program, service));
             } else if let Some(subcmd) = cmd.args.first() {
-                patterns.push(format!("{} {}*", cmd.program, subcmd));
+                patterns.push(format!("{} {}:*", cmd.program, subcmd));
             }
         }
 
@@ -115,20 +115,20 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
                 if let Some(action) = cmd.args.get(1) {
                     patterns.push(format!("gh {} {}", subcmd, action));
                 }
-                patterns.push(format!("gh {}*", subcmd));
+                patterns.push(format!("gh {}:*", subcmd));
             }
-            patterns.push("gh*".to_string());
+            patterns.push("gh:*".to_string());
         }
 
         // Formatters/linters - suggest the tool name
         "prettier" | "eslint" | "biome" | "ruff" | "black" | "rustfmt" | "gofmt" | "shfmt" => {
-            patterns.push(format!("{}*", cmd.program));
+            patterns.push(format!("{}:*", cmd.program));
         }
 
         // sd (text replacement) - be careful, suggest exact or with args
         "sd" => {
             // sd with file args is a write operation, suggest program-level
-            patterns.push("sd*".to_string());
+            patterns.push("sd:*".to_string());
         }
 
         // curl/wget with specific patterns
@@ -140,17 +140,17 @@ pub fn suggest_patterns(cmd: &CommandInfo) -> Vec<String> {
                     patterns.push(format!("{} *{}*", cmd.program, domain));
                 }
             }
-            patterns.push(format!("{}*", cmd.program));
+            patterns.push(format!("{}:*", cmd.program));
         }
 
         // Default case - program + first subcommand if exists
         _ => {
             if let Some(first_arg) = cmd.args.first() {
                 if !first_arg.starts_with('-') {
-                    patterns.push(format!("{} {}*", cmd.program, first_arg));
+                    patterns.push(format!("{} {}:*", cmd.program, first_arg));
                 }
             }
-            patterns.push(format!("{}*", cmd.program));
+            patterns.push(format!("{}:*", cmd.program));
         }
     }
 
@@ -195,15 +195,15 @@ mod tests {
     fn test_npm_install_patterns() {
         let patterns = suggest_patterns(&cmd("npm", &["install", "lodash"]));
         assert!(patterns.contains(&"npm install lodash".to_string()));
-        assert!(patterns.contains(&"npm install*".to_string()));
-        assert!(patterns.contains(&"npm*".to_string()));
+        assert!(patterns.contains(&"npm install:*".to_string()));
+        assert!(patterns.contains(&"npm:*".to_string()));
     }
 
     #[test]
     fn test_npm_run_patterns() {
         let patterns = suggest_patterns(&cmd("npm", &["run", "test"]));
         assert!(patterns.contains(&"npm run test".to_string()));
-        assert!(patterns.contains(&"npm run*".to_string()));
+        assert!(patterns.contains(&"npm run:*".to_string()));
     }
 
     #[test]
@@ -211,29 +211,29 @@ mod tests {
         // Nested scripts like "test:unit" should suggest "test*" prefix pattern
         let patterns = suggest_patterns(&cmd("npm", &["run", "test:unit"]));
         assert!(patterns.contains(&"npm run test:unit".to_string()));
-        assert!(patterns.contains(&"npm run test*".to_string()));
-        assert!(patterns.contains(&"npm run*".to_string()));
+        assert!(patterns.contains(&"npm run test*".to_string())); // glob: match test:unit etc.
+        assert!(patterns.contains(&"npm run:*".to_string()));
     }
 
     #[test]
     fn test_mise_task_patterns() {
         let patterns = suggest_patterns(&cmd("mise", &["run", "lint"]));
         assert!(patterns.contains(&"mise run lint".to_string()));
-        assert!(patterns.contains(&"mise run*".to_string()));
+        assert!(patterns.contains(&"mise run:*".to_string()));
     }
 
     #[test]
     fn test_gh_patterns() {
         let patterns = suggest_patterns(&cmd("gh", &["pr", "create"]));
         assert!(patterns.contains(&"gh pr create".to_string()));
-        assert!(patterns.contains(&"gh pr*".to_string()));
+        assert!(patterns.contains(&"gh pr:*".to_string()));
     }
 
     #[test]
     fn test_aws_patterns() {
         let patterns = suggest_patterns(&cmd("aws", &["ec2", "describe-instances"]));
-        assert!(patterns.contains(&"aws ec2 describe*".to_string()));
-        assert!(patterns.contains(&"aws ec2*".to_string()));
+        assert!(patterns.contains(&"aws ec2 describe:*".to_string()));
+        assert!(patterns.contains(&"aws ec2:*".to_string()));
     }
 
     #[test]

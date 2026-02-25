@@ -629,7 +629,7 @@ fn print_main_help() {
     eprintln!();
     eprintln!("EXAMPLES:");
     eprintln!("  bash-gates hooks add -s user          # Install hooks");
-    eprintln!("  bash-gates approve 'npm*' -s local    # Allow npm commands");
+    eprintln!("  bash-gates approve 'npm:*' -s local   # Allow npm commands");
     eprintln!("  bash-gates rules list                 # Show all rules");
     eprintln!("  bash-gates pending list               # Show pending approvals");
     eprintln!();
@@ -772,7 +772,7 @@ fn print_approve_help() {
     eprintln!("  bash-gates approve <pattern> -s <scope> [--type <type>] [--dry-run]");
     eprintln!();
     eprintln!("ARGUMENTS:");
-    eprintln!("  <pattern>   Command pattern to approve (e.g., 'npm install*', 'git*')");
+    eprintln!("  <pattern>   Command pattern to approve (e.g., 'npm install:*', 'git:*')");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  -s, --scope <scope>   Target scope: user, project, or local (required)");
@@ -780,10 +780,10 @@ fn print_approve_help() {
     eprintln!("  -n, --dry-run         Preview changes without writing");
     eprintln!();
     eprintln!("EXAMPLES:");
-    eprintln!("  bash-gates approve 'npm install*' -s local");
-    eprintln!("  bash-gates approve 'biome*' -s user");
+    eprintln!("  bash-gates approve 'npm install:*' -s local");
+    eprintln!("  bash-gates approve 'biome:*' -s user");
     eprintln!("  bash-gates approve 'rm -rf*' -s user -t deny");
-    eprintln!("  bash-gates approve 'cargo*' -s local --dry-run");
+    eprintln!("  bash-gates approve 'cargo:*' -s local --dry-run");
 }
 
 // === Rules subcommand ===

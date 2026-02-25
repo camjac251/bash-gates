@@ -255,7 +255,7 @@ mod tests {
     fn test_tracked_command_expiry() {
         let cmd = TrackedCommand::new(
             "npm install".to_string(),
-            vec!["npm install*".to_string()],
+            vec!["npm install:*".to_string()],
             vec![],
             "/tmp".to_string(),
             "session1".to_string(),
@@ -271,7 +271,7 @@ mod tests {
 
             let cmd = TrackedCommand::new(
                 "npm install".to_string(),
-                vec!["npm install*".to_string()],
+                vec!["npm install:*".to_string()],
                 vec![],
                 "/tmp".to_string(),
                 "session1".to_string(),
