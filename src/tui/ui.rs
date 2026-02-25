@@ -268,6 +268,7 @@ fn draw_projects_section(f: &mut Frame, app: &App, group: &CommandGroup, area: R
         .enumerate()
         .map(|(i, project)| {
             let is_checked = app.selected_projects.contains(&i);
+            let is_cursor = is_focused && i == app.project_cursor;
             let checkbox = if is_checked { "[x]" } else { "[ ]" };
             let checkbox_style = if is_checked {
                 Style::default().fg(Color::Green)
@@ -290,10 +291,20 @@ fn draw_projects_section(f: &mut Frame, app: &App, group: &CommandGroup, area: R
                 project.clone()
             };
 
+            let cursor_prefix = if is_cursor { "▶ " } else { "  " };
+            let path_style = if is_cursor {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
             ListItem::new(Line::from(vec![
+                Span::styled(cursor_prefix, path_style),
                 Span::styled(checkbox, checkbox_style),
                 Span::styled(" ", Style::default()),
-                Span::styled(display_path, Style::default()),
+                Span::styled(display_path, path_style),
             ]))
         })
         .collect();
@@ -343,6 +354,8 @@ fn draw_footer(f: &mut Frame, _app: &App, area: Rect) {
         Span::raw(" pattern  "),
         Span::styled("u/p/l", Style::default().fg(Color::Yellow)),
         Span::raw(" scope  "),
+        Span::styled("Space", Style::default().fg(Color::Yellow)),
+        Span::raw(" toggle  "),
         Span::styled("Enter", Style::default().fg(Color::Green)),
         Span::raw(" approve  "),
         Span::styled("d", Style::default().fg(Color::Red)),

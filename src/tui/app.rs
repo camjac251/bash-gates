@@ -46,6 +46,8 @@ pub struct App {
     pub message: Option<String>,
     /// List state for command list
     pub list_state: ListState,
+    /// Cursor position within the project list
+    pub project_cursor: usize,
 }
 
 impl App {
@@ -75,6 +77,7 @@ impl App {
             should_quit: false,
             message: None,
             list_state,
+            project_cursor: 0,
         }
     }
 
@@ -127,6 +130,7 @@ impl App {
             self.selected_group = (self.selected_group + 1) % self.groups.len();
             self.selected_pattern = 0;
             self.selected_projects = (0..self.groups[self.selected_group].projects.len()).collect();
+            self.project_cursor = 0;
             self.list_state.select(Some(self.selected_group));
         }
     }
@@ -140,6 +144,7 @@ impl App {
             };
             self.selected_pattern = 0;
             self.selected_projects = (0..self.groups[self.selected_group].projects.len()).collect();
+            self.project_cursor = 0;
             self.list_state.select(Some(self.selected_group));
         }
     }
@@ -174,7 +179,6 @@ impl App {
         };
     }
 
-    #[allow(dead_code)]
     pub fn toggle_project(&mut self, idx: usize) {
         if self.selected_projects.contains(&idx) {
             self.selected_projects.remove(&idx);
@@ -296,6 +300,7 @@ impl App {
             self.selected_group = self.groups.len().saturating_sub(1);
         }
         self.selected_pattern = 0;
+        self.project_cursor = 0;
         if let Some(group) = self.current_group() {
             self.selected_projects = (0..group.projects.len()).collect();
         } else {
@@ -327,6 +332,7 @@ impl App {
             self.selected_group = self.groups.len().saturating_sub(1);
         }
         self.selected_pattern = 0;
+        self.project_cursor = 0;
         if let Some(group) = self.current_group() {
             self.selected_projects = (0..group.projects.len()).collect();
         } else {
@@ -409,13 +415,30 @@ where
                             Focus::CommandList => app.next_group(),
                             Focus::PatternList => app.next_pattern(),
                             Focus::ProjectList => {
-                                // Move selection in project list (if we add cursor)
+                                if let Some(group) = app.current_group() {
+                                    let count = group.projects.len();
+                                    if count > 0 {
+                                        app.project_cursor = (app.project_cursor + 1) % count;
+                                    }
+                                }
                             }
                             _ => {}
                         },
                         KeyCode::Up | KeyCode::Char('k') => match app.focus {
                             Focus::CommandList => app.prev_group(),
                             Focus::PatternList => app.prev_pattern(),
+                            Focus::ProjectList => {
+                                if let Some(group) = app.current_group() {
+                                    let count = group.projects.len();
+                                    if count > 0 {
+                                        app.project_cursor = if app.project_cursor == 0 {
+                                            count - 1
+                                        } else {
+                                            app.project_cursor - 1
+                                        };
+                                    }
+                                }
+                            }
                             _ => {}
                         },
                         // Focus switching
@@ -438,7 +461,8 @@ where
                         KeyCode::Char('s') => app.cycle_scope(),
                         // Project toggle (Space or number)
                         KeyCode::Char(' ') if app.focus == Focus::ProjectList => {
-                            // Toggle current project (need cursor tracking)
+                            let cursor = app.project_cursor;
+                            app.toggle_project(cursor);
                         }
                         KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             app.select_all_projects();
