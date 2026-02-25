@@ -619,7 +619,9 @@ fn check_command_expanded(command_string: &str, cwd: &str, permission_mode: &str
 
 /// Strip quoted strings from a command to avoid false positives on patterns inside quotes.
 /// Replaces content inside single and double quotes with underscores.
-/// Handles escaped quotes within quoted strings.
+/// Handles escaped quotes correctly per bash semantics:
+/// - Double quotes: backslash escapes work (`\"` is an escaped quote)
+/// - Single quotes: NO escape sequences at all (`\'` is not valid inside single quotes)
 fn strip_quoted_strings(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let chars: Vec<char> = s.chars().collect();
@@ -634,10 +636,10 @@ fn strip_quoted_strings(s: &str) -> String {
             result.push('_'); // Replace opening quote
             i += 1;
 
-            // Skip until closing quote (handling escapes)
+            // Skip until closing quote
             while i < chars.len() {
-                if chars[i] == '\\' && i + 1 < chars.len() {
-                    // Skip escaped character
+                if quote_char == '"' && chars[i] == '\\' && i + 1 < chars.len() {
+                    // Backslash escapes only work in double quotes
                     result.push('_');
                     result.push('_');
                     i += 2;
