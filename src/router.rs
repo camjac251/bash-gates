@@ -736,8 +736,9 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     }
 
     // Check for eval command (arbitrary code execution)
+    // Use unquoted to avoid false positives like `rg "eval stuff" src/`
     if let Ok(re) = Regex::new(r"(^|[;&|])\s*eval\s") {
-        if re.is_match(command_string) {
+        if re.is_match(&unquoted) {
             return Some(HookOutput::ask("eval: Arbitrary code execution"));
         }
     }
@@ -745,25 +746,25 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
     // Check for source / . command (sourcing scripts can modify environment)
     // Match: source <file> or . <file> (but not .. or ./)
     if let Ok(re) = Regex::new(r"(^|[;&|])\s*source\s+\S") {
-        if re.is_match(command_string) {
+        if re.is_match(&unquoted) {
             return Some(HookOutput::ask("source: Sourcing external script"));
         }
     }
     // Match standalone . followed by space and non-dot (to avoid matching .. or ./)
     if let Ok(re) = Regex::new(r"(^|[;&|])\s*\.\s+[^.]") {
-        if re.is_match(command_string) {
+        if re.is_match(&unquoted) {
             return Some(HookOutput::ask(".: Sourcing external script"));
         }
     }
 
     // xargs with dangerous commands
-    if command_string.contains("xargs") {
+    if unquoted.contains("xargs") {
         let dangerous_xargs = ["rm", "mv", "cp", "chmod", "chown", "dd", "shred"];
         for cmd in dangerous_xargs {
             // Use word boundaries to avoid matching substrings (e.g., "cp" in "mcpServers")
             let pattern = format!(r"xargs\s+.*\b{cmd}\b|xargs\s+\b{cmd}\b");
             if let Ok(re) = Regex::new(&pattern) {
-                if re.is_match(command_string) {
+                if re.is_match(&unquoted) {
                     return Some(HookOutput::ask(&format!("xargs piping to {cmd}")));
                 }
             }
@@ -772,37 +773,37 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
         // kubectl delete via xargs (e.g., ... | xargs kubectl delete pod)
         let kubectl_delete_pattern = r"xargs\s+.*kubectl\s+delete|xargs\s+kubectl\s+delete";
         if let Ok(re) = Regex::new(kubectl_delete_pattern) {
-            if re.is_match(command_string) {
+            if re.is_match(&unquoted) {
                 return Some(HookOutput::ask("xargs piping to kubectl delete"));
             }
         }
     }
 
     // find with destructive actions
-    if command_string.contains("find ") || command_string.contains("find\t") {
+    if unquoted.contains("find ") || unquoted.contains("find\t") {
         let destructive_find = ["-delete", "-exec rm", "-exec mv", "-execdir rm"];
         for action in destructive_find {
-            if command_string.contains(action) {
+            if unquoted.contains(action) {
                 return Some(HookOutput::ask(&format!("find with {action}")));
             }
         }
     }
 
     // fd with -x/--exec executing dangerous commands
-    if command_string.contains("fd ") || command_string.contains("fd\t") {
-        // Check for -x or --exec flags
-        if command_string.contains(" -x ")
-            || command_string.contains("\t-x ")
-            || command_string.contains(" -x\t")
-            || command_string.contains(" --exec ")
-            || command_string.contains("\t--exec ")
-            || command_string.contains(" --exec\t")
-            || command_string.contains(" -X ")
-            || command_string.contains("\t-X ")
-            || command_string.contains(" -X\t")
-            || command_string.contains(" --exec-batch ")
-            || command_string.contains("\t--exec-batch ")
-            || command_string.contains(" --exec-batch\t")
+    if unquoted.contains("fd ") || unquoted.contains("fd\t") {
+        // Check for -x or --exec flags (use unquoted to avoid false positives from quoted strings)
+        if unquoted.contains(" -x ")
+            || unquoted.contains("\t-x ")
+            || unquoted.contains(" -x\t")
+            || unquoted.contains(" --exec ")
+            || unquoted.contains("\t--exec ")
+            || unquoted.contains(" --exec\t")
+            || unquoted.contains(" -X ")
+            || unquoted.contains("\t-X ")
+            || unquoted.contains(" -X\t")
+            || unquoted.contains(" --exec-batch ")
+            || unquoted.contains("\t--exec-batch ")
+            || unquoted.contains(" --exec-batch\t")
         {
             let dangerous_exec = ["rm", "mv", "chmod", "chown", "dd", "shred"];
             for cmd in dangerous_exec {
@@ -818,7 +819,7 @@ fn check_raw_string_patterns(command_string: &str) -> Option<HookOutput> {
                     format!("--exec-batch\t{cmd}"),
                 ];
                 for pattern in &patterns {
-                    if command_string.contains(pattern) {
+                    if unquoted.contains(pattern) {
                         return Some(HookOutput::ask(&format!("fd executing {cmd}")));
                     }
                 }
