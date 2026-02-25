@@ -169,6 +169,49 @@ fn check_shell_script_safety(script: &str) -> GateResult {
     GateResult::allow()
 }
 
+/// Check `command` builtin.
+/// - `command -v`/`-V` (with optional `-p`): read-only lookup, always allow
+/// - `command <cmd> args...`: transparent wrapper, evaluate the inner command
+fn check_command_builtin(cmd: &CommandInfo) -> GateResult {
+    let args = &cmd.args;
+
+    if args.is_empty() {
+        return GateResult::allow();
+    }
+
+    let mut i = 0;
+    let mut is_lookup = false;
+
+    // Skip option flags (-p, -v, -V, or combined like -pv)
+    while i < args.len() {
+        let arg = &args[i];
+        if arg.starts_with('-') {
+            if arg.contains('v') || arg.contains('V') {
+                is_lookup = true;
+            }
+            i += 1;
+            continue;
+        }
+        break;
+    }
+
+    if is_lookup {
+        return GateResult::allow();
+    }
+
+    // command <cmd> args... -> evaluate the inner command through gates
+    if i < args.len() {
+        let inner = CommandInfo {
+            program: args[i].clone(),
+            args: args[i + 1..].to_vec(),
+            raw: cmd.raw.clone(),
+        };
+        return check_single_command(&inner);
+    }
+
+    GateResult::allow()
+}
+
 /// Commands that are safe only with certain conditions
 pub fn check_basics(cmd: &CommandInfo) -> GateResult {
     // Strip path prefix to handle /usr/bin/sed etc.
@@ -183,6 +226,11 @@ pub fn check_basics(cmd: &CommandInfo) -> GateResult {
         return GateResult::ask(format!(
             "{program}: Interactive shell or complex invocation"
         ));
+    }
+
+    // command builtin - lookup or transparent wrapper
+    if program == "command" {
+        return check_command_builtin(cmd);
     }
 
     // sed is special - safe without -i flag
@@ -370,6 +418,50 @@ mod tests {
                 script
             );
         }
+    }
+
+    // === command builtin ===
+
+    #[test]
+    fn test_command_v_allows() {
+        let result = check_basics(&cmd("command", &["-v", "bat"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_command_capital_v_allows() {
+        let result = check_basics(&cmd("command", &["-V", "bat"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_command_pv_allows() {
+        let result = check_basics(&cmd("command", &["-pv", "ls"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_command_p_v_allows() {
+        let result = check_basics(&cmd("command", &["-p", "-v", "ls"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_command_bare_allows() {
+        let result = check_basics(&cmd("command", &[]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_command_safe_inner_allows() {
+        let result = check_basics(&cmd("command", &["ls", "-la"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_command_unsafe_inner_propagates() {
+        let result = check_basics(&cmd("command", &["rm", "-rf", "/tmp/test"]));
+        assert_ne!(result.decision, Decision::Allow);
     }
 
     #[test]

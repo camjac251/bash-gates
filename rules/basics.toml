@@ -216,6 +216,11 @@ description = "Allow xargs only when target command is in safe_commands list, al
 
 # bash/sh/zsh -c 'script' needs custom handling to parse and check the inner script
 [[custom_handlers]]
+program = "command"
+handler = "check_command_builtin"
+description = "command -v/-V always allowed (read-only lookup); command <cmd> evaluates inner command through gates"
+
+[[custom_handlers]]
 program = "bash"
 handler = "check_shell_c"
 description = "Parse bash -c 'script' and check each command in script is safe"
