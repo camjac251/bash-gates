@@ -75,11 +75,26 @@ pub fn handle_permission_request(
                 // Path-based restriction on a safe command - approve it
                 // Optionally add the blocked path to session permissions
                 if let Some(ref blocked_path) = input.blocked_path {
-                    // Add the parent directory to session permissions
-                    let dir = std::path::Path::new(blocked_path)
-                        .parent()
-                        .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_else(|| blocked_path.clone());
+                    // Determine the directory to add to session permissions.
+                    // - Root path "/": don't expand permissions (too broad)
+                    // - Directory-like path (no extension in last component): use directly
+                    // - File-like path (has extension): use parent directory
+                    if blocked_path == "/" {
+                        return Some(PermissionRequestOutput::allow());
+                    }
+                    let path = std::path::Path::new(blocked_path);
+                    let looks_like_file = path
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                        .map(|f| f.contains('.'))
+                        .unwrap_or(false);
+                    let dir = if looks_like_file {
+                        path.parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|| blocked_path.clone())
+                    } else {
+                        blocked_path.clone()
+                    };
                     return Some(PermissionRequestOutput::allow_with_directories(vec![dir]));
                 }
                 return Some(PermissionRequestOutput::allow());
@@ -273,5 +288,89 @@ mod tests {
             "Permission denied by user".to_string()
         )));
         assert!(!is_path_based_reason(&None));
+    }
+
+    /// Helper to build a PermissionRequestInput with a custom blocked_path
+    fn make_input_with_blocked_path(
+        command: &str,
+        decision_reason: Option<&str>,
+        blocked_path: Option<&str>,
+    ) -> PermissionRequestInput {
+        PermissionRequestInput {
+            hook_event_name: "PermissionRequest".to_string(),
+            tool_name: "Bash".to_string(),
+            cwd: "/tmp".to_string(),
+            permission_mode: "default".to_string(),
+            tool_input: ToolInputVariant::Map({
+                let mut map = serde_json::Map::new();
+                map.insert(
+                    "command".to_string(),
+                    serde_json::Value::String(command.to_string()),
+                );
+                map
+            }),
+            decision_reason: decision_reason.map(String::from),
+            blocked_path: blocked_path.map(String::from),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_blocked_path_root_does_not_expand_permissions() {
+        // Root path "/" should NOT be added to session permissions (too broad)
+        let input = make_input_with_blocked_path(
+            "rg pattern /some/file",
+            Some("Path is outside allowed working directories"),
+            Some("/"),
+        );
+        let result = handle_permission_request(&input);
+        assert!(result.is_some(), "Should approve safe command");
+        let json = serde_json::to_string(&result.unwrap()).unwrap();
+        assert!(
+            !json.contains("addDirectories"),
+            "root path should not be added to permissions, got: {json}"
+        );
+    }
+
+    #[test]
+    fn test_blocked_path_directory_uses_path_directly() {
+        // Directory-like path (no extension) should be used directly, not parent()
+        let input = make_input_with_blocked_path(
+            "rg pattern /outside/mydir",
+            Some("Path is outside allowed working directories"),
+            Some("/outside/mydir"),
+        );
+        let result = handle_permission_request(&input);
+        assert!(result.is_some(), "Should approve safe command");
+        let json = serde_json::to_string(&result.unwrap()).unwrap();
+        assert!(
+            json.contains("/outside/mydir"),
+            "should add the directory itself, got: {json}"
+        );
+        assert!(
+            !json.contains("\"/outside\""),
+            "should NOT add the grandparent, got: {json}"
+        );
+    }
+
+    #[test]
+    fn test_blocked_path_file_uses_parent_directory() {
+        // File-like path (has extension) should use parent() for the directory
+        let input = make_input_with_blocked_path(
+            "rg pattern /outside/dir/file.txt",
+            Some("Path is outside allowed working directories"),
+            Some("/outside/dir/file.txt"),
+        );
+        let result = handle_permission_request(&input);
+        assert!(result.is_some(), "Should approve safe command");
+        let json = serde_json::to_string(&result.unwrap()).unwrap();
+        assert!(
+            json.contains("/outside/dir"),
+            "should add the parent directory of the file, got: {json}"
+        );
+        assert!(
+            !json.contains("file.txt"),
+            "should NOT contain the file name in directory permissions, got: {json}"
+        );
     }
 }
