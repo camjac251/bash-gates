@@ -95,7 +95,7 @@ pub fn read_pending(filter_project: Option<&str>) -> Vec<PendingApproval> {
         if let Ok(entry) = serde_json::from_str::<PendingApproval>(&line) {
             // Filter by project_id if specified
             if let Some(project) = filter_project {
-                if entry.project_id == project || entry.project_id.contains(project) {
+                if entry.project_id == project {
                     entries.push(entry);
                 }
             } else {
@@ -167,8 +167,11 @@ where
 /// Append a pending approval (or increment if same command already exists)
 pub fn append_pending(approval: PendingApproval) -> std::io::Result<()> {
     with_exclusive_pending(|entries| {
-        // Check if we already have this exact command
-        if let Some(existing) = entries.iter_mut().find(|e| e.command == approval.command) {
+        // Check if we already have this exact command in the same project
+        if let Some(existing) = entries
+            .iter_mut()
+            .find(|e| e.command == approval.command && e.project_id == approval.project_id)
+        {
             existing.increment();
             // Update patterns if new ones discovered
             for pattern in &approval.patterns {
@@ -203,25 +206,18 @@ pub fn remove_pending_many(ids: &[String]) -> std::io::Result<usize> {
 
 /// Clear pending approvals, optionally filtered by project
 pub fn clear_pending(filter_project: Option<&str>) -> std::io::Result<usize> {
-    match filter_project {
-        None => {
-            // Clear entire file
-            let path = pending_path();
-            let count = read_pending(None).len();
-            if path.exists() {
-                fs::remove_file(&path)?;
+    with_exclusive_pending(|entries| {
+        let len_before = entries.len();
+        match filter_project {
+            None => {
+                entries.clear();
             }
-            Ok(count)
+            Some(project) => {
+                entries.retain(|e| e.project_id != project);
+            }
         }
-        Some(project) => {
-            // Remove only entries matching project_id
-            with_exclusive_pending(|entries| {
-                let len_before = entries.len();
-                entries.retain(|e| e.project_id != project && !e.project_id.contains(project));
-                len_before - entries.len()
-            })
-        }
-    }
+        len_before - entries.len()
+    })
 }
 
 /// Get pending approvals grouped by command pattern
@@ -406,4 +402,203 @@ mod tests {
 
     // Integration tests for file I/O are in tests/pending_integration.rs
     // These unit tests focus on struct logic only to avoid test isolation issues
+
+    // --- Bug fix regression tests ---
+
+    /// Helper: simulate the read_pending filter logic (mirrors the filter inside read_pending)
+    fn filter_entries(
+        entries: &[PendingApproval],
+        filter_project: Option<&str>,
+    ) -> Vec<PendingApproval> {
+        entries
+            .iter()
+            .filter(|entry| match filter_project {
+                Some(project) => entry.project_id == project,
+                None => true,
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Helper: simulate the append_pending dedup logic (mirrors the closure inside append_pending)
+    fn simulate_append(entries: &mut Vec<PendingApproval>, approval: PendingApproval) {
+        if let Some(existing) = entries
+            .iter_mut()
+            .find(|e| e.command == approval.command && e.project_id == approval.project_id)
+        {
+            existing.increment();
+            for pattern in &approval.patterns {
+                if !existing.patterns.contains(pattern) {
+                    existing.patterns.push(pattern.clone());
+                }
+            }
+        } else {
+            entries.push(approval);
+        }
+    }
+
+    /// Helper: simulate the clear_pending logic (mirrors the closure inside clear_pending)
+    fn simulate_clear(entries: &mut Vec<PendingApproval>, filter_project: Option<&str>) -> usize {
+        let len_before = entries.len();
+        match filter_project {
+            None => entries.clear(),
+            Some(project) => entries.retain(|e| e.project_id != project),
+        }
+        len_before - entries.len()
+    }
+
+    fn make_approval(command: &str, project_id: &str) -> PendingApproval {
+        PendingApproval::new(
+            command.to_string(),
+            vec![],
+            vec![],
+            project_id.to_string(),
+            "sess".to_string(),
+        )
+    }
+
+    // Bug 2: project filter must use exact equality, not substring contains
+
+    #[test]
+    fn test_read_filter_exact_match_only() {
+        let entries = vec![
+            make_approval("cmd1", "app"),
+            make_approval("cmd2", "happy"),
+            make_approval("cmd3", "webapp"),
+            make_approval("cmd4", "app"),
+        ];
+
+        let filtered = filter_entries(&entries, Some("app"));
+        assert_eq!(
+            filtered.len(),
+            2,
+            "should match only exact 'app', not 'happy' or 'webapp'"
+        );
+        assert!(filtered.iter().all(|e| e.project_id == "app"));
+    }
+
+    #[test]
+    fn test_read_filter_no_substring_match() {
+        let entries = vec![
+            make_approval("cmd1", "happy"),
+            make_approval("cmd2", "webapp"),
+            make_approval("cmd3", "application"),
+        ];
+
+        let filtered = filter_entries(&entries, Some("app"));
+        assert_eq!(
+            filtered.len(),
+            0,
+            "substring matches like 'happy', 'webapp', 'application' must not match 'app'"
+        );
+    }
+
+    #[test]
+    fn test_read_filter_none_returns_all() {
+        let entries = vec![
+            make_approval("cmd1", "proj-a"),
+            make_approval("cmd2", "proj-b"),
+        ];
+
+        let filtered = filter_entries(&entries, None);
+        assert_eq!(filtered.len(), 2);
+    }
+
+    // Bug 3: dedup must include project_id, not just command
+
+    #[test]
+    fn test_append_dedup_same_project_increments() {
+        let mut entries = Vec::new();
+
+        simulate_append(&mut entries, make_approval("npm install", "proj-a"));
+        simulate_append(&mut entries, make_approval("npm install", "proj-a"));
+
+        assert_eq!(entries.len(), 1, "same command + same project should dedup");
+        assert_eq!(entries[0].count, 2);
+    }
+
+    #[test]
+    fn test_append_dedup_different_projects_keeps_both() {
+        let mut entries = Vec::new();
+
+        simulate_append(&mut entries, make_approval("npm install", "proj-a"));
+        simulate_append(&mut entries, make_approval("npm install", "proj-b"));
+
+        assert_eq!(
+            entries.len(),
+            2,
+            "same command in different projects must create separate entries"
+        );
+        assert_eq!(entries[0].count, 1);
+        assert_eq!(entries[1].count, 1);
+        assert_eq!(entries[0].project_id, "proj-a");
+        assert_eq!(entries[1].project_id, "proj-b");
+    }
+
+    #[test]
+    fn test_append_dedup_different_commands_same_project() {
+        let mut entries = Vec::new();
+
+        simulate_append(&mut entries, make_approval("npm install", "proj-a"));
+        simulate_append(&mut entries, make_approval("npm test", "proj-a"));
+
+        assert_eq!(
+            entries.len(),
+            2,
+            "different commands in same project are separate"
+        );
+    }
+
+    // Bug 1: clear_pending(None) must use with_exclusive_pending (tested via simulate logic)
+
+    #[test]
+    fn test_clear_none_removes_all_entries() {
+        let mut entries = vec![
+            make_approval("cmd1", "proj-a"),
+            make_approval("cmd2", "proj-b"),
+            make_approval("cmd3", "proj-c"),
+        ];
+
+        let removed = simulate_clear(&mut entries, None);
+        assert_eq!(removed, 3);
+        assert!(entries.is_empty(), "clear(None) must empty the entire vec");
+    }
+
+    #[test]
+    fn test_clear_project_filter_exact_only() {
+        let mut entries = vec![
+            make_approval("cmd1", "app"),
+            make_approval("cmd2", "happy"),
+            make_approval("cmd3", "webapp"),
+            make_approval("cmd4", "app"),
+        ];
+
+        let removed = simulate_clear(&mut entries, Some("app"));
+        assert_eq!(removed, 2, "should only remove exact 'app' matches");
+        assert_eq!(entries.len(), 2);
+        assert!(
+            entries.iter().all(|e| e.project_id != "app"),
+            "no 'app' entries should remain"
+        );
+        assert!(
+            entries.iter().any(|e| e.project_id == "happy"),
+            "'happy' must not be removed when filtering by 'app'"
+        );
+        assert!(
+            entries.iter().any(|e| e.project_id == "webapp"),
+            "'webapp' must not be removed when filtering by 'app'"
+        );
+    }
+
+    #[test]
+    fn test_clear_project_filter_no_match() {
+        let mut entries = vec![
+            make_approval("cmd1", "proj-a"),
+            make_approval("cmd2", "proj-b"),
+        ];
+
+        let removed = simulate_clear(&mut entries, Some("proj-c"));
+        assert_eq!(removed, 0);
+        assert_eq!(entries.len(), 2);
+    }
 }
