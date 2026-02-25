@@ -108,6 +108,15 @@ bash-gates reads your Claude Code settings from `~/.claude/settings.json` and `.
 
 This ensures bash-gates won't accidentally bypass your explicit deny rules while still providing security against dangerous commands.
 
+**Settings file priority** (highest wins):
+
+| Priority | Location | Description |
+|----------|----------|-------------|
+| 1 (highest) | `/etc/claude-code/managed-settings.json` | Enterprise managed |
+| 2 | `.claude/settings.local.json` | Local project (not committed) |
+| 3 | `.claude/settings.json` | Shared project (committed) |
+| 4 (lowest) | `~/.claude/settings.json` | User settings |
+
 ### Accept Edits Mode
 
 When Claude Code is in `acceptEdits` mode, bash-gates auto-allows file-editing commands:
@@ -145,18 +154,24 @@ When Claude uses legacy commands, bash-gates suggests modern alternatives via `a
 }
 ```
 
-| Legacy Command | Modern Alternative | Benefit |
-|----------------|-------------------|---------|
-| `cat`, `head`, `tail`, `less` | `bat` | Syntax highlighting, line numbers |
-| `grep` (code patterns) | `sg` | AST-aware code search (fewer false matches) |
-| `grep` (text/log/config) | `rg` | Faster, respects .gitignore |
-| `find` | `fd` | Simpler syntax, faster |
-| `ls -la` | `eza` | Git integration, icons |
-| `sed` | `sd` | Simpler syntax |
-| `du` | `dust` | Visual tree view |
-| `ps aux` | `procs` | Better formatting |
-| `diff` | `delta` | Syntax-highlighted diffs |
-| `cloc` | `tokei` | Faster code stats |
+| Legacy Command | Modern Alternative | When triggered |
+|----------------|-------------------|----------------|
+| `cat`, `head`, `tail`, `less` | `bat` | Always (`tail -f` excluded) |
+| `grep` (code patterns) | `sg` | AST-aware code search |
+| `grep` (text/log/config) | `rg` | Any grep usage |
+| `find` | `fd` | Always |
+| `ls` | `eza` | With `-l` or `-a` flags |
+| `sed` | `sd` | Substitution patterns (`s/.../.../`) |
+| `awk` | `choose` | Field extraction (`print $`) |
+| `du` | `dust` | Always |
+| `ps` | `procs` | With `aux`, `-e`, `-A` flags |
+| `curl`, `wget` | `xh` | JSON APIs or verbose mode |
+| `diff` | `delta` | Two-file comparisons |
+| `xxd`, `hexdump` | `hexyl` | Always |
+| `cloc` | `tokei` | Always |
+| `tree` | `eza -T` | Always |
+| `man` | `tldr` | Always |
+| `wc -l` | `rg -c` | Line counting |
 
 **Only suggests installed tools.** Hints are cached (7-day TTL) to avoid repeated `which` calls.
 
@@ -194,6 +209,25 @@ bash-gates rules remove 'pattern' -s local
 | `local` | `.claude/settings.local.json` | Personal project overrides (not committed) |
 | `user` | `~/.claude/settings.json` | Global personal use |
 | `project` | `.claude/settings.json` | Share with team |
+
+**Pattern suggestions:** Patterns go from most specific to most broad:
+
+| Example Command | Suggested Patterns |
+|-----------------|-------------------|
+| `npm install lodash` | `npm install lodash`, `npm install*`, `npm*` |
+| `cargo test` | `cargo test*`, `cargo*` |
+| `aws ec2 describe-instances` | `aws ec2 describe*`, `aws ec2*` |
+
+**TUI keybindings** (`bash-gates review`):
+
+| Key | Action |
+|-----|--------|
+| `Up`/`Down` or `j`/`k` | Navigate commands |
+| `Tab` or `1-9` | Select pattern |
+| `s` | Cycle scope (Local -> User -> Project) |
+| `Enter` or `a` | Approve with selected pattern |
+| `d` or `Delete` | Skip (remove from pending) |
+| `q` or `Esc` | Quit |
 
 ---
 
@@ -385,7 +419,7 @@ AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi
 | Safe by default | Ask with flags |
 |-----------------|----------------|
 | `ast-grep`, `yq`, `semgrep`, `sad`, `prettier`, `eslint`, `biome`, `ruff`, `black`, `gofmt`, `rustfmt`, `golangci-lint` | `-U`, `-i`, `--fix`, `--write`, `--commit`, `--autofix` |
-| Always ask: `sd` (always writes), `watchexec` (runs commands), `dos2unix` | |
+| `sd` (pipe mode safe, ask with file args), always ask: `watchexec` (runs commands), `dos2unix` | |
 
 ### Package Managers
 
@@ -455,15 +489,15 @@ cargo test -- --nocapture         # With output
 ```bash
 # Allow
 echo '{"tool_name":"Bash","tool_input":{"command":"git status"}}' | bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"allow"}}
+# -> {"hookSpecificOutput":{"permissionDecision":"allow"}}
 
 # Ask
 echo '{"tool_name":"Bash","tool_input":{"command":"npm install"}}' | bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages"}}
+# -> {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages"}}
 
 # Deny
 echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' | bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"deny"}}
+# -> {"hookSpecificOutput":{"permissionDecision":"deny"}}
 ```
 
 ---
@@ -472,35 +506,61 @@ echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' | bash-gates
 
 ```
 src/
-├── main.rs           # Entry point, CLI commands
-├── models.rs         # Types (HookInput, HookOutput, Decision)
-├── parser.rs         # tree-sitter-bash AST parsing
-├── router.rs         # Security checks + gate routing
-├── settings.rs       # settings.json parsing and pattern matching
-├── hints.rs          # Modern CLI hints (cat→bat, grep→rg, etc.)
-├── tool_cache.rs     # Tool availability cache for hints
-├── mise.rs           # Mise task file parsing and command extraction
-├── package_json.rs   # package.json script parsing and command extraction
-├── tracking.rs       # PreToolUse→PostToolUse correlation (5min TTL)
-├── pending.rs        # Pending approval queue (JSONL format)
-├── patterns.rs       # Pattern suggestion algorithm
-├── post_tool_use.rs  # PostToolUse handler
-├── settings_writer.rs # Write rules to Claude settings files
-├── tui/              # Interactive approval TUI (bash-gates review)
-└── gates/            # 12 specialized permission gates
-    ├── basics.rs     # Safe commands (~130+)
-    ├── beads.rs      # Beads issue tracker (bd) - github.com/steveyegge/beads
-    ├── mcp.rs        # MCP CLI (mcp-cli) - Model Context Protocol
-    ├── gh.rs         # GitHub CLI
-    ├── git.rs        # Git
-    ├── shortcut.rs   # Shortcut CLI (short) - github.com/shortcut-cli/shortcut-cli
-    ├── cloud.rs      # AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi
-    ├── network.rs    # curl, wget, ssh, rsync, netcat, HTTPie
-    ├── filesystem.rs # rm, mv, cp, chmod, tar, zip
-    ├── devtools.rs   # sd, ast-grep, yq, semgrep, biome, prettier, eslint, ruff, black
+├── main.rs              # Entry point, CLI commands
+├── models.rs            # Types (HookInput, HookOutput, Decision)
+├── parser.rs            # tree-sitter-bash AST parsing
+├── router.rs            # Security checks + gate routing
+├── settings.rs          # settings.json parsing and pattern matching
+├── hints.rs             # Modern CLI hints (cat→bat, grep→rg, etc.)
+├── tool_cache.rs        # Tool availability cache for hints
+├── mise.rs              # Mise task file parsing and command extraction
+├── package_json.rs      # package.json script parsing and command extraction
+├── tracking.rs          # PreToolUse→PostToolUse correlation (15min TTL)
+├── pending.rs           # Pending approval queue (JSONL format)
+├── patterns.rs          # Pattern suggestion algorithm
+├── post_tool_use.rs     # PostToolUse handler
+├── permission_request.rs # PermissionRequest hook handler
+├── settings_writer.rs   # Write rules to Claude settings files
+├── toml_export.rs       # TOML policy export for Gemini CLI
+├── generated/           # Auto-generated by build.rs (DO NOT EDIT)
+│   ├── rules.rs         # Rust gate functions from rules/*.toml
+│   └── toml_policy.rs   # Gemini CLI TOML policy string
+├── tui/                 # Interactive approval TUI (bash-gates review)
+└── gates/               # 12 specialized permission gates
+    ├── mod.rs           # Gate registry (ordered by priority)
+    ├── helpers.rs       # Common gate helper functions
+    ├── basics.rs        # Safe commands (~130+)
+    ├── beads.rs         # Beads issue tracker (bd) - github.com/steveyegge/beads
+    ├── mcp.rs           # MCP CLI (mcp-cli) - Model Context Protocol
+    ├── gh.rs            # GitHub CLI
+    ├── git.rs           # Git
+    ├── shortcut.rs      # Shortcut CLI (short) - github.com/shortcut-cli/shortcut-cli
+    ├── cloud.rs         # AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi
+    ├── network.rs       # curl, wget, ssh, rsync, netcat, HTTPie
+    ├── filesystem.rs    # rm, mv, cp, chmod, tar, zip
+    ├── devtools.rs      # sd, ast-grep, yq, semgrep, biome, prettier, eslint, ruff, black
     ├── package_managers.rs  # npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx, mise
-    └── system.rs     # psql, mysql, make, sudo, systemctl, OS pkg managers, build tools
+    └── system.rs        # psql, mysql, make, sudo, systemctl, OS pkg managers, build tools
 ```
+
+---
+
+## Gemini CLI Integration
+
+Gemini CLI's hook system cannot prompt users (only allow/block). Use the policy engine instead:
+
+```bash
+bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
+```
+
+This exports 700+ policy rules derived from the gate definitions:
+
+| Priority | Action | Examples |
+|----------|--------|----------|
+| 900+ | `deny` | `rm -rf /`, `gh repo delete` |
+| 200-299 | `ask_user` | `npm install`, `git push` |
+| 100-199 | `allow` | `git status`, `ls`, `cat` |
+| 1 | `ask_user` | Default fallback for unknown commands |
 
 ---
 

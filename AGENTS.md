@@ -5,6 +5,19 @@ Intelligent bash command permission gate using tree-sitter AST parsing. Auto-all
 **Claude Code:** Use as PreToolUse + PermissionRequest + PostToolUse hooks (native integration)
 **Gemini CLI:** Use `--export-toml` to generate policy rules
 
+## Quick Reference
+
+```bash
+cargo test                              # Full test suite
+cargo test gates::git -- --nocapture    # Single gate with output
+cargo test test_git_status_allows       # Single test
+cargo build --release                   # Static musl binary by default
+cargo clippy -- -D warnings             # Lint
+
+# Manual test
+echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | bash-gates
+```
+
 ## Hook Types
 
 bash-gates supports three Claude Code hooks:
@@ -20,87 +33,52 @@ bash-gates supports three Claude Code hooks:
 - PermissionRequest makes those same decisions work for subagents (where PreToolUse's `allow` is ignored)
 - PostToolUse detects when "ask" commands complete successfully and queues them for permanent approval
 
-## Quick Reference
+## Project Structure
 
-```bash
-# Install to Claude Code settings
-bash-gates hooks add -s user       # ~/.claude/settings.json (recommended)
-bash-gates hooks add -s project    # .claude/settings.json (shared with team)
-bash-gates hooks add -s local      # .claude/settings.local.json (not committed)
-bash-gates hooks add -s user --dry-run  # Preview changes
-bash-gates hooks status            # Check installation status
-bash-gates hooks json              # Output hooks JSON for manual config
-
-# Approval system - learn from approved commands
-bash-gates pending list            # Show pending approvals
-bash-gates review                  # Interactive TUI to approve/skip
-bash-gates approve 'npm*' -s local # Add allow rule directly
-bash-gates rules list              # Show all permission rules
-bash-gates rules remove 'pattern'  # Remove a rule
-
-# Test a command
-echo '{"tool_name": "Bash", "tool_input": {"command": "gh pr list"}}' | bash-gates
-
-# Export Gemini CLI policy rules
-bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
-
-# Modern CLI hints
-bash-gates --refresh-tools   # Refresh tool detection cache
-bash-gates --tools-status    # Show detected modern tools
-
-# Run tests
-cargo test
-
-# Run specific gate tests
-cargo test gates::git -- --nocapture
-
-# Build release (static musl binary by default)
-cargo build --release
-
-# Build for glibc instead
-cargo build --release --target x86_64-unknown-linux-gnu
-
-# Run clippy
-cargo clippy -- -D warnings
 ```
-
-## Build Output
-
-Default build produces a **fully static musl binary** with zero runtime dependencies:
-
-```bash
-$ file target/x86_64-unknown-linux-musl/release/bash-gates
-ELF 64-bit LSB pie executable, x86-64, static-pie linked, stripped
-
-$ ldd target/x86_64-unknown-linux-musl/release/bash-gates
-statically linked
+├── AGENTS.md        # Shared project docs (CLAUDE.md and GEMINI.md are symlinks)
+├── build.rs         # Code generation: rules/*.toml -> src/generated/
+├── Cargo.toml
+├── rules/           # Declarative gate definitions (12 TOML files)
+│   ├── basics.toml, beads.toml, cloud.toml, devtools.toml, ...
+├── tests/fixtures/  # Test fixtures
+├── lefthook.yml     # Git hooks
+└── mise.toml        # Mise task runner config
 ```
 
 ## Architecture
 
 ```
 src/
-├── main.rs          # Entry point - reads stdin JSON, outputs decision, CLI commands
-├── lib.rs           # Library root
-├── models.rs        # Serde models (HookInput, HookOutput, Decision)
-├── parser.rs        # tree-sitter-bash AST parsing → Vec<CommandInfo>
-├── router.rs        # Raw string security checks + gate routing + task expansion
-├── settings.rs      # settings.json parsing and pattern matching
-├── hints.rs         # Modern CLI hints (cat→bat, grep→rg, etc.)
-├── tool_cache.rs    # Tool availability cache for hints
-├── mise.rs          # Mise task file parsing and command extraction
-├── package_json.rs  # package.json script parsing and command extraction
-├── tracking.rs      # PreToolUse→PostToolUse correlation (15min TTL)
-├── pending.rs       # Pending approval queue (JSONL format)
-├── patterns.rs      # Pattern suggestion algorithm
-├── post_tool_use.rs # PostToolUse handler
-├── settings_writer.rs # Write rules to Claude settings files
-├── tui/             # Interactive approval TUI
-│   ├── mod.rs       # Module exports
-│   ├── app.rs       # Application state and event loop
-│   └── ui.rs        # ratatui widget rendering
-└── gates/           # 12 specialized permission gates
-    ├── mod.rs           # Gate registry
+├── main.rs              # Entry point - reads stdin JSON, outputs decision, CLI commands
+├── lib.rs               # Library root
+├── models.rs            # Serde models (HookInput, HookOutput, Decision)
+├── parser.rs            # tree-sitter-bash AST parsing -> Vec<CommandInfo>
+├── router.rs            # Raw string security checks + gate routing + task expansion
+├── settings.rs          # settings.json parsing and pattern matching
+├── hints.rs             # Modern CLI hints (cat->bat, grep->rg, etc.)
+├── tool_cache.rs        # Tool availability cache for hints
+├── mise.rs              # Mise task file parsing and command extraction
+├── package_json.rs      # package.json script parsing and command extraction
+├── tracking.rs          # PreToolUse->PostToolUse correlation (15min TTL)
+├── pending.rs           # Pending approval queue (JSONL format)
+├── patterns.rs          # Pattern suggestion algorithm
+├── post_tool_use.rs     # PostToolUse handler
+├── permission_request.rs # PermissionRequest hook handler (subagent approval)
+├── settings_writer.rs   # Write rules to Claude settings files
+├── toml_export.rs       # TOML policy export for Gemini CLI
+├── generated/           # Auto-generated by build.rs (DO NOT EDIT)
+│   ├── mod.rs           # Module declarations
+│   ├── rules.rs         # Rust gate functions from rules/*.toml
+│   └── toml_policy.rs   # Gemini CLI TOML policy string
+├── tui/                 # Interactive approval TUI
+│   ├── mod.rs           # Module exports
+│   ├── app.rs           # Application state and event loop
+│   └── ui.rs            # ratatui widget rendering
+└── gates/               # 12 specialized permission gates
+    ├── mod.rs           # Gate registry (ordered: mcp first, basics last)
+    ├── helpers.rs       # Common gate helper functions (flag extraction, etc.)
+    ├── test_utils.rs    # Test utilities (cfg(test) only)
     ├── basics.rs        # Safe shell commands (echo, cat, ls, grep, etc.)
     ├── beads.rs         # Beads issue tracker CLI (bd)
     ├── mcp.rs           # MCP CLI (mcp-cli)
@@ -115,9 +93,15 @@ src/
     └── system.rs        # psql, mysql, make, sudo, systemctl, kill, crontab
 ```
 
-## How It Works
+### Build Pipeline
 
-bash-gates handles three hook types with different flows:
+`build.rs` reads `rules/*.toml` and generates two files at build time:
+- `src/generated/rules.rs` -- Rust functions implementing declarative gate logic
+- `src/generated/toml_policy.rs` -- Pre-baked Gemini CLI TOML policy string
+
+Most gate behavior is defined in TOML; custom handlers in Rust cover cases TOML can't express.
+
+## How It Works
 
 ### PreToolUse Flow
 
@@ -136,315 +120,41 @@ bash-gates handles three hook types with different flows:
 
 ### PermissionRequest Flow
 
-Runs when Claude Code's internal checks decide to show a permission prompt. This is critical for **subagents**, where PreToolUse's `allow` is ignored.
+Runs when Claude Code's internal checks decide to show a permission prompt. Critical for **subagents**, where PreToolUse's `allow` is ignored.
 
-1. **Input**: JSON with `hook_event_name: "PermissionRequest"`, `tool_input`, `decision_reason`, `blocked_path`, `agent_id`
-2. **Gate analysis**: Re-check the command with our gates
-3. **If allowed by gates**: Return `allow` with optional `updatedPermissions` to add blocked path to session
-4. **If blocked by gates**: Return `deny` with reason
-5. **If ask by gates**: Return nothing (let normal prompt show)
+1. Re-check the command with our gates (same logic as PreToolUse)
+2. If allowed by gates -> return `allow` with optional `updatedPermissions` to add blocked path to session
+3. If blocked by gates -> return `deny` with reason
+4. If ask by gates -> return nothing (let normal prompt show)
 
-| Input Field | Description |
-|-------------|-------------|
-| `tool_input` | The command being requested (e.g., `{"command": "rg pattern /path"}`) |
-| `decision_reason` | Why Claude Code is asking (e.g., "Path is outside allowed working directories") |
-| `blocked_path` | The specific path that triggered the prompt |
-| `agent_id` | The subagent ID (present for subagents, absent for main session) |
-
-**Example PermissionRequest output (approve):**
-```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PermissionRequest",
-    "decision": {
-      "behavior": "allow",
-      "updatedPermissions": [{
-        "type": "addDirectories",
-        "directories": ["/path/to/allow"],
-        "destination": "session"
-      }]
-    }
-  }
-}
-```
+Input fields: `tool_input`, `decision_reason` (optional), `blocked_path` (optional), `agent_id` (present for subagents).
 
 ### PostToolUse Flow
 
-Runs after a command completes. Used to detect successful execution and queue for permanent approval.
+Runs after a command completes. Detects successful execution and queues for permanent approval.
 
-1. **Input**: JSON with `hook_event_name: "PostToolUse"`, `tool_use_id`, `tool_response`
-2. **Lookup tracking**: Check if `tool_use_id` was tracked as an "ask" decision
-3. **If tracked + success**: Extract exit code from `tool_response`, if 0 (success), add to pending queue
-4. **Pending queue**: Appends to `~/.cache/bash-gates/pending.jsonl` (tracks project via `project_id` from transcript_path)
-5. **Output**: Currently empty (silent) to avoid cluttering Claude's context
+1. Check if `tool_use_id` was tracked as an "ask" decision from PreToolUse
+2. If tracked and exit code is 0 -> append to `~/.cache/bash-gates/pending.jsonl`
+3. Output is silent (empty) to avoid cluttering Claude's context
 
-| Input Field | Description |
-|-------------|-------------|
-| `tool_use_id` | Unique ID to correlate with PreToolUse tracking |
-| `tool_response` | Command result including `exit_code`, `stdout`, `stderr` |
+## Decision Priority
 
-## Approval System
-
-bash-gates learns from user-approved commands and can permanently save patterns to Claude Code settings.
-
-### How It Works
-
-```mermaid
-flowchart LR
-    subgraph PreToolUse
-        A[Gate check] -->|returns ask| B[Track in tracking.json]
-    end
-
-    subgraph PostToolUse
-        C[Lookup tracking.json] -->|is_success?| D[Append to pending.jsonl]
-    end
-
-    subgraph CLI Review
-        E[Load pending.jsonl] --> F[TUI: select pattern]
-        F --> G[Write to settings.json]
-    end
-
-    B -.->|correlate via tool_use_id| C
+```
+BLOCK > ASK > ALLOW > SKIP
 ```
 
-### Commands
+| Decision | Output | Effect |
+|----------|--------|--------|
+| `block` | `permissionDecision: "deny"` | Block with reason |
+| `ask` | `permissionDecision: "ask"` | Prompt user for approval |
+| `allow` | `permissionDecision: "allow"` | Auto-approve |
+| `skip` | (triggers ask) | Gate doesn't handle command -> unknown |
 
-| Command | Description |
-|---------|-------------|
-| `bash-gates pending list` | Show pending approvals with suggested patterns |
-| `bash-gates pending clear` | Clear pending queue |
-| `bash-gates review` | Interactive TUI for batch approval |
-| `bash-gates approve '<pattern>' -s <scope>` | Add allow rule directly |
-| `bash-gates rules list` | List all permission rules by scope |
-| `bash-gates rules remove '<pattern>' -s <scope>` | Remove a rule |
+**Unknown commands require approval.** If no gate explicitly allows a command, it's treated as unknown and requires user approval. For compound commands (`&&`, `||`, `|`, `;`), the strictest decision wins.
 
-### TUI (`bash-gates review`)
+## Settings.json Integration
 
-```mermaid
-block-beta
-    columns 2
-    Header["bash-gates review (N pending)"]:2
-    Commands["Commands List\n• npm install\n• git push..."]:1
-    Detail["Command Detail\n─────────────\nPatterns: ● npm install* ○ npm*\nScope: [L]ocal [U]ser [P]roject"]:1
-    Footer["↑/↓ nav  Tab pattern  s scope  Enter approve  d skip  q quit"]:2
-```
-
-| Key | Action |
-|-----|--------|
-| `↑`/`↓` or `j`/`k` | Navigate commands |
-| `Tab` or `1-9` | Select pattern |
-| `s` | Cycle scope (Local → User → Project) |
-| `Enter` or `a` | Approve with selected pattern |
-| `d` or `Delete` | Skip (remove from pending) |
-| `q` or `Esc` | Quit |
-
-### File Locations
-
-| File | Purpose |
-|------|---------|
-| `~/.cache/bash-gates/tracking.json` | Short-lived PreToolUse→PostToolUse correlation (15min TTL) |
-| `~/.cache/bash-gates/pending.jsonl` | Pending approval queue (all projects, filtered by `project_id`) |
-
-### Pattern Suggestions
-
-When a command returns "ask", bash-gates suggests patterns from most specific to most broad:
-
-| Example Command | Suggested Patterns |
-|-----------------|-------------------|
-| `npm install lodash` | `npm install lodash`, `npm install*`, `npm*` |
-| `cargo test` | `cargo test*`, `cargo*` |
-| `aws ec2 describe-instances` | `aws ec2 describe*`, `aws ec2*` |
-
-## Mise Task Expansion (mise.rs)
-
-When bash-gates sees `mise run <task>` or `mise <task>`, it automatically:
-
-1. Finds the mise config file (`.mise.toml` or `mise.toml`) in cwd or parent directories
-2. Parses the TOML and extracts the task's `run` command
-3. Recursively includes commands from `depends = [...]` tasks
-4. Handles `dir = "..."` by prepending `cd <dir> &&`
-5. Passes all extracted commands through the gate engine
-6. Returns the strictest decision from all commands
-
-### Examples
-
-```bash
-# mise.toml
-[tasks.lint]
-run = "pnpm lint"
-
-[tasks."lint:fix"]
-run = "pnpm lint:fix"
-depends = ["lint"]
-
-[tasks."dev:frontend"]
-dir = "web"
-run = "pnpm dev"
-```
-
-| Command | Extracted | Decision |
-|---------|-----------|----------|
-| `mise run lint` | `pnpm lint` | ask (pnpm) |
-| `mise lint:fix` | `pnpm lint`, `pnpm lint:fix` | ask (both pnpm) |
-| `mise dev:frontend` | `cd web && pnpm dev` | allow (dev is safe) |
-
-### Edge Cases
-
-| Input | Result | Why |
-|-------|--------|-----|
-| `mise install` | Not expanded | Built-in mise subcommand |
-| `mise nonexistent` | ask | Task not found |
-| `mise run danger` (if run = `rm -rf /`) | deny | Blocked command in task |
-| Circular dependencies | Handled | Uses visited set |
-
-## Package.json Script Expansion (package_json.rs)
-
-When bash-gates sees `npm run <script>`, `pnpm run <script>`, `yarn <script>`, etc., it:
-
-1. Finds `package.json` in cwd or parent directories
-2. Parses JSON and extracts the script's command
-3. Passes the underlying command through the gate engine
-4. Returns the result with context
-
-### Examples
-
-```json
-// package.json
-{
-  "scripts": {
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
-    "dev": "vite",
-    "test": "vitest run"
-  }
-}
-```
-
-| Command | Extracted | Decision |
-|---------|-----------|----------|
-| `pnpm run lint` | `biome check .` | allow |
-| `pnpm run lint:fix` | `biome check --write .` | ask (writes files) |
-| `pnpm run dev` | `vite` | allow |
-| `npm run test` | `vitest run` | allow |
-| `yarn lint` | `biome check .` | allow |
-
-### Shorthand Support
-
-- `pnpm lint` → expands to `pnpm run lint`
-- `yarn test` → expands to `yarn run test`
-- `npm run build` → requires explicit `run`
-
-## Modern CLI Hints (hints.rs)
-
-*Requires Claude Code 1.0.20+ for `additionalContext` support.*
-
-When commands are allowed, bash-gates checks if modern alternatives exist and includes hints in `additionalContext`. This helps Claude learn better patterns without modifying the command.
-
-### How It Works
-
-1. Command is allowed by gates
-2. Check if command matches a legacy tool with a modern alternative
-3. Check tool cache to verify the modern tool is installed
-4. If available, add hint to `additionalContext` in the response
-
-### Supported Hints
-
-| Legacy Command | Modern Alternative | Hint Trigger |
-|----------------|-------------------|--------------|
-| `cat`, `head`, `tail`, `less`, `more` | `bat` | Always (tail -f excluded) |
-| `grep` | `rg` | Any grep usage |
-| `ag`, `ack` | `rg` | Always |
-| `find` | `fd` | Always |
-| `sed` | `sd` | Substitution patterns (`s/.../.../`) |
-| `awk` | `choose` | Field extraction (`print $`) |
-| `ls` | `eza` | With `-l` or `-a` flags |
-| `du` | `dust` | Always |
-| `ps` | `procs` | With `aux`, `-e`, `-A` flags |
-| `curl` | `xh` | JSON APIs or verbose mode |
-| `wget` | `xh` | Always |
-| `diff` | `delta` | Two-file comparisons |
-| `xxd`, `hexdump` | `hexyl` | Always |
-| `cloc` | `tokei` | Always |
-| `tree` | `eza -T` | Always |
-| `man` | `tldr` | Always |
-| `wc -l` | `rg -c` | Line counting |
-
-### Example Output
-
-```bash
-echo '{"tool_name": "Bash", "tool_input": {"command": "cat README.md"}}' | bash-gates
-```
-
-```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "allow",
-    "permissionDecisionReason": "Read-only operation",
-    "additionalContext": "Tip: Use 'bat README.md' for syntax highlighting and line numbers (Markdown rendering)"
-  }
-}
-```
-
-### Hints Only for Allowed Commands
-
-Hints are only included when the overall decision is `allow` or when allowed commands appear in compound commands that result in `ask`. Denied commands never get hints.
-
-## Tool Cache (tool_cache.rs)
-
-Modern CLI hints only suggest tools that are actually installed. Tool availability is cached to avoid repeated `which` calls.
-
-### Cache Location
-
-`~/.cache/bash-gates/available-tools.json`
-
-### Cache TTL
-
-7 days - cache is automatically refreshed when expired.
-
-### Detected Tools
-
-| Category | Tools |
-|----------|-------|
-| File viewing | `bat`, `batcat` |
-| Code search | `rg`, `ripgrep` |
-| File finding | `fd`, `fdfind` |
-| File listing | `eza`, `lsd` |
-| Text processing | `sd`, `choose`, `jq`, `gron` |
-| Disk usage | `dust` |
-| Process viewing | `procs` |
-| HTTP | `xh` |
-| Code stats | `tokei`, `scc` |
-| Hex viewing | `hexyl` |
-| Diff viewing | `delta`, `difft` |
-| Documentation | `tldr`, `tealdeer` |
-| Fuzzy finding | `fzf` |
-| Markdown | `glow` |
-
-### Aliases
-
-Some tools have different names on different distros:
-
-| Canonical | Aliases |
-|-----------|---------|
-| `bat` | `batcat` (Debian/Ubuntu) |
-| `fd` | `fdfind` (Debian/Ubuntu) |
-| `rg` | `ripgrep` |
-| `tldr` | `tealdeer` |
-
-### CLI Commands
-
-```bash
-# Refresh the tool cache (runs `which` for all tools)
-bash-gates --refresh-tools
-
-# Show cache status and detected tools
-bash-gates --tools-status
-```
-
-## Settings.json Integration (settings.rs)
-
-bash-gates combines gate analysis with your Claude Code permission rules. Gate blocks take priority (dangerous commands always denied), then settings.json deny rules, then acceptEdits mode:
+Gate blocks take priority over settings.json. The full precedence:
 
 ```mermaid
 flowchart TD
@@ -461,263 +171,50 @@ flowchart TD
     I -->|no match| L[Use gate result]
 ```
 
-### Settings File Locations
+**Hook vs settings.json**: Hook returning `allow` or `deny` bypasses settings.json entirely. Hook returning `ask` defers to settings.json. Gate blocks always win -- `rm -rf /` is denied regardless of settings.
 
-Settings are loaded from all Claude Code settings files (merged, higher priority overrides):
+### Settings Pattern Formats
 
-| Priority | Location | Description |
-|----------|----------|-------------|
-| 1 (highest) | `/etc/claude-code/managed-settings.json` | Enterprise managed (Linux) |
-| 2 | `.claude/settings.local.json` | Local project (not committed) |
-| 3 | `.claude/settings.json` | Shared project (committed) |
-| 4 (lowest) | `~/.claude/settings.json` | User settings |
+| Pattern | Type | Matches |
+|---------|------|---------|
+| `Bash(git:*)` | Word-boundary prefix (`:`) | `git`, `git status`, `git push` -- but NOT `github` |
+| `Bash(cat /dev/zero*)` | Glob prefix | `cat /dev/zero`, `cat /dev/zero \| head` |
+| `Bash(pwd)` | Exact | Only `pwd` |
 
-### Pattern Matching
+The `:` word-boundary prefix is the most common. It splits on spaces and matches the command as a distinct word.
 
-Settings.json uses these pattern formats:
-
-| Pattern | Type | Example | Matches |
-|---------|------|---------|---------|
-| `Bash(cmd:*)` | Word-boundary prefix | `Bash(git:*)` | `git`, `git status`, `git push` |
-| `Bash(cmd*)` | Glob prefix | `Bash(cat /dev/zero*)` | `cat /dev/zero`, `cat /dev/zero \| head` |
-| `Bash(cmd)` | Exact | `Bash(pwd)` | Only `pwd` |
-
-### Why This Matters
-
-PreToolUse hooks have **more power** than settings.json:
-- Hook returning `allow` → bypasses settings.json entirely
-- Hook returning `deny` → bypasses settings.json entirely
-- Hook returning `ask` → defers to settings.json
-
-**Gate blocks always win:** Commands like `rm -rf /` are denied directly, regardless of settings.json. This ensures dangerous commands are always blocked.
-
-**Settings.json respected for non-blocked commands:** If you have `Bash(cat /dev/zero*)` in deny and a gate would allow `cat`, bash-gates returns `ask` to defer to Claude Code, which then applies your deny rule.
-
-## Accept Edits Mode (router.rs)
+### Accept Edits Mode
 
 When `permission_mode` is `acceptEdits`, file-editing commands are auto-allowed if:
-1. The command is a known file-editing program (formatters, linters, text replacement)
+1. The command is a known file-editing program (formatters, linters, text replacement -- defined via `accept_edits_auto_allow = true` in TOML rules)
 2. The target files are within allowed directories (cwd + `additionalDirectories` from settings.json)
 3. The target files are not sensitive system paths or credentials
 
-### Additional Directories
+Non-file-editing commands (package managers, git, network) still require approval even in acceptEdits mode.
 
-The `additionalDirectories` setting from `~/.claude/settings.json` or `.claude/settings.json` is respected:
+## Security Checks
 
-```json
-{
-  "permissions": {
-    "additionalDirectories": ["~/other-project", "/tmp/workspace"]
-  }
-}
-```
+Before AST parsing, `router.rs` runs raw string checks on the command (after stripping comments). These catch patterns like pipe-to-shell (`| bash`), `eval`, `source`, `xargs rm`, destructive `find`/`fd`, dangerous command substitution, semicolon injection, and output redirection. See `check_raw_string_patterns()` in `router.rs` for the full list.
 
-Files in these directories are treated as "within project" for acceptEdits mode.
+## Gate Rules
 
-```bash
-# Auto-allowed in acceptEdits mode
-sd 'old' 'new' file.txt           # Text replacement
-prettier --write src/             # Code formatting
-ast-grep -p 'old' -r 'new' -U .   # Code refactoring
-sed -i 's/foo/bar/g' file.txt     # In-place sed
-black src/                        # Python formatting
-eslint --fix src/                 # Linting with fix
-yq -i '.key = "value"' file.yaml  # YAML editing
-rustfmt src/main.rs               # Rust formatting
-```
+Gate rules are defined declaratively in `rules/*.toml`. Each rule has a `reason` field explaining why it asks/blocks. Read the TOML files for complete coverage -- they are the source of truth.
 
-### File-Editing Programs
+### Hints
 
-| Category | Programs |
-|----------|----------|
-| Text replacement | `sd`, `sed -i`, `patch`, `dos2unix` |
-| Formatters | `prettier --write`, `black`, `rustfmt`, `go fmt`, `gofmt -w`, `clang-format`, `shfmt`, `stylua` |
-| Linters with fix | `eslint --fix`, `biome --fix`, `ruff format`, `rubocop -a`, `golangci-lint --fix` |
-| Code refactoring | `ast-grep -U`, `sg -U` |
-| Data editing | `yq -i` |
+When allowed commands use legacy tools (cat, grep, find, etc.), bash-gates adds hints suggesting modern alternatives (bat, rg, fd) via `additionalContext` -- only if the modern tool is installed (checked via `tool_cache.rs`, 7-day TTL at `~/.cache/bash-gates/available-tools.json`). Hint definitions are in `hints.rs`.
 
-### Still Requires Approval (even in acceptEdits)
+### Task Expansion
 
-- Package managers: `npm install`, `cargo add`
-- Git operations: `git push`, `git commit`
-- Deletions: `rm file.txt`
-- Network: `curl -X POST`, `ssh`
-- Paths outside cwd: `sd 'a' 'b' /other/project/file.txt`, `prettier --write ~/file.js`
-- Parent directory escapes: `sd 'a' 'b' ../../file.txt`
-- Blocked commands: `rm -rf /` still denied
+**Mise**: `mise run <task>` expands to underlying commands from `.mise.toml`/`mise.toml`, recursively including `depends` tasks and handling `dir`. Built-in mise subcommands (`install`, `use`, etc.) are not expanded.
 
-## Decision Priority
+**Package.json**: `npm run <script>`, `pnpm run <script>`, `yarn <script>` expand to the script's command from `package.json`. Shorthands like `pnpm lint` -> `pnpm run lint` are supported.
 
-```
-BLOCK > ASK > ALLOW > SKIP
-```
-
-| Decision | Output | Effect |
-|----------|--------|--------|
-| `block` | `permissionDecision: "deny"` | Block with reason |
-| `ask` | `permissionDecision: "ask"` | Prompt user for approval |
-| `allow` | `permissionDecision: "allow"` | Auto-approve |
-| `skip` | (triggers ask) | Gate doesn't handle command → unknown |
-
-**Unknown commands require approval.** If no gate explicitly allows a command, it's treated as unknown and requires user approval.
-
-## Security Checks (router.rs)
-
-Before AST parsing, raw string checks catch dangerous patterns. Comments are stripped first (quote-aware, word-boundary-aware) to avoid false positives from patterns like `# feat -> minor` or `# curl | bash` inside comments:
-
-| Pattern | Decision | Reason |
-|---------|----------|--------|
-| `\| bash`, `\| /bin/bash`, `\| sh`, `\| zsh` | ask | Pipe to shell |
-| `\| python`, `\| perl`, `\| ruby` | ask | Pipe to interpreter |
-| `\| sudo`, `\| /usr/bin/sudo` | ask | Pipe to sudo |
-| `eval ...` | ask | Arbitrary code execution |
-| `source ...`, `. script` | ask | Sourcing external script |
-| `xargs rm`, `xargs mv` | ask | xargs to dangerous command |
-| `find . -delete`, `find -exec rm` | ask | Destructive find |
-| `fd -x rm`, `fd --exec rm` | ask | fd executing dangerous command |
-| `$(rm ...)`, `` `rm ...` `` | ask | Dangerous command substitution |
-| `;rm -rf /` | ask | Leading semicolon (injection) |
-| `> file`, `>> file`, `&> file` | ask | Output redirection |
-
-## Gate Coverage
-
-### basics.rs - Safe Shell Commands
-~130+ known-safe commands that are always allowed:
-- **Display**: `echo`, `printf`, `cat`, `head`, `tail`, `less`, `more`, `bat`, `batcat`
-- **Listing**: `ls`, `eza`, `lsd`, `tree`, `find`, `fd`, `locate`, `which`, `whereis`, `type`
-- **Text processing**: `grep`, `rg`, `awk`, `sed` (without -i), `cut`, `sort`, `uniq`, `wc`, `tr`, `diff`, `cmp`
-- **File info**: `file`, `stat`, `du`, `df`, `lsof`, `readlink`, `realpath`, `basename`, `dirname`
-- **Process/system**: `ps`, `top`, `htop`, `btop`, `procs`, `pgrep`, `uptime`, `whoami`, `id`, `uname`, `hostname`, `date`, `cal`, `free`, `nproc`, `lscpu`
-- **Network info**: `ping`, `traceroute`, `mtr`, `dig`, `nslookup`, `host`, `whois`, `ss`, `netstat`, `ip`, `ifconfig`
-- **Archive listing**: `zipinfo`, `unrar` (listing only)
-- **Dev tools**: `jq`, `yq`, `gron`, `fx`, `tokei`, `cloc`, `scc`, `hexdump`, `xxd`, `hexyl`, `base64`, `delta`, `difft`, `dust`, `fselect`
-- **Checksums**: `sha256sum`, `md5sum`, `sha1sum`, `b2sum`, `cksum`
-- **Help**: `man`, `info`, `help`, `tldr`, `cheat`
-- **Misc**: `true`, `false`, `seq`, `expr`, `bc`, `sleep`, `pwd`, `cd`, `printenv`, `export`, `test`
-- **Custom handlers**: `xargs` (safe only with known-safe target), `bash -c`/`sh -c` (parses inner script)
-
-### beads.rs - Beads Issue Tracker CLI
-Handles `bd` (beads) issue tracker commands:
-- **Allow**: `list`, `show`, `ready`, `blocked`, `search`, `stats`, `doctor`, `dep tree`, `label list`, `prime`
-- **Ask**: `create`, `update`, `close`, `delete`, `sync`, `init`, `dep add`, `label add`, `comments add`
-- No blocked commands (all recoverable via git)
-
-### mcp.rs - MCP CLI
-Handles `mcp-cli` commands for Model Context Protocol servers:
-- **Allow**: `servers`, `tools`, `info`, `grep`, `resources`, `read`, `help` (discovery commands)
-- **Ask**: `call` (invokes MCP tools - checks settings.json for MCP permissions)
-
-MCP permissions in settings.json use patterns:
-- `mcp__<server>` - allow entire server
-- `mcp__<server>__<tool>` - allow specific tool
-- `mcp__<server>__*` - allow all tools on server (wildcard)
-
-Example settings.json:
-```json
-{
-  "permissions": {
-    "allow": ["mcp__docs", "mcp__search__*"],
-    "deny": ["mcp__docs__dangerous_tool"]
-  }
-}
-```
-
-### gh.rs - GitHub CLI
-- **Allow**: `pr list`, `issue view`, `repo view`, `repo list`, `search`, `api` (GET)
-- **Ask**: `pr create`, `pr merge`, `issue create`, `repo clone`, `gist clone`, `run download`, `release download`, `api` (POST/PUT/DELETE)
-- **Block**: `repo delete`, `auth logout`
-
-### shortcut.rs - Shortcut.com CLI
-Handles `short` CLI for Shortcut.com project management:
-- **Allow**: `search`, `find`, `story` (view only), `members`, `epics`, `workflows`, `projects`, `workspace` (list), `help`
-- **Ask**: `create`, `install`, `story` (with update flags like `--state`, `--title`, `--comment`), `search --save`, `api` (POST/PUT/DELETE)
-
-### git.rs - Git
-- **Allow**: `status`, `log`, `diff`, `show`, `branch -a`, `--dry-run` commands
-- **Ask**: `add`, `commit`, `push`, `pull`, `merge`, `checkout`, `branch -d`, `gc`, `prune`, `maintenance`
-- **Ask (warning)**: `push --force`, `reset --hard`, `clean -fd`
-
-### cloud.rs - Cloud CLIs
-- **AWS**: `describe-*`/`list-*`/`get-*` allow, `create`/`delete`/`put` ask, `iam delete-user` block
-- **gcloud**: `list`/`describe` allow, `create`/`delete`/`deploy`/`get-credentials` ask
-- **terraform/tofu**: `plan`/`show` allow, `apply`/`destroy` ask
-- **kubectl**: `get`/`describe`/`logs` allow, `apply`/`delete`/`exec` ask, `delete ns kube-system` block
-- **docker**: `ps`/`images`/`logs` allow, `run`/`build`/`push` ask; `compose` subcommands supported (handles flags like `-f`)
-- **podman**: `ps`/`images`/`logs`/`pod ps` allow, `run`/`build`/`push`/`play` ask
-- **az**: `list`/`show` allow, `create`/`delete`/`start`/`stop`/`restart` ask
-- **helm**: `list`/`get`/`show`/`template` allow, `install`/`upgrade`/`uninstall` ask
-- **pulumi**: `preview`/`stack ls` allow, `up`/`destroy`/`refresh` ask
-
-### network.rs - Network Tools
-- **curl**: HEAD (`-I`) allow, GET allow by default, POST/PUT/DELETE/PATCH ask, `-o`/`-O` (download) ask, `-d`/`--data` implies mutation
-- **wget**: `--spider` allow (just checks URLs), `-O`/`-r`/`-m`/`--post-*` ask
-- **ssh/scp/sftp**: always ask (remote connections)
-- **rsync**: `-n`/`--dry-run` allow (preview), otherwise ask
-- **netcat** (`nc`/`ncat`): `-e` block (reverse shell risk), `-l` ask (listen mode), connections ask
-- **HTTPie** (`http`/`https`/`xh`): GET allow, POST/PUT/DELETE/PATCH ask
-
-### filesystem.rs - Filesystem
-- **Allow**: `tar -t`/`tar --list` (list contents), `unzip -l` (list contents)
-- **Ask**: `rm`, `mv`, `cp`, `mkdir`, `touch`, `chmod`, `chown`, `chgrp`, `ln`, `tar -x`/`tar -c`, `sed -i`, `perl` (can execute arbitrary code), `zip`
-- **Block**: `rm -rf /`, `rm -rf ~`, `rm -rf /*`, path traversal with normalization (`//`, `/./`, `/../`)
-
-### devtools.rs - Developer Tools
-Handles ~50+ developer tools with write-flag detection:
-- **Always safe**: `jq`, `shellcheck`, `hadolint`, `actionlint`, `vite`, `vitest`, `jest`, `mocha`, `tsc`, `tsup`, `esbuild`, `turbo`, `nx`, `knip`, `oxlint`
-- **Safe by default, ask with write flags**:
-  - `ast-grep`/`sg`: search safe, `-U`/`--update-all` asks
-  - `yq`: read safe, `-i`/`--inplace` asks
-  - `semgrep`: scan safe, `--autofix`/`--fix` asks
-  - `sad`: preview safe, `--commit` asks
-  - `prettier`: safe, `--write`/`-w` asks
-  - `eslint`: safe, `--fix` asks
-  - `biome`: `check`/`lint` safe, `--write`/`--fix` asks
-  - `ruff`: `check` safe, `check --fix` or `format` asks
-  - `black`/`isort`: `--check`/`--diff` safe, otherwise asks
-  - `gofmt`/`goimports`/`shfmt`: safe, `-w` asks
-  - `rustfmt`/`stylua`: `--check` safe, otherwise asks
-  - `golangci-lint`: safe, `--fix` asks
-  - `rubocop`/`standardrb`: safe, `-a`/`--auto-correct` asks
-  - `patch`: `--dry-run` safe, otherwise asks
-  - `clang-format`/`autopep8`: safe, `-i` asks
-- **Safe in pipe mode, ask with file args**: `sd` (no file args = stdin→stdout filter; with files = in-place edit)
-- **Always ask**: `watchexec` (runs commands), `dos2unix`/`unix2dos`, `dartfmt`, `elm-format`
-
-### package_managers.rs - Package Managers
-- **Allow**: `list`, `show`, `test`, `build`, `check`, `lint`, `dev`
-- **Ask**: `install`, `add`, `remove`, `publish`, `init`, `run` (executes scripts), `fmt` (modifies files)
-- Covers: npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, mamba, poetry, pipx, mise
-- **mise**: `ls`/`doctor`/`reshim`/`exec` allow, `install`/`use`/`upgrade` ask (task expansion handled separately)
-
-### system.rs - System Commands
-- **Database**: `psql -l` allow, `psql -c SELECT` allow, `psql -c INSERT`/`psql -f` ask; `pg_dump` allow, `pg_restore` ask
-- **Database CLIs**: `mysql`, `sqlite3`, `mongosh`, `redis-cli` - query commands parsed
-- **Database migrations**: `migrate`, `goose`, `dbmate`, `flyway`, `alembic` - always ask
-- **Build tools**:
-  - `make`: `-n`/`--dry-run` allow, `test`/`build`/`clean`/`fmt` allow, other targets ask
-  - `cmake`: `--view-only` allow, otherwise ask
-  - `ninja`, `just`, `task`: list commands allow, others ask
-  - `gradle`/`maven`: `tasks`/`help`/`test`/`build` allow, `publish`/`deploy` ask
-  - `bazel`: `info`/`query`/`build`/`test` allow, `run`/`clean` ask
-  - `meson`, `ansible`, `vagrant`, `hyperfine`: various patterns
-- **sudo/doas**: `-l`/`-v`/`-k` allow, describes underlying command (e.g., "sudo: Installing packages (apt)")
-- **systemctl**: `status`/`show`/`list-*`/`is-*`/`cat` allow, `start`/`stop`/`restart`/`enable`/`disable` ask
-- **Process**: `kill -0`/`kill -l` allow, `kill`/`pkill`/`killall` ask
-- **Crontab**: `crontab -l` allow, `crontab -e` ask
-- **Block**: `shutdown`, `reboot`, `poweroff`, `halt`, `init`, `mkfs`, `fdisk`, `parted`, `gdisk`, `dd`, `shred`, `wipe`, `useradd`, `userdel`, `passwd`, `iptables`, `ufw`, `mount` (partial), `insmod`, `rmmod`, `modprobe`, `grub-install`
-
-### system.rs - OS Package Managers
-- **apt/apt-get**: `list`/`search`/`show` allow, `install`/`remove`/`upgrade`/`download` ask
-- **dnf/yum**: `list`/`info`/`search` allow, `install`/`remove`/`update` ask
-- **pacman/yay/paru**: `-Q` (query) allow, `-S`/`-R` (sync/remove) ask
-- **brew**: `list`/`search`/`info` allow, `install`/`uninstall`/`upgrade` ask
-- **nix/nix-env**: `-q` (query) allow, `-i`/`-e` (install/uninstall) ask
-- **flatpak/snap**: `list`/`info` allow, `install`/`remove` ask
-- **zypper/apk**: `search`/`info` allow, `install`/`remove` ask
+Both pass expanded commands through the gate engine; strictest decision wins.
 
 ## Adding a Tool to an Existing Gate
 
-For most tools, just edit the TOML and rebuild - no Rust changes needed.
+For most tools, just edit the TOML and rebuild -- no Rust changes needed.
 
 **Example: Adding shellcheck to devtools**
 
@@ -763,6 +260,7 @@ if_flags_any = ["--write", "-w"]
 | `if_flags_any` | Ask/allow only if any of these flags present |
 | `unless_flags` | Allow unless any of these flags present |
 | `if_args_contain` | Block if args contain these values |
+| `accept_edits_auto_allow` | On `[[programs.ask]]`: auto-allow this program in acceptEdits mode |
 
 **Custom handlers:** If a tool needs complex logic beyond TOML, add to `[[custom_handlers]]`:
 
@@ -779,7 +277,7 @@ Then implement `check_ruff` in the gate file. The generated gate returns `Skip` 
 
 For a new category of tools (not fitting existing gates):
 
-1. Create `rules/newgate.toml`:
+1. Create `rules/newgate.toml` (`priority` controls gate ordering -- lower runs first, `basics` at 100 is always last):
 
 ```toml
 [meta]
@@ -853,44 +351,20 @@ cmd.raw            // Original command string
 
 ### Gate Return Values
 ```rust
-// Skip (gate doesn't handle this command)
-GateResult::skip()
-
-// Allow (read-only, explicitly safe)
-GateResult::allow()
-
-// Ask (mutation, needs approval)
-GateResult::ask("Description")
-
-// Block (dangerous, never allow)
-GateResult::block("Explanation")
-```
-
-### Prefix Matching for Subcommands
-```rust
-// For commands like "aws ec2 describe-instances" matching "describe" prefix
-if args.len() >= 2 && args[0] == "ec2" && args[1].starts_with("describe") {
-    return GateResult::allow();
-}
+GateResult::skip()           // Gate doesn't handle this command
+GateResult::allow()          // Read-only, explicitly safe
+GateResult::ask("Description") // Mutation, needs approval
+GateResult::block("Explanation") // Dangerous, never allow
 ```
 
 ## Testing
 
 ```bash
-# Full test suite
-cargo test
-
-# With output
-cargo test -- --nocapture
-
-# Single test file
-cargo test gates::git
-
-# Single test
-cargo test test_git_status_allows
-
-# Run only ignored (slow) tests
-cargo test -- --ignored
+cargo test                              # Full test suite
+cargo test -- --nocapture               # With output
+cargo test gates::git                   # Single gate file
+cargo test test_git_status_allows       # Single test
+cargo test -- --ignored                 # Slow tests only
 ```
 
 ### Test Rules
@@ -898,159 +372,20 @@ cargo test -- --ignored
 - **CI portability**: Tests must not assume specific CLI tools (rg, bat, fd, etc.) are installed. CI runners have a minimal environment. If a test depends on tool availability, detect it at runtime and skip gracefully.
 - **Serde output verification**: Any struct or enum serialized to JSON for Claude Code must have a test asserting the exact field casing. The CLI expects camelCase (`updatedPermissions`, `hookEventName`). Use `serde_json::to_string` and assert key names to catch `rename_all` omissions.
 
-### Manual Testing
-```bash
-# Allow (known safe)
-echo '{"tool_name": "Bash", "tool_input": {"command": "git status"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"allow",...}}
+## Runtime Files
 
-# Ask (known risky)
-echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"npm: Installing packages"}}
+All under `~/.cache/bash-gates/`:
 
-# Ask (unknown command)
-echo '{"tool_name": "Bash", "tool_input": {"command": "mamba install numpy"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"conda: Installing packages"}}
+| File | Purpose |
+|------|---------|
+| `tracking.json` | PreToolUse->PostToolUse correlation (15min TTL, auto-cleaned) |
+| `pending.jsonl` | Approval queue -- commands awaiting `bash-gates review` |
+| `available-tools.json` | Tool cache for hints (7-day TTL) |
 
-# Block (dangerous)
-echo '{"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"deny",...}}
+## Gotchas
 
-# Accept Edits Mode - auto-allow file editing
-echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new file.txt"}, "permission_mode": "acceptEdits"}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"allow","permissionDecisionReason":"Auto-allowed in acceptEdits mode"}}
-
-# Accept Edits Mode - still asks for non-file-editing
-echo '{"tool_name": "Bash", "tool_input": {"command": "npm install"}, "permission_mode": "acceptEdits"}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask",...}}
-
-# Accept Edits Mode - asks for paths outside cwd
-echo '{"tool_name": "Bash", "tool_input": {"command": "sd old new /other/file.txt"}, "permission_mode": "acceptEdits", "cwd": "/home/user/project"}' | ./target/x86_64-unknown-linux-musl/release/bash-gates
-# → {"hookSpecificOutput":{"permissionDecision":"ask",...}}
-```
-
-## Compound Commands
-
-For `&&`, `||`, `|`, `;` chains, **strictest decision wins**:
-
-| Command | Result | Why |
-|---------|--------|-----|
-| `echo hello && cat file` | allow | Both safe |
-| `git status && npm install` | ask | npm asks |
-| `mamba activate && git status` | ask | mamba unknown |
-| `rm -rf / && echo done` | deny | rm blocks |
-
-## Edge Cases Handled
-
-| Input | Result | Why |
-|-------|--------|-----|
-| `gh pr list && gh pr create` | ask | Mutation in chain |
-| `echo "gh pr create"` | allow | String argument, not command |
-| `curl ... \| bash` | ask | Raw string check catches pipe |
-| `$(gh pr create)` | ask | tree-sitter detects subshell |
-| `git clean -fd --dry-run` | allow | Dry-run checked first |
-| `find . -name "*.tmp" \| xargs rm` | ask | xargs pattern check |
-| `fd -t d .venv -x rm -rf {}` | ask | fd exec pattern check |
-| `;rm -rf /` | ask | Leading semicolon check |
-| `rm -rf //` | block | Path normalization catches bypass |
-| `rm -rf /./` | block | Path normalization catches bypass |
-| `mamba install` | ask | Unknown command |
-| `randomtool --flag` | ask | Unknown command |
-
-## Dependencies
-
-- `tree-sitter` + `tree-sitter-bash` - Bash AST parsing
-- `serde` + `serde_json` - JSON serialization
-- `regex` - Pattern matching
-- `dirs` - Home directory detection for settings.json
-- `chrono` - Timestamp handling for tracking TTL
-- `fs2` - File locking for concurrent access
-- `uuid` - Unique IDs for pending approvals
-- `ratatui` + `crossterm` - Terminal UI for `bash-gates review`
-
-## Claude Code Integration
-
-### Automatic Installation
-
-```bash
-# Install to user settings (recommended)
-bash-gates hooks add -s user
-
-# Install to project settings (shared with team)
-bash-gates hooks add -s project
-
-# Install to local project settings (not committed)
-bash-gates hooks add -s local
-
-# Preview changes without writing
-bash-gates hooks add -s user --dry-run
-
-# Check installation status across all scopes
-bash-gates hooks status
-```
-
-### Scopes
-
-| Scope | File | Description |
-|-------|------|-------------|
-| `user` | `~/.claude/settings.json` | Global user settings (recommended) |
-| `project` | `.claude/settings.json` | Shared with team (committed) |
-| `local` | `.claude/settings.local.json` | Personal project settings (not committed) |
-
-### Manual Installation
-
-Add to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [{
-          "type": "command",
-          "command": "/path/to/bash-gates",
-          "timeout": 10
-        }]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "matcher": "Bash",
-        "hooks": [{
-          "type": "command",
-          "command": "/path/to/bash-gates",
-          "timeout": 10
-        }]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [{
-          "type": "command",
-          "command": "/path/to/bash-gates",
-          "timeout": 10
-        }]
-      }
-    ]
-  }
-}
-```
-
-**Note:** All three hooks use the same binary. bash-gates detects the hook type from `hook_event_name` in the input JSON and responds appropriately.
-
-## Gemini CLI Integration
-
-Gemini CLI's hook system cannot prompt users (only allow/block). Use the policy engine instead:
-
-```bash
-# Generate and install policy rules
-bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
-```
-
-This exports 700+ policy rules (pulled from actual gate definitions) with proper `ask_user` support:
-- **deny** (priority 900+): Dangerous commands like `rm -rf /`, `gh repo delete`
-- **allow** (priority 100-199): Safe read-only commands like `git status`, `ls`
-- **ask_user** (priority 200-299): Risky commands like `npm install`, `git push`
-- **ask_user** (priority 1): Default fallback for unknown commands
+- **Never edit `src/generated/`** -- files are overwritten by `build.rs` on every build
+- **`basics` must be last** in `GATES` array (priority 100) -- it's the catch-all for safe commands
+- **`reason` is required** on all `[[programs.ask]]` and `[[programs.block]]` rules -- build fails without it
+- **Generated function naming**: gate named `foo` generates `check_foo_gate()` in `src/generated/rules.rs`
+- **MCP permissions** use a different pattern format in settings.json: `mcp__<server>__<tool>` (double underscores, not `Bash(...)` format)
