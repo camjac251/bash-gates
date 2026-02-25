@@ -58,6 +58,9 @@ pub struct TrackedCommand {
     pub breakdown: Vec<CommandPart>,
     /// Stable project identifier (from transcript_path or sanitized cwd)
     pub project_id: String,
+    /// Original working directory path (for display purposes)
+    #[serde(default)]
+    pub cwd: String,
     pub session_id: String,
     pub timestamp: DateTime<Utc>,
     pub expires: DateTime<Utc>,
@@ -69,6 +72,7 @@ impl TrackedCommand {
         suggested_patterns: Vec<String>,
         breakdown: Vec<CommandPart>,
         project_id: String,
+        cwd: String,
         session_id: String,
     ) -> Self {
         let now = Utc::now();
@@ -77,6 +81,7 @@ impl TrackedCommand {
             suggested_patterns,
             breakdown,
             project_id,
+            cwd,
             session_id,
             timestamp: now,
             expires: now + Duration::seconds(DEFAULT_TTL_SECS),
@@ -194,6 +199,7 @@ pub fn track_ask_command(
     suggested_patterns: Vec<String>,
     breakdown: Vec<CommandPart>,
     project_id: &str,
+    cwd: &str,
     session_id: &str,
 ) {
     let tracked = TrackedCommand::new(
@@ -201,6 +207,7 @@ pub fn track_ask_command(
         suggested_patterns,
         breakdown,
         project_id.to_string(),
+        cwd.to_string(),
         session_id.to_string(),
     );
 
@@ -260,6 +267,7 @@ mod tests {
             vec!["npm install:*".to_string()],
             vec![],
             "/tmp".to_string(),
+            "/tmp".to_string(),
             "session1".to_string(),
         );
 
@@ -275,6 +283,7 @@ mod tests {
                 "npm install".to_string(),
                 vec!["npm install:*".to_string()],
                 vec![],
+                "/tmp".to_string(),
                 "/tmp".to_string(),
                 "session1".to_string(),
             );

@@ -24,6 +24,10 @@ pub struct PendingApproval {
     pub breakdown: Vec<CommandPart>,
     /// Stable project identifier (extracted from transcript_path or sanitized cwd)
     pub project_id: String,
+    /// Original working directory path (for display purposes).
+    /// Falls back to project_id if not available (backwards compat with old entries).
+    #[serde(default)]
+    pub cwd: String,
     pub session_id: String,
     pub count: u32,
     pub first_seen: DateTime<Utc>,
@@ -36,6 +40,7 @@ impl PendingApproval {
         patterns: Vec<String>,
         breakdown: Vec<CommandPart>,
         project_id: String,
+        cwd: String,
         session_id: String,
     ) -> Self {
         let now = Utc::now();
@@ -45,6 +50,7 @@ impl PendingApproval {
             patterns,
             breakdown,
             project_id,
+            cwd,
             session_id,
             count: 1,
             first_seen: now,
@@ -283,8 +289,8 @@ pub fn group_pending(entries: Vec<PendingApproval>) -> Vec<CommandGroup> {
             projects: Vec::new(),
         });
 
-        // Track unique projects
-        let project = expand_project_path(&entry.project_id);
+        // Track unique projects using display_project_path for human-readable form
+        let project = display_project_path(&entry);
         if !group.projects.contains(&project) {
             group.projects.push(project);
         }
@@ -326,39 +332,28 @@ fn extract_base_command(command: &str) -> String {
     }
 }
 
-/// Expand project_id back to a readable path
-pub fn expand_project_path(project_id: &str) -> String {
-    // project_id is like "-home-user-projects-myapp"
-    // Convert back to "/home/user/projects/myapp"
-    if project_id.starts_with('-') {
-        let path = project_id.replacen('-', "/", 1).replace('-', "/");
-        // Collapse home directory
-        if let Some(home) = dirs::home_dir() {
-            let home_str = home.to_string_lossy();
-            if path.starts_with(home_str.as_ref()) {
-                return path.replacen(home_str.as_ref(), "~", 1);
-            }
-        }
-        path
+/// Get a human-readable display path for a pending approval entry.
+///
+/// Uses the stored `cwd` field (real path) when available, falling back
+/// to `project_id` as-is for old entries that lack `cwd`.
+/// Collapses the home directory prefix to `~` for brevity.
+pub fn display_project_path(entry: &PendingApproval) -> String {
+    let path = if entry.cwd.is_empty() {
+        // Backwards compat: old entries without cwd field.
+        // project_id is already a sanitized identifier, show it as-is.
+        return entry.project_id.clone();
     } else {
-        project_id.to_string()
-    }
-}
-
-/// Convert expanded path back to project_id format for matching
-pub fn collapse_project_path(path: &str) -> String {
-    let expanded = if path.starts_with('~') {
-        if let Some(home) = dirs::home_dir() {
-            path.replacen('~', &home.to_string_lossy(), 1)
-        } else {
-            path.to_string()
-        }
-    } else {
-        path.to_string()
+        &entry.cwd
     };
 
-    // Convert /home/user/projects to -home-user-projects
-    expanded.replace('/', "-")
+    // Collapse home directory prefix to ~
+    if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy();
+        if path.starts_with(home_str.as_ref()) {
+            return path.replacen(home_str.as_ref(), "~", 1);
+        }
+    }
+    path.to_string()
 }
 
 #[cfg(test)]
@@ -371,6 +366,7 @@ mod tests {
             "npm install".to_string(),
             vec!["npm install:*".to_string()],
             vec![],
+            "/tmp".to_string(),
             "/tmp".to_string(),
             "session1".to_string(),
         );
@@ -386,6 +382,7 @@ mod tests {
             "npm install".to_string(),
             vec![],
             vec![],
+            "/tmp".to_string(),
             "/tmp".to_string(),
             "session1".to_string(),
         );
@@ -453,6 +450,7 @@ mod tests {
             vec![],
             vec![],
             project_id.to_string(),
+            String::new(),
             "sess".to_string(),
         )
     }
@@ -600,5 +598,112 @@ mod tests {
         let removed = simulate_clear(&mut entries, Some("proj-c"));
         assert_eq!(removed, 0);
         assert_eq!(entries.len(), 2);
+    }
+
+    // --- Lossy project_id encoding regression tests ---
+
+    /// Helper to create an approval with both project_id and cwd
+    fn make_approval_with_cwd(command: &str, project_id: &str, cwd: &str) -> PendingApproval {
+        PendingApproval::new(
+            command.to_string(),
+            vec![],
+            vec![],
+            project_id.to_string(),
+            cwd.to_string(),
+            "sess".to_string(),
+        )
+    }
+
+    #[test]
+    fn test_display_project_path_uses_cwd_when_available() {
+        let entry = make_approval_with_cwd("cmd", "-home-cam-my-project", "/home/cam/my-project");
+        // Should use the real cwd, not try to decode project_id
+        let display = display_project_path(&entry);
+        assert!(
+            display.contains("my-project"),
+            "display path should preserve hyphens from real cwd: got '{display}'"
+        );
+        // Should NOT contain "my/project" (the old lossy decoding bug)
+        assert!(
+            !display.contains("my/project"),
+            "display path must not lossy-decode hyphens as slashes: got '{display}'"
+        );
+    }
+
+    #[test]
+    fn test_display_project_path_falls_back_to_project_id_for_old_entries() {
+        // Old entries without cwd field (empty string from #[serde(default)])
+        let entry = make_approval_with_cwd("cmd", "-home-cam-my-project", "");
+        let display = display_project_path(&entry);
+        assert_eq!(
+            display, "-home-cam-my-project",
+            "old entries without cwd should show project_id as-is"
+        );
+    }
+
+    #[test]
+    fn test_display_project_path_absolute_path_outside_home() {
+        let entry = make_approval_with_cwd("cmd", "-opt-myapp", "/opt/myapp");
+        let display = display_project_path(&entry);
+        assert_eq!(display, "/opt/myapp");
+    }
+
+    #[test]
+    fn test_group_pending_preserves_hyphenated_paths() {
+        let entries = vec![
+            make_approval_with_cwd(
+                "npm install",
+                "-home-cam-my-project",
+                "/home/cam/my-project",
+            ),
+            make_approval_with_cwd(
+                "npm install",
+                "-home-cam-other-thing",
+                "/home/cam/other-thing",
+            ),
+        ];
+
+        let groups = group_pending(entries);
+        assert_eq!(groups.len(), 1, "same base command should group together");
+
+        let group = &groups[0];
+        assert_eq!(group.projects.len(), 2);
+
+        // Both project paths should preserve hyphens
+        for project in &group.projects {
+            assert!(
+                !project.contains("/cam/my/project"),
+                "project path must not lossy-decode: got '{project}'"
+            );
+            assert!(
+                !project.contains("/cam/other/thing"),
+                "project path must not lossy-decode: got '{project}'"
+            );
+        }
+    }
+
+    #[test]
+    fn test_serde_round_trip_with_cwd() {
+        let approval = make_approval_with_cwd(
+            "npm install",
+            "-home-cam-my-project",
+            "/home/cam/my-project",
+        );
+        let json = serde_json::to_string(&approval).unwrap();
+        let restored: PendingApproval = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.cwd, "/home/cam/my-project");
+        assert_eq!(restored.project_id, "-home-cam-my-project");
+    }
+
+    #[test]
+    fn test_serde_backwards_compat_missing_cwd() {
+        // Simulate an old JSONL entry that lacks the cwd field
+        let json = r#"{"id":"test-id","command":"npm install","patterns":[],"breakdown":[],"project_id":"-home-cam-my-project","session_id":"s","count":1,"first_seen":"2025-01-01T00:00:00Z","last_seen":"2025-01-01T00:00:00Z"}"#;
+        let entry: PendingApproval = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.cwd, "", "missing cwd should default to empty string");
+        assert_eq!(entry.project_id, "-home-cam-my-project");
+        // display_project_path should fall back gracefully
+        let display = display_project_path(&entry);
+        assert_eq!(display, "-home-cam-my-project");
     }
 }

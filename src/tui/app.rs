@@ -1,8 +1,7 @@
 //! Application state and event handling for the review TUI.
 
 use crate::pending::{
-    CommandGroup, collapse_project_path, expand_project_path, group_pending, read_pending,
-    remove_pending_many,
+    CommandGroup, display_project_path, group_pending, read_pending, remove_pending_many,
 };
 use crate::settings_writer::{RuleType, Scope, add_rule, add_rule_to_project};
 use crossterm::{
@@ -242,29 +241,32 @@ impl App {
             Scope::Project | Scope::Local => {
                 // Per-project approval
                 for &project_idx in &self.selected_projects {
-                    if let Some(project_path) = group.projects.get(project_idx) {
-                        // Expand ~ back to full path
-                        let full_path = if project_path.starts_with('~') {
-                            if let Some(home) = dirs::home_dir() {
-                                project_path.replacen('~', &home.to_string_lossy(), 1)
-                            } else {
-                                project_path.clone()
-                            }
-                        } else {
-                            project_path.clone()
-                        };
+                    if let Some(project_display) = group.projects.get(project_idx) {
+                        // Find the first entry matching this display path to get the
+                        // real cwd for filesystem operations.
+                        let real_path = group
+                            .entries
+                            .iter()
+                            .find(|e| display_project_path(e) == *project_display)
+                            .map(|e| {
+                                if e.cwd.is_empty() {
+                                    // Backwards compat: old entries without cwd
+                                    project_display.clone()
+                                } else {
+                                    e.cwd.clone()
+                                }
+                            })
+                            .unwrap_or_else(|| project_display.clone());
 
                         if let Err(e) =
-                            add_rule_to_project(self.scope, &full_path, &pattern, RuleType::Allow)
+                            add_rule_to_project(self.scope, &real_path, &pattern, RuleType::Allow)
                         {
-                            errors.push(format!("{}: {}", project_path, e));
+                            errors.push(format!("{}: {}", project_display, e));
                         } else {
-                            // Find and mark entries from this project as approved
-                            let project_id_pattern = collapse_project_path(project_path);
+                            // Find and mark entries from this project as approved.
+                            // Match by comparing display paths (exact equality).
                             for entry in &group.entries {
-                                if entry.project_id.contains(&project_id_pattern)
-                                    || expand_project_path(&entry.project_id) == *project_path
-                                {
+                                if display_project_path(entry) == *project_display {
                                     approved_ids.push(entry.id.clone());
                                 }
                             }

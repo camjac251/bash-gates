@@ -211,6 +211,7 @@ fn handle_pre_tool_use_hook(input: &str) {
                 suggested_patterns,
                 breakdown,
                 &hook_input.project_id(),
+                &hook_input.cwd,
                 &hook_input.session_id,
             );
         }

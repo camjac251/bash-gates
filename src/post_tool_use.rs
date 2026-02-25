@@ -30,6 +30,7 @@ pub fn handle_post_tool_use(input: &PostToolUseInput) -> Option<PostToolUseOutpu
         tracked.suggested_patterns,
         tracked.breakdown,
         tracked.project_id,
+        tracked.cwd,
         tracked.session_id,
     );
 
