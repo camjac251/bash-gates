@@ -169,7 +169,8 @@ impl TrackingStore {
         self.entries.remove(tool_use_id)
     }
 
-    /// Get a tracked command without removing it (for peek-before-remove pattern)
+    /// Get a tracked command without removing it
+    #[allow(dead_code)]
     pub fn get(&self, tool_use_id: &str) -> Option<&TrackedCommand> {
         self.entries.get(tool_use_id)
     }
@@ -211,7 +212,8 @@ pub fn track_ask_command(
     }
 }
 
-/// Get a tracked command without removing it (called from PostToolUse to peek before commit)
+/// Get a tracked command without removing it
+#[allow(dead_code)]
 pub fn peek_tracked_command(tool_use_id: &str) -> Option<TrackedCommand> {
     let tool_use_id = tool_use_id.to_string();
     match TrackingStore::with_exclusive_lock(|store| store.get(&tool_use_id).cloned()) {

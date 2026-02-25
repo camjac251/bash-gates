@@ -5,7 +5,7 @@
 
 use crate::models::{PostToolUseInput, PostToolUseOutput};
 use crate::pending::{PendingApproval, append_pending};
-use crate::tracking::{peek_tracked_command, take_tracked_command};
+use crate::tracking::take_tracked_command;
 
 /// Handle a PostToolUse hook event.
 ///
@@ -14,39 +14,33 @@ use crate::tracking::{peek_tracked_command, take_tracked_command};
 ///
 /// Returns `Some(output)` with optional additional context, or `None` to pass through.
 pub fn handle_post_tool_use(input: &PostToolUseInput) -> Option<PostToolUseOutput> {
-    // Peek at the tracked command without removing it
-    // This way if append fails, we don't lose the data
-    let tracked = peek_tracked_command(&input.tool_use_id)?;
+    // Atomically remove-and-return the tracked command in a single lock scope.
+    // This avoids the TOCTOU race of peek-then-take (two separate lock acquisitions).
+    let tracked = take_tracked_command(&input.tool_use_id)?;
 
     // Only add to pending if the command succeeded
     if !input.is_success() {
-        // Remove failed commands from tracking (don't queue them)
-        let _ = take_tracked_command(&input.tool_use_id);
+        // Already removed from tracking above — nothing more to do
         return None;
     }
 
     // Create a pending approval entry
     let approval = PendingApproval::new(
-        tracked.command.clone(),
-        tracked.suggested_patterns.clone(),
-        tracked.breakdown.clone(),
-        tracked.project_id.clone(),
-        tracked.session_id.clone(),
+        tracked.command,
+        tracked.suggested_patterns,
+        tracked.breakdown,
+        tracked.project_id,
+        tracked.session_id,
     );
 
-    // Append to global pending queue
+    // Append to global pending queue.
+    // If this fails, the entry is already removed from tracking — acceptable
+    // since it would have expired via TTL anyway.
     if let Err(e) = append_pending(approval) {
         eprintln!("Warning: Failed to save pending approval: {e}");
-        // Keep in tracking - will be retried or expire naturally
-        return None;
     }
 
-    // Only remove from tracking after successful append
-    let _ = take_tracked_command(&input.tool_use_id);
-
-    // Optionally include a hint about the pending approval
-    // For now, we'll be silent to avoid cluttering Claude's context
-    // Could add frequency hints in the future
+    // Silent — avoid cluttering Claude's context
     None
 }
 
