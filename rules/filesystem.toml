@@ -100,6 +100,17 @@ reason = "Creating directory"
 accept_edits_auto_allow = true
 
 # =============================================================================
+# RMDIR (always asks - removes empty directories)
+# =============================================================================
+
+[[programs]]
+name = "rmdir"
+unknown_action = "ask"
+
+[[programs.ask]]
+reason = "Removing directory (if empty)"
+
+# =============================================================================
 # TOUCH (always asks)
 # =============================================================================
 

@@ -7,7 +7,8 @@
 use crate::gates::helpers::{is_suspicious_path, normalize_path};
 use crate::generated::rules::{
     check_chmod_declarative, check_cp_declarative, check_ln_declarative, check_mkdir_declarative,
-    check_mv_declarative, check_perl_declarative, check_rm_declarative, check_touch_declarative,
+    check_mv_declarative, check_perl_declarative, check_rm_declarative, check_rmdir_declarative,
+    check_touch_declarative,
 };
 use crate::models::{CommandInfo, Decision, GateResult};
 
@@ -23,6 +24,8 @@ pub fn check_filesystem(cmd: &CommandInfo) -> GateResult {
         "cp" => check_cp_declarative(cmd).unwrap_or_else(|| GateResult::ask("cp: Copying files")),
         "mkdir" => check_mkdir_declarative(cmd)
             .unwrap_or_else(|| GateResult::ask("mkdir: Creating directory")),
+        "rmdir" => check_rmdir_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("rmdir: Removing directory (if empty)")),
         "touch" => check_touch_declarative(cmd)
             .unwrap_or_else(|| GateResult::ask("touch: Creating/updating file")),
         "chmod" | "chown" | "chgrp" => check_chmod_declarative(cmd)
@@ -232,6 +235,14 @@ mod tests {
     #[test]
     fn test_sed_inplace_asks() {
         let result = check_filesystem(&cmd("sed", &["-i", "s/old/new/", "file"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    // === rmdir ===
+
+    #[test]
+    fn test_rmdir_asks() {
+        let result = check_filesystem(&cmd("rmdir", &["/tmp/foo"]));
         assert_eq!(result.decision, Decision::Ask);
     }
 

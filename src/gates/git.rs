@@ -209,6 +209,11 @@ mod tests {
             &["reflog"],
             &["--version"],
             &["help"],
+            &["check-ignore", "-v", "CLAUDE.md"],
+            &["check-attr", "diff", "README"],
+            &["grep", "TODO"],
+            &["merge-base", "main", "HEAD"],
+            &["show-ref"],
         ];
 
         for args in read_cmds {

@@ -863,6 +863,110 @@ subcommand = "generate-lockfile"
 reason = "Generating lockfile"
 
 # =============================================================================
+# RUSTC (read-only compiler queries; compilation requires approval)
+# =============================================================================
+
+[[programs]]
+name = "rustc"
+unknown_action = "ask"
+
+[[programs.allow]]
+if_flags_any = ["--version", "-V", "--print", "--explain", "--help", "-h", "-vV"]
+
+[[programs.ask]]
+reason = "Compiling"
+
+# =============================================================================
+# RUSTUP (toolchain manager)
+# =============================================================================
+
+[[programs]]
+name = "rustup"
+unknown_action = "ask"
+
+# Read-only commands
+[[programs.allow]]
+subcommand = "show"
+
+[[programs.allow]]
+subcommand = "toolchain list"
+
+[[programs.allow]]
+subcommand = "target list"
+
+[[programs.allow]]
+subcommand = "component list"
+
+[[programs.allow]]
+subcommand = "run"
+
+[[programs.allow]]
+subcommand = "which"
+
+[[programs.allow]]
+subcommand = "doc"
+
+[[programs.allow]]
+subcommand = "--version"
+
+[[programs.allow]]
+subcommand = "-V"
+
+[[programs.allow]]
+subcommand = "--help"
+
+[[programs.allow]]
+subcommand = "-h"
+
+[[programs.allow]]
+subcommand = "help"
+
+# Write commands
+[[programs.ask]]
+subcommand = "install"
+reason = "Installing toolchain"
+
+[[programs.ask]]
+subcommand = "update"
+reason = "Updating toolchains"
+
+[[programs.ask]]
+subcommand = "default"
+reason = "Changing default toolchain"
+
+[[programs.ask]]
+subcommand = "toolchain install"
+reason = "Installing toolchain"
+
+[[programs.ask]]
+subcommand = "toolchain uninstall"
+reason = "Uninstalling toolchain"
+
+[[programs.ask]]
+subcommand = "target add"
+reason = "Adding compilation target"
+
+[[programs.ask]]
+subcommand = "target remove"
+reason = "Removing compilation target"
+
+[[programs.ask]]
+subcommand = "component add"
+reason = "Adding component"
+
+[[programs.ask]]
+subcommand = "component remove"
+reason = "Removing component"
+
+[[programs.ask]]
+subcommand = "override"
+reason = "Setting toolchain override"
+
+[[programs.ask]]
+subcommand = "self"
+reason = "Modifying rustup installation"
+
+# =============================================================================
 # GO
 # =============================================================================
 
@@ -1541,9 +1645,8 @@ reason = "Cache operation"
 subcommand = "link"
 reason = "Linking tool version"
 
-[[programs.ask]]
+[[programs.allow]]
 subcommand = "registry"
-reason = "Registry operation"
 
 # Note: Custom handler for exec subcommand
 [[custom_handlers]]

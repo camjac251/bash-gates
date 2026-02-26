@@ -8,7 +8,8 @@ use crate::gates::devtools::check_devtools;
 use crate::generated::rules::{
     check_bun_declarative, check_cargo_declarative, check_conda_declarative, check_go_declarative,
     check_mise_declarative, check_npm_declarative, check_pip_declarative, check_pipx_declarative,
-    check_pnpm_declarative, check_poetry_declarative, check_uv_declarative, check_yarn_declarative,
+    check_pnpm_declarative, check_poetry_declarative, check_rustc_declarative,
+    check_rustup_declarative, check_uv_declarative, check_yarn_declarative,
 };
 use crate::models::{CommandInfo, Decision, GateResult};
 
@@ -33,6 +34,11 @@ pub fn check_package_managers(cmd: &CommandInfo) -> GateResult {
         "pdm" => check_pdm(cmd),
         "hatch" => check_hatch(cmd),
         "mise" => check_mise(cmd),
+        "rustc" => {
+            check_rustc_declarative(cmd).unwrap_or_else(|| GateResult::ask("rustc: Compiling"))
+        }
+        "rustup" => check_rustup_declarative(cmd)
+            .unwrap_or_else(|| GateResult::ask("rustup: Toolchain operation")),
         _ => GateResult::skip(),
     }
 }
@@ -601,6 +607,7 @@ fn check_mise(cmd: &CommandInfo) -> GateResult {
                     "reshim",
                     "trust",
                     "exec",
+                    "registry",
                     "--version",
                     "-V",
                     "--help",
@@ -1023,6 +1030,60 @@ mod tests {
                 Decision::Allow,
                 "mise exec biome check should allow"
             );
+        }
+
+        #[test]
+        fn test_mise_registry_allows() {
+            let result = check_package_managers(&cmd("mise", &["registry"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "mise registry should allow (read-only listing)"
+            );
+        }
+
+        // rustc
+        #[test]
+        fn test_rustc_version_allows() {
+            let result = check_package_managers(&cmd("rustc", &["--version"]));
+            assert_eq!(result.decision, Decision::Allow);
+        }
+
+        #[test]
+        fn test_rustc_print_allows() {
+            let result = check_package_managers(&cmd("rustc", &["--print", "target-list"]));
+            assert_eq!(result.decision, Decision::Allow);
+        }
+
+        #[test]
+        fn test_rustc_compile_asks() {
+            let result = check_package_managers(&cmd("rustc", &["main.rs"]));
+            assert_eq!(result.decision, Decision::Ask);
+        }
+
+        // rustup
+        #[test]
+        fn test_rustup_show_allows() {
+            let result = check_package_managers(&cmd("rustup", &["show"]));
+            assert_eq!(result.decision, Decision::Allow);
+        }
+
+        #[test]
+        fn test_rustup_toolchain_list_allows() {
+            let result = check_package_managers(&cmd("rustup", &["toolchain", "list"]));
+            assert_eq!(result.decision, Decision::Allow);
+        }
+
+        #[test]
+        fn test_rustup_install_asks() {
+            let result = check_package_managers(&cmd("rustup", &["install", "stable"]));
+            assert_eq!(result.decision, Decision::Ask);
+        }
+
+        #[test]
+        fn test_rustup_default_asks() {
+            let result = check_package_managers(&cmd("rustup", &["default", "nightly"]));
+            assert_eq!(result.decision, Decision::Ask);
         }
 
         // uv run

@@ -201,6 +201,9 @@ safe_commands = [
     "test",
     "[",
     "[[",
+
+    # Shell builtins (used in while read loops, etc.)
+    "read",
 ]
 
 [meta]

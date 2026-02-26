@@ -95,6 +95,21 @@ subcommand = "fsck"
 [[programs.allow]]
 subcommand = "count-objects"
 
+[[programs.allow]]
+subcommand = "check-ignore"
+
+[[programs.allow]]
+subcommand = "check-attr"
+
+[[programs.allow]]
+subcommand = "grep"
+
+[[programs.allow]]
+subcommand = "merge-base"
+
+[[programs.allow]]
+subcommand = "show-ref"
+
 [[programs.ask]]
 subcommand = "gc"
 reason = "Garbage collection (modifies .git directory)"

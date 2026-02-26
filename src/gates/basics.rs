@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn test_safe_commands_allow() {
         for program in [
-            "echo", "cat", "ls", "grep", "ps", "whoami", "date", "base64", "xxd",
+            "echo", "cat", "ls", "grep", "ps", "whoami", "date", "base64", "xxd", "read",
         ] {
             let result = check_basics(&cmd(program, &[]));
             assert_eq!(result.decision, Decision::Allow, "Failed for: {program}");
