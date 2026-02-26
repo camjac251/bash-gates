@@ -67,6 +67,21 @@ Review commands you've been manually approving and optionally promote them to pe
 | `bash-gates rules list`                     | Auto-approved (read-only) |
 | `bash-gates approve '<pattern>' -s <scope>` | Requires confirmation     |
 
+### `/bash-gates:test-gate`
+
+Test how bash-gates handles a specific command. Useful for verifying rules or debugging unexpected decisions.
+
+**Usage:**
+
+```bash
+/bash-gates:test-gate git status                     # -> allow (read-only)
+/bash-gates:test-gate npm install                    # -> ask (installing packages)
+/bash-gates:test-gate rm -rf /                       # -> deny (dangerous)
+/bash-gates:test-gate sd old new f.txt --mode=acceptEdits  # -> allow (auto-approved)
+```
+
+Shows the decision, reason, and any hints or approval commands.
+
 ## Installation
 
 **From marketplace:**

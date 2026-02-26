@@ -43,7 +43,7 @@ bash-gates supports three Claude Code hooks:
 │   ├── marketplace.json  # Marketplace discovery
 │   ├── plugin.json       # Plugin manifest
 │   └── README.md         # Plugin documentation
-├── skills/          # Plugin skills (review pending approvals)
+├── skills/          # Plugin skills (review, test-gate)
 ├── rules/           # Declarative gate definitions (13 TOML files)
 │   ├── basics.toml, bash_gates.toml, beads.toml, cloud.toml, devtools.toml, ...
 ├── tests/fixtures/  # Test fixtures
@@ -93,9 +93,9 @@ src/
     ├── shortcut.rs      # Shortcut.com CLI (short)
     ├── cloud.rs         # AWS, gcloud, terraform, kubectl, docker, helm, pulumi, az
     ├── network.rs       # curl, wget, ssh, scp, rsync, netcat
-    ├── filesystem.rs    # rm, mv, cp, chmod, tar, zip
+    ├── filesystem.rs    # rm, rmdir, mv, cp, chmod, tar, zip
     ├── devtools.rs      # sd, ast-grep, yq, jq, semgrep, biome, prettier
-    ├── package_managers.rs  # npm, pnpm, yarn, pip, uv, cargo, go, bun
+    ├── package_managers.rs  # npm, pnpm, yarn, pip, uv, cargo, rustc, rustup, go, bun
     └── system.rs        # psql, mysql, make, sudo, systemctl, kill, crontab
 ```
 
@@ -394,4 +394,5 @@ All under `~/.cache/bash-gates/`:
 - **`basics` must be last** in `GATES` array (priority 100) -- it's the catch-all for safe commands
 - **`reason` is required** on all `[[programs.ask]]` and `[[programs.block]]` rules -- build fails without it
 - **Generated function naming**: gate named `foo` generates `check_foo_gate()` in `src/generated/rules.rs`
+- **TOML + Rust wiring**: Adding a new program to `rules/*.toml` is not enough if the gate has a custom handler in `src/gates/<gate>.rs`. The Rust match statement must also route the program to the generated declarative function, or it falls through to `GateResult::skip()`. Always check both files.
 - **MCP permissions** use a different pattern format in settings.json: `mcp__<server>__<tool>` (double underscores, not `Bash(...)` format)

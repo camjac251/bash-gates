@@ -2,7 +2,6 @@
 name: test-gate
 description: Test bash-gates against a command to see the permission decision (allow/ask/deny). Use when debugging gate behavior, verifying a new rule, or checking how a command is handled.
 argument-hint: [command] [--mode=acceptEdits]
-allowed-tools: Bash
 ---
 
 # Test a command against bash-gates
@@ -36,7 +35,7 @@ echo '{"tool_name": "Bash", "tool_input": {"command": "<COMMAND>"}, "hook_event_
 3. Format the output. Show:
    - The **decision** (allow/ask/deny)
    - The **reason** if present
-   - Any **additionalContext** (hints)
+   - Any **additionalContext** (hints, approval commands)
    - Any **updatedPermissions** (for PermissionRequest)
 
 4. If the result is unexpected, suggest which gate or TOML rule is responsible by checking `rules/*.toml` for the program name.
@@ -47,6 +46,5 @@ echo '{"tool_name": "Bash", "tool_input": {"command": "<COMMAND>"}, "hook_event_
 /test-gate git status              -> allow (read-only)
 /test-gate npm install             -> ask (installing packages)
 /test-gate rm -rf /                -> deny (dangerous)
-/test-gate sd old new file.txt --mode=acceptEdits  -> allow (auto-approved)
-/test-gate npm install --mode=acceptEdits          -> ask (not file-editing)
+/test-gate sd old new f.txt --mode=acceptEdits  -> allow (auto-approved)
 ```
