@@ -10,7 +10,7 @@
     {
       "name": "bash-gates",
       "description": "Intelligent bash command permission gate. Auto-allows safe operations, asks for writes, blocks dangerous patterns. Tracks manually approved commands for permanent rules.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./",
       "author": {
         "name": "camjac251"
