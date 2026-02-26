@@ -1,0 +1,18 @@
+{
+  "name": "bash-gates",
+  "description": "Intelligent bash command permission gate using tree-sitter AST parsing. Auto-allows safe operations, asks for writes and unknown commands, blocks dangerous patterns. Tracks manually approved commands and helps promote them to permanent rules.",
+  "version": "0.1.0",
+  "author": {
+    "name": "camjac251"
+  },
+  "homepage": "https://github.com/camjac251/bash-gates",
+  "repository": "https://github.com/camjac251/bash-gates",
+  "license": "MIT",
+  "keywords": [
+    "permissions",
+    "security",
+    "bash",
+    "hooks",
+    "gates"
+  ]
+}

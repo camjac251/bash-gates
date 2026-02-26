@@ -1,0 +1,117 @@
+# Bash Gates Self-Permission Gate
+#
+# Handles the `bash-gates` CLI itself:
+# - Read-only queries (pending list, rules list, status, help, version)
+# - Write operations (approve, rules remove, pending clear, hooks add)
+# - Interactive TUI (review)
+#
+# Pattern: Read-only operations are safe, writes need approval
+
+[meta]
+name = "bash_gates"
+description = "Bash Gates CLI permission gate"
+priority = 23
+
+# =============================================================================
+# BASH-GATES (main CLI)
+# =============================================================================
+
+[[programs]]
+name = "bash-gates"
+unknown_action = "ask"  # Unknown subcommands need approval
+
+# =============================================================================
+# READ-ONLY COMMANDS (always safe)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Pending Queue Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "pending list"
+
+[[programs.allow]]
+subcommand = "pending count"
+
+# -----------------------------------------------------------------------------
+# Rules Queries
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "rules list"
+
+# -----------------------------------------------------------------------------
+# Hook Status
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+subcommand = "hooks status"
+
+# -----------------------------------------------------------------------------
+# Info / Help / Version
+# -----------------------------------------------------------------------------
+
+[[programs.allow]]
+if_flags_any = ["--help", "-h"]
+
+[[programs.allow]]
+if_flags_any = ["--version", "-V"]
+
+[[programs.allow]]
+if_flags_any = ["--tools-status"]
+
+[[programs.allow]]
+if_flags_any = ["--export-toml", "--gemini-policy"]
+
+# =============================================================================
+# WRITE OPERATIONS (need approval)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Approval Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "approve"
+reason = "Adding permanent permission rule"
+
+# -----------------------------------------------------------------------------
+# Rules Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "rules remove"
+reason = "Removing permission rule"
+
+# -----------------------------------------------------------------------------
+# Pending Queue Management
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "pending clear"
+reason = "Clearing pending approval queue"
+
+# -----------------------------------------------------------------------------
+# Hook Installation
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "hooks add"
+reason = "Installing hooks into Claude Code settings"
+
+# -----------------------------------------------------------------------------
+# Interactive TUI
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+subcommand = "review"
+reason = "Opening interactive approval TUI"
+
+# -----------------------------------------------------------------------------
+# Tool Cache
+# -----------------------------------------------------------------------------
+
+[[programs.ask]]
+if_flags_any = ["--refresh-tools"]
+reason = "Refreshing tool detection cache"

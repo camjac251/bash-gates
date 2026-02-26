@@ -166,22 +166,10 @@ jobs:
             chmod +x ~/.local/bin/bash-gates
             ```
 
-            Then add to `~/.claude/settings.json`:
+            Then configure Claude Code hooks:
 
-            ```json
-            {
-              "hooks": {
-                "PreToolUse": [
-                  {
-                    "matcher": "Bash",
-                    "hooks": [{
-                      "type": "command",
-                      "command": "~/.local/bin/bash-gates"
-                    }]
-                  }
-                ]
-              }
-            }
+            ```bash
+            bash-gates hooks add -s user
             ```
 
             ## Downloads
@@ -192,6 +180,17 @@ jobs:
             | Linux ARM64 | [bash-gates-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-linux-arm64) |
             | macOS ARM64 | [bash-gates-darwin-arm64](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-darwin-arm64) |
             | macOS x64 | [bash-gates-darwin-amd64](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-darwin-amd64) |
+
+            ## Claude Code Plugin (Optional)
+
+            Install as a plugin for the `/bash-gates:review` skill:
+
+            ```
+            /plugin marketplace add ${{ github.repository }}
+            /plugin install bash-gates@camjac251-bash-gates
+            ```
+
+            See the [plugin README](https://github.com/${{ github.repository }}/tree/main/.claude-plugin#readme) for details.
 
             **[Documentation](https://github.com/${{ github.repository }}#readme)**
           files: artifacts/*

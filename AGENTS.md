@@ -39,8 +39,13 @@ bash-gates supports three Claude Code hooks:
 ├── AGENTS.md        # Shared project docs (CLAUDE.md and GEMINI.md are symlinks)
 ├── build.rs         # Code generation: rules/*.toml -> src/generated/
 ├── Cargo.toml
-├── rules/           # Declarative gate definitions (12 TOML files)
-│   ├── basics.toml, beads.toml, cloud.toml, devtools.toml, ...
+├── .claude-plugin/  # Plugin manifest + marketplace catalog
+│   ├── marketplace.json  # Marketplace discovery
+│   ├── plugin.json       # Plugin manifest
+│   └── README.md         # Plugin documentation
+├── skills/          # Plugin skills (review pending approvals)
+├── rules/           # Declarative gate definitions (13 TOML files)
+│   ├── basics.toml, bash_gates.toml, beads.toml, cloud.toml, devtools.toml, ...
 ├── tests/fixtures/  # Test fixtures
 ├── lefthook.yml     # Git hooks
 └── mise.toml        # Mise task runner config
@@ -75,10 +80,11 @@ src/
 │   ├── mod.rs           # Module exports
 │   ├── app.rs           # Application state and event loop
 │   └── ui.rs            # ratatui widget rendering
-└── gates/               # 12 specialized permission gates
+└── gates/               # 13 specialized permission gates
     ├── mod.rs           # Gate registry (ordered: mcp first, basics last)
     ├── helpers.rs       # Common gate helper functions (flag extraction, etc.)
     ├── test_utils.rs    # Test utilities (cfg(test) only)
+    ├── bash_gates.rs    # bash-gates CLI itself (read-only: allow, mutations: ask)
     ├── basics.rs        # Safe shell commands (echo, cat, ls, grep, etc.)
     ├── beads.rs         # Beads issue tracker CLI (bd)
     ├── mcp.rs           # MCP CLI (mcp-cli)

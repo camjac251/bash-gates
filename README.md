@@ -19,18 +19,19 @@ A Claude Code [PreToolUse hook](https://code.claude.com/docs/en/hooks#pretooluse
 
 ## Features
 
-| Feature                   | Description                                                                                            |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ |
-| **Approval Learning**     | Tracks approved commands and saves patterns to settings.json via TUI or CLI                            |
-| **Settings Integration**  | Respects your `settings.json` allow/deny/ask rules - won't bypass your explicit permissions            |
-| **Accept Edits Mode**     | Auto-allows file-editing commands (`sd`, `prettier --write`, etc.) when in acceptEdits mode            |
-| **Modern CLI Hints**      | Suggests modern alternatives (`bat`, `rg`, `fd`, etc.) via `additionalContext` for Claude to learn     |
-| **AST Parsing**           | Uses [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) for accurate command analysis |
-| **Compound Commands**     | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
-| **Security First**        | Catches pipe-to-shell, eval, command injection patterns                                                |
-| **Unknown Protection**    | Unrecognized commands require approval                                                                 |
-| **300+ Commands**         | 12 specialized gates with comprehensive coverage                                                       |
-| **Fast**                  | Static native binary, no interpreter overhead                                                          |
+| Feature                  | Description                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| **Approval Learning**    | Tracks approved commands and saves patterns to settings.json via TUI or CLI                            |
+| **Settings Integration** | Respects your `settings.json` allow/deny/ask rules - won't bypass your explicit permissions            |
+| **Accept Edits Mode**    | Auto-allows file-editing commands (`sd`, `prettier --write`, etc.) when in acceptEdits mode            |
+| **Modern CLI Hints**     | Suggests modern alternatives (`bat`, `rg`, `fd`, etc.) via `additionalContext` for Claude to learn     |
+| **AST Parsing**          | Uses [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash) for accurate command analysis |
+| **Compound Commands**    | Handles `&&`, `\|\|`, `\|`, `;` chains correctly                                                       |
+| **Security First**       | Catches pipe-to-shell, eval, command injection patterns                                                |
+| **Unknown Protection**   | Unrecognized commands require approval                                                                 |
+| **Claude Code Plugin**   | Install as a plugin with the `/bash-gates:review` skill for interactive approval management            |
+| **300+ Commands**        | 13 specialized gates with comprehensive coverage                                                       |
+| **Fast**                 | Static native binary, no interpreter overhead                                                          |
 
 ---
 
@@ -78,6 +79,7 @@ flowchart TD
 ```
 
 **Why three hooks?**
+
 - **PreToolUse**: Gates commands for main session, tracks "ask" decisions
 - **PermissionRequest**: Gates commands for subagents (where PreToolUse's `allow` is ignored)
 - **PostToolUse**: Detects successful execution, queues for permanent approval
@@ -98,24 +100,24 @@ flowchart TD
 
 bash-gates reads your Claude Code settings from `~/.claude/settings.json` and `.claude/settings.json` (project) to respect your explicit permission rules:
 
-| settings.json | bash-gates | Result |
-|---------------|------------|--------|
-| `deny` rule   | (any)      | Defers to Claude Code (respects your deny) |
-| `ask` rule    | (any)      | Defers to Claude Code (respects your ask) |
+| settings.json | bash-gates | Result                                       |
+| ------------- | ---------- | -------------------------------------------- |
+| `deny` rule   | (any)      | Defers to Claude Code (respects your deny)   |
+| `ask` rule    | (any)      | Defers to Claude Code (respects your ask)    |
 | `allow` rule  | dangerous  | **deny** (bash-gates still blocks dangerous) |
-| `allow`/none  | safe       | **allow** |
-| none          | unknown    | **ask** |
+| `allow`/none  | safe       | **allow**                                    |
+| none          | unknown    | **ask**                                      |
 
 This ensures bash-gates won't accidentally bypass your explicit deny rules while still providing security against dangerous commands.
 
 **Settings file priority** (highest wins):
 
-| Priority | Location | Description |
-|----------|----------|-------------|
-| 1 (highest) | `/etc/claude-code/managed-settings.json` | Enterprise managed |
-| 2 | `.claude/settings.local.json` | Local project (not committed) |
-| 3 | `.claude/settings.json` | Shared project (committed) |
-| 4 (lowest) | `~/.claude/settings.json` | User settings |
+| Priority    | Location                                 | Description                   |
+| ----------- | ---------------------------------------- | ----------------------------- |
+| 1 (highest) | `/etc/claude-code/managed-settings.json` | Enterprise managed            |
+| 2           | `.claude/settings.local.json`            | Local project (not committed) |
+| 3           | `.claude/settings.json`                  | Shared project (committed)    |
+| 4 (lowest)  | `~/.claude/settings.json`                | User settings                 |
 
 ### Accept Edits Mode
 
@@ -132,6 +134,7 @@ eslint --fix src/                 # Linting with fix
 ```
 
 **Still requires approval (even in acceptEdits):**
+
 - Package managers: `npm install`, `cargo add`
 - Git operations: `git push`, `git commit`
 - Deletions: `rm`, `mv`
@@ -139,7 +142,7 @@ eslint --fix src/                 # Linting with fix
 
 ### Modern CLI Hints
 
-*Requires Claude Code 1.0.20+*
+_Requires Claude Code 1.0.20+_
 
 When Claude uses legacy commands, bash-gates suggests modern alternatives via `additionalContext`. This helps Claude learn better patterns over time without modifying the command.
 
@@ -154,24 +157,24 @@ When Claude uses legacy commands, bash-gates suggests modern alternatives via `a
 }
 ```
 
-| Legacy Command | Modern Alternative | When triggered |
-|----------------|-------------------|----------------|
-| `cat`, `head`, `tail`, `less` | `bat` | Always (`tail -f` excluded) |
-| `grep` (code patterns) | `sg` | AST-aware code search |
-| `grep` (text/log/config) | `rg` | Any grep usage |
-| `find` | `fd` | Always |
-| `ls` | `eza` | With `-l` or `-a` flags |
-| `sed` | `sd` | Substitution patterns (`s/.../.../`) |
-| `awk` | `choose` | Field extraction (`print $`) |
-| `du` | `dust` | Always |
-| `ps` | `procs` | With `aux`, `-e`, `-A` flags |
-| `curl`, `wget` | `xh` | JSON APIs or verbose mode |
-| `diff` | `delta` | Two-file comparisons |
-| `xxd`, `hexdump` | `hexyl` | Always |
-| `cloc` | `tokei` | Always |
-| `tree` | `eza -T` | Always |
-| `man` | `tldr` | Always |
-| `wc -l` | `rg -c` | Line counting |
+| Legacy Command                | Modern Alternative | When triggered                       |
+| ----------------------------- | ------------------ | ------------------------------------ |
+| `cat`, `head`, `tail`, `less` | `bat`              | Always (`tail -f` excluded)          |
+| `grep` (code patterns)        | `sg`               | AST-aware code search                |
+| `grep` (text/log/config)      | `rg`               | Any grep usage                       |
+| `find`                        | `fd`               | Always                               |
+| `ls`                          | `eza`              | With `-l` or `-a` flags              |
+| `sed`                         | `sd`               | Substitution patterns (`s/.../.../`) |
+| `awk`                         | `choose`           | Field extraction (`print $`)         |
+| `du`                          | `dust`             | Always                               |
+| `ps`                          | `procs`            | With `aux`, `-e`, `-A` flags         |
+| `curl`, `wget`                | `xh`               | JSON APIs or verbose mode            |
+| `diff`                        | `delta`            | Two-file comparisons                 |
+| `xxd`, `hexdump`              | `hexyl`            | Always                               |
+| `cloc`                        | `tokei`            | Always                               |
+| `tree`                        | `eza -T`           | Always                               |
+| `man`                         | `tldr`             | Always                               |
+| `wc -l`                       | `rg -c`            | Line counting                        |
 
 **Only suggests installed tools.** Hints are cached (7-day TTL) to avoid repeated `which` calls.
 
@@ -212,22 +215,22 @@ bash-gates rules remove 'pattern' -s local
 
 **Pattern suggestions:** Patterns go from most specific to most broad:
 
-| Example Command | Suggested Patterns |
-|-----------------|-------------------|
-| `npm install lodash` | `npm install lodash`, `npm install*`, `npm*` |
-| `cargo test` | `cargo test*`, `cargo*` |
-| `aws ec2 describe-instances` | `aws ec2 describe*`, `aws ec2*` |
+| Example Command              | Suggested Patterns                           |
+| ---------------------------- | -------------------------------------------- |
+| `npm install lodash`         | `npm install lodash`, `npm install*`, `npm*` |
+| `cargo test`                 | `cargo test*`, `cargo*`                      |
+| `aws ec2 describe-instances` | `aws ec2 describe*`, `aws ec2*`              |
 
 **TUI keybindings** (`bash-gates review`):
 
-| Key | Action |
-|-----|--------|
-| `Up`/`Down` or `j`/`k` | Navigate commands |
-| `Tab` or `1-9` | Select pattern |
-| `s` | Cycle scope (Local -> User -> Project) |
-| `Enter` or `a` | Approve with selected pattern |
-| `d` or `Delete` | Skip (remove from pending) |
-| `q` or `Esc` | Quit |
+| Key                    | Action                                 |
+| ---------------------- | -------------------------------------- |
+| `Up`/`Down` or `j`/`k` | Navigate commands                      |
+| `Tab` or `1-9`         | Select pattern                         |
+| `s`                    | Cycle scope (Local -> User -> Project) |
+| `Enter` or `a`         | Approve with selected pattern          |
+| `d` or `Delete`        | Skip (remove from pending)             |
+| `q` or `Esc`           | Quit                                   |
 
 ---
 
@@ -297,6 +300,7 @@ bash-gates hooks json
 | `local` | `.claude/settings.local.json` | Personal project overrides |
 
 **All three hooks are installed:**
+
 - `PreToolUse` - Gates commands for main session, tracks "ask" decisions
 - `PermissionRequest` - Gates commands for subagents (where PreToolUse's allow is ignored)
 - `PostToolUse` - Detects successful execution, queues for permanent approval
@@ -312,19 +316,37 @@ Add to `~/.claude/settings.json`:
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{"type": "command", "command": "~/.local/bin/bash-gates", "timeout": 10}]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/bash-gates",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PermissionRequest": [
       {
         "matcher": "Bash",
-        "hooks": [{"type": "command", "command": "~/.local/bin/bash-gates", "timeout": 10}]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/bash-gates",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Bash",
-        "hooks": [{"type": "command", "command": "~/.local/bin/bash-gates", "timeout": 10}]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.local/bin/bash-gates",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }
@@ -333,9 +355,58 @@ Add to `~/.claude/settings.json`:
 
 </details>
 
+### Claude Code Plugin (Optional)
+
+bash-gates ships as a [Claude Code plugin](https://code.claude.com/docs/en/plugins) with the `/bash-gates:review` skill for interactive approval management. The plugin provides the skill only -- hook installation is handled by the binary (see [Configure Claude Code](#configure-claude-code) above).
+
+**Prerequisites:** The `bash-gates` binary must be installed and hooks configured before using the plugin.
+
+**Install from marketplace:**
+
+```bash
+# In Claude Code, add the marketplace
+/plugin marketplace add camjac251/bash-gates
+
+# Install the plugin
+/plugin install bash-gates@camjac251-bash-gates
+```
+
+**Install from local clone:**
+
+```bash
+# Launch Claude Code with the plugin loaded
+claude --plugin-dir /path/to/bash-gates
+```
+
+**Using the review skill:**
+
+```bash
+# Review all pending approvals
+/bash-gates:review
+
+# Review only current project
+/bash-gates:review --project
+```
+
+The skill lists commands you've been manually approving, shows counts and suggested patterns, and lets you multi-select which to make permanent at your chosen scope (local, project, or user).
+
+| Step                   | What happens                                | Permission                 |
+| ---------------------- | ------------------------------------------- | -------------------------- |
+| List pending approvals | `bash-gates pending list`                   | Auto-approved (read-only)  |
+| Show current rules     | `bash-gates rules list`                     | Auto-approved (read-only)  |
+| Approve a pattern      | `bash-gates approve '<pattern>' -s <scope>` | Requires your confirmation |
+
 ---
 
 ## Permission Gates
+
+### Bash Gates (Self)
+
+bash-gates recognizes its own CLI commands:
+
+| Allow                                                                                                                   | Ask                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `pending list`, `pending count`, `rules list`, `hooks status`, `--help`, `--version`, `--tools-status`, `--export-toml` | `approve`, `rules remove`, `pending clear`, `hooks add`, `review`, `--refresh-tools` |
 
 ### Basics
 
@@ -345,8 +416,8 @@ Add to `~/.claude/settings.json`:
 
 [Beads](https://github.com/steveyegge/beads) - Git-native issue tracking
 
-| Allow | Ask |
-|-------|-----|
+| Allow                                                                                | Ask                                                                              |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
 | `list`, `show`, `ready`, `blocked`, `search`, `stats`, `doctor`, `dep tree`, `prime` | `create`, `update`, `close`, `delete`, `sync`, `init`, `dep add`, `comments add` |
 
 ### MCP CLI
@@ -355,8 +426,8 @@ Add to `~/.claude/settings.json`:
 
 Instead of loading full MCP tool definitions into the system prompt, Claude discovers tools on-demand via `mcp-cli` and executes them through Bash. Enable with `ENABLE_EXPERIMENTAL_MCP_CLI=true`.
 
-| Allow | Ask |
-|-------|-----|
+| Allow                                                           | Ask                        |
+| --------------------------------------------------------------- | -------------------------- |
 | `servers`, `tools`, `info`, `grep`, `resources`, `read`, `help` | `call` (invokes MCP tools) |
 
 Pre-approve trusted servers in settings.json to avoid repeated prompts:
@@ -388,8 +459,8 @@ Patterns: `mcp__<server>` (entire server), `mcp__<server>__<tool>` (specific too
 
 [shortcut-cli](https://github.com/shortcut-cli/shortcut-cli) - Community CLI for Shortcut
 
-| Allow | Ask |
-|-------|-----|
+| Allow                                                                                 | Ask                                                                                        |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `search`, `find`, `story` (view), `members`, `epics`, `workflows`, `projects`, `help` | `create`, `install`, `story` (with update flags), `search --save`, `api` (POST/PUT/DELETE) |
 
 ### Cloud CLIs
@@ -416,17 +487,17 @@ AWS, gcloud, terraform, kubectl, docker, podman, az, helm, pulumi
 
 ~50+ tools with write-flag detection: `jq`, `shellcheck`, `hadolint`, `vite`, `vitest`, `jest`, `tsc`, `esbuild`, `turbo`, `nx`
 
-| Safe by default | Ask with flags |
-|-----------------|----------------|
+| Safe by default                                                                                                         | Ask with flags                                          |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
 | `ast-grep`, `yq`, `semgrep`, `sad`, `prettier`, `eslint`, `biome`, `ruff`, `black`, `gofmt`, `rustfmt`, `golangci-lint` | `-U`, `-i`, `--fix`, `--write`, `--commit`, `--autofix` |
-| `sd` (pipe mode safe, ask with file args), always ask: `watchexec` (runs commands), `dos2unix` | |
+| `sd` (pipe mode safe, ask with file args), always ask: `watchexec` (runs commands), `dos2unix`                          |                                                         |
 
 ### Package Managers
 
 npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx, mise
 
-| Allow                                  | Ask                                   |
-| -------------------------------------- | ------------------------------------- |
+| Allow                                  | Ask                                          |
+| -------------------------------------- | -------------------------------------------- |
 | `list`, `show`, `test`, `build`, `dev` | `install`, `add`, `remove`, `publish`, `run` |
 
 ### System
@@ -436,8 +507,8 @@ npm, pnpm, yarn, pip, uv, cargo, go, bun, conda, poetry, pipx, mise
 **OS Package managers:** apt, brew, pacman, nix, dnf, zypper, flatpak, snap
 **Other:** sudo, systemctl, crontab, kill
 
-| Allow                                           | Ask                               | Block                        |
-| ----------------------------------------------- | --------------------------------- | ---------------------------- |
+| Allow                                           | Ask                               | Block                                                             |
+| ----------------------------------------------- | --------------------------------- | ----------------------------------------------------------------- |
 | `psql -l`, `make test`, `sudo -l`, `apt search` | `make deploy`, `sudo apt install` | `shutdown`, `reboot`, `mkfs`, `dd`, `fdisk`, `iptables`, `passwd` |
 
 ---
@@ -526,9 +597,10 @@ src/
 │   ├── rules.rs         # Rust gate functions from rules/*.toml
 │   └── toml_policy.rs   # Gemini CLI TOML policy string
 ├── tui/                 # Interactive approval TUI (bash-gates review)
-└── gates/               # 12 specialized permission gates
+└── gates/               # 13 specialized permission gates
     ├── mod.rs           # Gate registry (ordered by priority)
     ├── helpers.rs       # Common gate helper functions
+    ├── bash_gates.rs    # bash-gates CLI itself
     ├── basics.rs        # Safe commands (~130+)
     ├── beads.rs         # Beads issue tracker (bd) - github.com/steveyegge/beads
     ├── mcp.rs           # MCP CLI (mcp-cli) - Model Context Protocol
@@ -555,12 +627,12 @@ bash-gates --export-toml > ~/.gemini/policies/bash-gates.toml
 
 This exports 700+ policy rules derived from the gate definitions:
 
-| Priority | Action | Examples |
-|----------|--------|----------|
-| 900+ | `deny` | `rm -rf /`, `gh repo delete` |
-| 200-299 | `ask_user` | `npm install`, `git push` |
-| 100-199 | `allow` | `git status`, `ls`, `cat` |
-| 1 | `ask_user` | Default fallback for unknown commands |
+| Priority | Action     | Examples                              |
+| -------- | ---------- | ------------------------------------- |
+| 900+     | `deny`     | `rm -rf /`, `gh repo delete`          |
+| 200-299  | `ask_user` | `npm install`, `git push`             |
+| 100-199  | `allow`    | `git status`, `ls`, `cat`             |
+| 1        | `ask_user` | Default fallback for unknown commands |
 
 ---
 

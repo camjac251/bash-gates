@@ -165,6 +165,64 @@ pub fn check_command(command_string: &str) -> HookOutput {
     HookOutput::allow(Some(&allow_reason))
 }
 
+/// Check if any sub-command in a compound command is denied by settings.
+///
+/// For compound commands like "cd /tmp && rm -rf .", this ensures that
+/// deny rules like Bash(rm:*) still catch the dangerous sub-command even
+/// though the full string doesn't start with "rm".
+fn check_subcommands_denied(settings: &Settings, command_string: &str) -> bool {
+    let commands = extract_commands(command_string);
+    if commands.len() <= 1 {
+        return false; // Single command already checked against full string
+    }
+    commands.iter().any(|cmd| settings.is_denied(&cmd.raw))
+}
+
+/// Check compound command sub-commands against settings ask/allow rules.
+///
+/// Tries the full raw string first (backward compat). If no match, checks
+/// each AST-parsed sub-command. Takes the strictest result across all
+/// sub-commands so that patterns like Bash(npm install:*) match
+/// "cd /tmp && npm install".
+///
+/// Strictness: Deny > Ask > Allow > NoMatch
+fn check_settings_with_subcommands(settings: &Settings, command_string: &str) -> SettingsDecision {
+    // Try full string first (handles exact patterns and simple commands)
+    let full_result = settings.check_command_excluding_deny(command_string);
+    if full_result != SettingsDecision::NoMatch {
+        return full_result;
+    }
+
+    // For compound commands, check each sub-command individually
+    let commands = extract_commands(command_string);
+    if commands.len() <= 1 {
+        return SettingsDecision::NoMatch;
+    }
+
+    let mut has_ask = false;
+    let mut has_allow = false;
+
+    for cmd in &commands {
+        match settings.check_command_excluding_deny(&cmd.raw) {
+            SettingsDecision::Deny => {
+                unreachable!("check_command_excluding_deny never returns Deny")
+            }
+            SettingsDecision::Ask => has_ask = true,
+            SettingsDecision::Allow => has_allow = true,
+            SettingsDecision::NoMatch => {}
+        }
+    }
+
+    // Strictest wins: Ask > Allow > NoMatch
+    if has_ask {
+        SettingsDecision::Ask
+    } else if has_allow {
+        SettingsDecision::Allow
+    } else {
+        SettingsDecision::NoMatch
+    }
+}
+
 /// Check a bash command with settings.json awareness and permission mode detection.
 ///
 /// Loads settings from user (~/.claude/settings.json) and project (.claude/settings.json),
@@ -220,7 +278,9 @@ pub fn check_command_with_settings(
 
     // Check settings.json deny rules FIRST - user's explicit deny rules always respected
     // This must happen before acceptEdits to prevent acceptEdits from bypassing deny rules
-    if settings.is_denied(command_string) {
+    // For compound commands (&&, ||, |, ;), also check each sub-command individually
+    // so that deny rules like Bash(rm:*) catch "cd /tmp && rm -rf ."
+    if settings.is_denied(command_string) || check_subcommands_denied(&settings, command_string) {
         return HookOutput::deny("Matched settings.json deny rule");
     }
 
@@ -240,8 +300,10 @@ pub fn check_command_with_settings(
         }
     }
 
-    // Check remaining settings.json rules (ask/allow) - deny already checked above
-    match settings.check_command_excluding_deny(command_string) {
+    // Check remaining settings.json rules (ask/allow) - deny already checked above.
+    // For compound commands, also check each sub-command so that patterns like
+    // Bash(npm install:*) match "cd /tmp && npm install".
+    match check_settings_with_subcommands(&settings, command_string) {
         SettingsDecision::Ask => {
             // User wants to be asked - defer to Claude Code
             if let Some(context) = gate_context.as_deref() {
@@ -3007,6 +3069,113 @@ mod tests {
                 "allow",
                 "echo of dangerous text is safe"
             );
+        }
+    }
+
+    // === Compound Command Settings Matching ===
+
+    mod compound_settings {
+        use super::*;
+        use crate::settings::{Permissions, Settings, SettingsDecision};
+
+        fn make_settings(allow: &[&str], ask: &[&str], deny: &[&str]) -> Settings {
+            Settings {
+                permissions: Permissions {
+                    allow: allow.iter().map(|s| s.to_string()).collect(),
+                    ask: ask.iter().map(|s| s.to_string()).collect(),
+                    deny: deny.iter().map(|s| s.to_string()).collect(),
+                    additional_directories: vec![],
+                },
+            }
+        }
+
+        // --- Deny checks ---
+
+        #[test]
+        fn test_deny_catches_subcommand_in_compound() {
+            let settings = make_settings(&[], &[], &["Bash(rm:*)"]);
+            // "rm -rf ." is a sub-command, full string starts with "cd"
+            assert!(check_subcommands_denied(&settings, "cd /tmp && rm -rf ."));
+        }
+
+        #[test]
+        fn test_deny_single_command_defers_to_full_string() {
+            let settings = make_settings(&[], &[], &["Bash(rm:*)"]);
+            // Single command -- helper returns false (full string check handles it)
+            assert!(!check_subcommands_denied(&settings, "rm -rf ."));
+        }
+
+        #[test]
+        fn test_deny_no_match_in_compound() {
+            let settings = make_settings(&[], &[], &["Bash(rm:*)"]);
+            assert!(!check_subcommands_denied(
+                &settings,
+                "cd /tmp && npm install"
+            ));
+        }
+
+        // --- Allow checks ---
+
+        #[test]
+        fn test_allow_matches_subcommand_in_compound() {
+            let settings = make_settings(&["Bash(npm install:*)"], &[], &[]);
+            let result = check_settings_with_subcommands(&settings, "cd /tmp && npm install");
+            assert_eq!(result, SettingsDecision::Allow);
+        }
+
+        #[test]
+        fn test_allow_matches_subcommand_after_cd() {
+            let settings = make_settings(&["Bash(cargo build:*)"], &[], &[]);
+            let result = check_settings_with_subcommands(
+                &settings,
+                "cd /home/user/project && cargo build --release",
+            );
+            assert_eq!(result, SettingsDecision::Allow);
+        }
+
+        #[test]
+        fn test_no_match_returns_nomatch() {
+            let settings = make_settings(&["Bash(npm:*)"], &[], &[]);
+            let result =
+                check_settings_with_subcommands(&settings, "cd /tmp && cargo build --release");
+            assert_eq!(result, SettingsDecision::NoMatch);
+        }
+
+        #[test]
+        fn test_full_string_match_still_works() {
+            // Simple non-compound command still works via full string check
+            let settings = make_settings(&["Bash(npm install:*)"], &[], &[]);
+            let result = check_settings_with_subcommands(&settings, "npm install lodash");
+            assert_eq!(result, SettingsDecision::Allow);
+        }
+
+        // --- Ask wins over allow ---
+
+        #[test]
+        fn test_ask_subcommand_wins_over_allow_subcommand() {
+            // Use cd prefix so full string doesn't match git/npm patterns
+            let settings = make_settings(&["Bash(git status:*)"], &["Bash(npm install:*)"], &[]);
+            let result =
+                check_settings_with_subcommands(&settings, "cd /tmp && git status && npm install");
+            assert_eq!(result, SettingsDecision::Ask);
+        }
+
+        // --- Pipeline sub-commands ---
+
+        #[test]
+        fn test_allow_in_pipeline() {
+            let settings = make_settings(&["Bash(git log:*)"], &[], &[]);
+            let result = check_settings_with_subcommands(&settings, "git log | head -10");
+            assert_eq!(result, SettingsDecision::Allow);
+        }
+
+        // --- Single command skips sub-command check ---
+
+        #[test]
+        fn test_single_command_nomatch_stays_nomatch() {
+            let settings = make_settings(&["Bash(npm:*)"], &[], &[]);
+            let result = check_settings_with_subcommands(&settings, "cargo build");
+            assert_eq!(result, SettingsDecision::NoMatch);
         }
     }
 
