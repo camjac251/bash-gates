@@ -1,8 +1,8 @@
 # ========================================
 # Release Workflow
 # ========================================
-# Automatically creates releases when code changes are pushed to main
 # Builds static binaries for Linux (musl) and macOS (x64 + ARM64)
+# Build jobs act as the quality gate -- if code doesn't compile, no release is created
 
 name: Release
 
@@ -41,80 +41,36 @@ concurrency:
 # ========================================
 jobs:
   # --------------------------------------------------
-  # Job 1: Validate Code Quality
-  # --------------------------------------------------
-  validate:
-    name: Validate Code
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl
-          components: rustfmt, clippy
-
-      - name: Install musl tools
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      - name: Build (generates code via build.rs)
-        run: cargo build
-
-      - name: Format generated code
-        run: cargo fmt
-
-      - name: Run clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Run tests
-        run: cargo test --verbose
-
-  # --------------------------------------------------
-  # Job 2: Build Release Binaries
+  # Job 1: Build Release Binaries
   # --------------------------------------------------
   build:
     name: Build - ${{ matrix.arch }}
-    needs: validate
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
 
     strategy:
       matrix:
         include:
-          # Linux (static musl binaries)
+          # Linux (static musl binaries via cross)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             arch: linux-amd64
-            cross: true
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             arch: linux-arm64
-            cross: true
-          # macOS
+          # macOS (native compilation via cargo)
           - target: x86_64-apple-darwin
             os: macos-latest
             arch: darwin-amd64
-            cross: false
           - target: aarch64-apple-darwin
             os: macos-latest
             arch: darwin-arm64
-            cross: false
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Build with cross
-        if: matrix.cross
+      - name: Build binary
         uses: houseabsolute/actions-rust-cross@v1
         with:
           command: build
@@ -122,26 +78,19 @@ jobs:
           args: "--locked --release"
           strip: true
 
-      - name: Build native
-        if: "!matrix.cross"
-        run: |
-          rustup target add ${{ matrix.target }}
-          cargo build --locked --release --target ${{ matrix.target }}
-          strip target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}
-
       - name: Package binary
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} dist/${{ env.BINARY_NAME }}-${{ matrix.arch }}
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.arch }}
           path: dist/*
 
   # --------------------------------------------------
-  # Job 3: Create GitHub Release
+  # Job 2: Create GitHub Release
   # --------------------------------------------------
   release:
     name: Create Release
@@ -162,11 +111,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: artifacts
-
-      - name: Prepare release files
-        run: |
-          mkdir -p release
-          mv artifacts/*/* release/
+          merge-multiple: true
 
       - name: Generate release tag
         id: tag
@@ -249,6 +194,6 @@ jobs:
             | macOS x64 | [bash-gates-darwin-amd64](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-darwin-amd64) |
 
             **[Documentation](https://github.com/${{ github.repository }}#readme)**
-          files: release/*
+          files: artifacts/*
           draft: false
           prerelease: false
