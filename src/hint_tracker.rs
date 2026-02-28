@@ -24,9 +24,9 @@ pub struct HintTracker {
     /// Hint keys already emitted (e.g. "cat", "grep", "find")
     #[serde(default)]
     pub hints: HashSet<String>,
-    /// Approval patterns already suggested (e.g. "npm install:*")
+    /// Whether the first-ask approval message has been shown this session
     #[serde(default)]
-    pub approvals: HashSet<String>,
+    pub first_ask_shown: bool,
     /// Whether state has changed since load (skip disk write if clean)
     #[serde(skip)]
     dirty: bool,
@@ -58,13 +58,13 @@ impl HintTracker {
         true
     }
 
-    /// Check if an approval pattern is new for this session. Records it if so.
-    /// Returns `true` if the approval should be emitted (first time).
-    pub fn is_approval_new(&mut self, pattern: &str) -> bool {
-        if self.approvals.contains(pattern) {
+    /// Check if this is the first "ask" decision this session.
+    /// Returns `true` on first call, `false` thereafter.
+    pub fn is_first_ask(&mut self) -> bool {
+        if self.first_ask_shown {
             return false;
         }
-        self.approvals.insert(pattern.to_string());
+        self.first_ask_shown = true;
         self.dirty = true;
         true
     }
@@ -129,21 +129,18 @@ pub fn filter_hints(session_id: &str, hints: &mut Vec<crate::hints::ModernHint>)
     tracker.save_if_dirty();
 }
 
-/// Filter approval patterns through the session tracker, saving state to disk.
+/// Check if this is the first "ask" decision for the session.
 ///
-/// Returns only patterns that haven't been suggested this session.
-/// Saves the tracker to disk if any new patterns were recorded.
-pub fn filter_approvals(session_id: &str, patterns: Vec<String>) -> Vec<String> {
-    if session_id.is_empty() || patterns.is_empty() {
-        return patterns;
+/// Returns `true` on first call per session, `false` thereafter.
+/// Saves the tracker to disk if state changed.
+pub fn is_first_ask(session_id: &str) -> bool {
+    if session_id.is_empty() {
+        return true; // No session tracking -- always show
     }
     let mut tracker = get(session_id);
-    let novel: Vec<String> = patterns
-        .into_iter()
-        .filter(|p| tracker.is_approval_new(p))
-        .collect();
+    let first = tracker.is_first_ask();
     tracker.save_if_dirty();
-    novel
+    first
 }
 
 #[cfg(test)]
@@ -174,17 +171,11 @@ mod tests {
     }
 
     #[test]
-    fn test_approval_first_time_is_new() {
+    fn test_first_ask_returns_true_once() {
         let mut tracker = fresh_tracker("session-1");
-        assert!(tracker.is_approval_new("npm install:*"));
-        assert!(tracker.is_approval_new("cargo:*"));
-    }
-
-    #[test]
-    fn test_approval_second_time_is_not_new() {
-        let mut tracker = fresh_tracker("session-1");
-        assert!(tracker.is_approval_new("npm install:*"));
-        assert!(!tracker.is_approval_new("npm install:*"));
+        assert!(tracker.is_first_ask());
+        assert!(!tracker.is_first_ask());
+        assert!(!tracker.is_first_ask());
     }
 
     #[test]
@@ -222,7 +213,7 @@ mod tests {
         let mut tracker = fresh_tracker("session-1");
         tracker.is_hint_new("cat");
         tracker.is_hint_new("grep");
-        tracker.is_approval_new("npm:*");
+        tracker.is_first_ask();
 
         let json = serde_json::to_string(&tracker).unwrap();
         let loaded: HintTracker = serde_json::from_str(&json).unwrap();
@@ -230,7 +221,7 @@ mod tests {
         assert_eq!(loaded.session_id, "session-1");
         assert!(loaded.hints.contains("cat"));
         assert!(loaded.hints.contains("grep"));
-        assert!(loaded.approvals.contains("npm:*"));
+        assert!(loaded.first_ask_shown);
         assert!(!loaded.dirty); // dirty is skipped in serde
     }
 
@@ -243,7 +234,7 @@ mod tests {
         let mut tracker = fresh_tracker("persist-test");
         tracker.is_hint_new("cat");
         tracker.is_hint_new("grep");
-        tracker.is_approval_new("npm:*");
+        tracker.is_first_ask();
         tracker.dirty = true;
 
         let content = serde_json::to_string(&tracker).unwrap();
@@ -255,7 +246,7 @@ mod tests {
         assert_eq!(loaded.session_id, "persist-test");
         assert!(loaded.hints.contains("cat"));
         assert!(loaded.hints.contains("grep"));
-        assert!(loaded.approvals.contains("npm:*"));
+        assert!(loaded.first_ask_shown);
     }
 
     #[test]
@@ -267,7 +258,7 @@ mod tests {
         let mut tracker = fresh_tracker("session-1");
         tracker.is_hint_new("cat");
         tracker.is_hint_new("grep");
-        tracker.is_approval_new("npm:*");
+        tracker.is_first_ask();
         let content = serde_json::to_string(&tracker).unwrap();
         fs::write(&path, &content).unwrap();
 
@@ -291,8 +282,8 @@ mod tests {
             "should be empty after session reset"
         );
         assert!(
-            result.approvals.is_empty(),
-            "should be empty after session reset"
+            !result.first_ask_shown,
+            "should be false after session reset"
         );
     }
 
@@ -333,15 +324,9 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_approvals_empty_session_id_passes_through() {
-        let patterns = vec!["npm install:*".to_string(), "cargo:*".to_string()];
-
-        // Empty session_id should return all patterns unchanged
-        let result = filter_approvals("", patterns);
-        assert_eq!(
-            result.len(),
-            2,
-            "empty session_id should pass all patterns through"
-        );
+    fn test_is_first_ask_empty_session_always_true() {
+        // Empty session_id means no tracking -- always show
+        assert!(is_first_ask(""));
+        assert!(is_first_ask(""));
     }
 }

@@ -11,44 +11,18 @@ use crate::package_json::{
     find_package_json, get_script_command, load_package_json, parse_script_invocation,
 };
 use crate::parser::extract_commands;
-use crate::patterns::suggest_patterns;
 use crate::settings::{Settings, SettingsDecision};
 use regex::Regex;
 
 /// Generate approval instruction context for "ask" responses.
 ///
-/// Includes suggested patterns and the command to run for approval.
-/// When `session_id` is non-empty, filters out patterns already suggested this session.
-fn generate_approval_context(command_string: &str, session_id: &str) -> String {
-    let commands = extract_commands(command_string);
-
-    // Collect unique patterns from all commands
-    let mut all_patterns: Vec<String> = commands.iter().flat_map(suggest_patterns).collect();
-
-    // Deduplicate
-    all_patterns.sort();
-    all_patterns.dedup();
-
-    if all_patterns.is_empty() {
+/// Shows a generic one-liner on the first "ask" of the session only.
+/// Points to `bash-gates pending list` for pattern discovery.
+fn generate_approval_context(session_id: &str) -> String {
+    if !hint_tracker::is_first_ask(session_id) {
         return String::new();
     }
-
-    // Take top 3 patterns (most specific first - they come first from suggest_patterns)
-    let top_patterns: Vec<_> = all_patterns.into_iter().take(3).collect();
-
-    // Filter through session tracker (each pattern suggested at most once per session)
-    let novel_patterns = hint_tracker::filter_approvals(session_id, top_patterns);
-
-    if novel_patterns.is_empty() {
-        return String::new();
-    }
-
-    let mut context = String::from("\n\nTo always allow this command, run:");
-    for pattern in &novel_patterns {
-        context.push_str(&format!("\n  bash-gates approve '{}' -s local", pattern));
-    }
-
-    context
+    "\n\nTo permanently allow commands, run `bash-gates pending list` for suggestions, then `bash-gates approve '<pattern>' -s <scope>`. Scopes: local (this project), project (team-shared), user (global).".to_string()
 }
 
 /// Check a bash command string and return the appropriate hook output.
@@ -366,7 +340,7 @@ pub fn check_command_with_settings_and_session(
     // Enhance "ask" results with approval instructions
     if let Some(ref hso) = gate_result.hook_specific_output {
         if hso.permission_decision == "ask" {
-            let approval_context = generate_approval_context(command_string, session_id);
+            let approval_context = generate_approval_context(session_id);
             if !approval_context.is_empty() {
                 let existing_context = hso.additional_context.as_deref().unwrap_or("");
                 let combined_context = if existing_context.is_empty() {
@@ -3531,7 +3505,7 @@ run = "pnpm dev"
 
         #[test]
         fn test_approval_context_emitted_once_per_session() {
-            // npm install triggers "ask" with approval suggestions
+            // npm install triggers "ask" -- first ask should include approval instructions
             let result1 = check_command_with_settings_and_session(
                 "npm install lodash",
                 "/tmp",
@@ -3548,16 +3522,16 @@ run = "pnpm dev"
             );
             let ctx2 = get_context(&result2);
 
-            // First should have approval context, second should not
+            // First should mention pending list, second should not
             if let Some(ref c) = ctx1 {
-                if c.contains("bash-gates approve") {
-                    let has_approve = ctx2
+                if c.contains("pending list") {
+                    let has_pending = ctx2
                         .as_ref()
-                        .map(|c| c.contains("bash-gates approve"))
+                        .map(|c| c.contains("pending list"))
                         .unwrap_or(false);
                     assert!(
-                        !has_approve,
-                        "approval patterns should not repeat in same session"
+                        !has_pending,
+                        "approval instructions should not repeat in same session"
                     );
                 }
             }
