@@ -24,6 +24,7 @@
 
 pub mod gates;
 pub mod generated;
+pub mod hint_tracker;
 pub mod hints;
 pub mod mise;
 pub mod models;
@@ -43,4 +44,6 @@ pub mod tui;
 
 pub use models::{CommandInfo, Decision, GateResult};
 pub use permission_request::handle_permission_request;
-pub use router::{check_command, check_command_with_settings};
+pub use router::{
+    check_command, check_command_with_settings, check_command_with_settings_and_session,
+};

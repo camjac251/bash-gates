@@ -76,7 +76,8 @@ fn hint_cat(cmd: &CommandInfo) -> ModernHint {
         return ModernHint {
             legacy_command: "cat",
             modern_command: "bat",
-            hint: "Tip: Use 'bat' for syntax-highlighted output with line numbers".to_string(),
+            hint: "**ALWAYS** use `bat` instead of `cat`. Syntax highlighting and line numbers."
+                .to_string(),
         };
     }
 
@@ -96,7 +97,7 @@ fn hint_cat(cmd: &CommandInfo) -> ModernHint {
         legacy_command: "cat",
         modern_command: "bat",
         hint: format!(
-            "Tip: Use 'bat {}' for syntax highlighting and line numbers{}",
+            "**ALWAYS** use `bat {}` instead of `cat`. Syntax highlighting and line numbers{}.",
             file, ext_hint
         ),
     }
@@ -125,10 +126,9 @@ fn hint_head(cmd: &CommandInfo) -> ModernHint {
         legacy_command: "head",
         modern_command: "bat",
         hint: format!(
-            "Tip: Use 'bat -r {} {}' for first {} lines with syntax highlighting",
+            "**ALWAYS** use `bat -r {} {}` instead of `head`. Syntax highlighting included.",
             bat_range,
             if file.is_empty() { "<file>" } else { &file },
-            lines
         ),
     }
 }
@@ -164,10 +164,9 @@ fn hint_tail(cmd: &CommandInfo) -> Option<ModernHint> {
         legacy_command: "tail",
         modern_command: "bat",
         hint: format!(
-            "Tip: Use 'bat -r {} {}' for last {} lines with syntax highlighting",
+            "**ALWAYS** use `bat -r {} {}` instead of `tail`. Syntax highlighting included.",
             bat_range,
             if file.is_empty() { "<file>" } else { &file },
-            lines
         ),
     })
 }
@@ -206,7 +205,7 @@ fn hint_grep(cmd: &CommandInfo) -> Option<ModernHint> {
         return Some(ModernHint {
             legacy_command: "grep",
             modern_command: "sg",
-            hint: "Tip: For code syntax searches, prefer 'sg -p <pattern> <path>' (AST-aware). Use 'rg' for plain text/log/config search.".to_string(),
+            hint: "**ALWAYS** use `sg -p <pattern> <path>` instead of `grep` for code searches. AST-aware structural matching. Use `rg` for plain text.".to_string(),
         });
     }
 
@@ -221,11 +220,11 @@ fn hint_grep(cmd: &CommandInfo) -> Option<ModernHint> {
         .any(|a| a.starts_with("-A") || a.starts_with("-B") || a.starts_with("-C"));
 
     let hint = if has_recursive {
-        "Tip: Use 'rg <pattern>' - it's recursive by default, respects .gitignore, and is much faster"
+        "**ALWAYS** use `rg <pattern>` instead of `grep -r`. Recursive by default, respects .gitignore, faster."
     } else if has_context {
-        "Tip: Use 'rg <pattern>' with -A/-B/-C for context - same syntax but faster"
+        "**ALWAYS** use `rg <pattern>` instead of `grep`. Same -A/-B/-C flags, faster, better defaults."
     } else {
-        "Tip: Consider 'rg <pattern>' for faster searching with better defaults"
+        "**ALWAYS** use `rg <pattern>` instead of `grep`. Faster, recursive by default, respects .gitignore."
     };
 
     Some(ModernHint {
@@ -260,22 +259,22 @@ fn hint_find(cmd: &CommandInfo) -> ModernHint {
     let hint = if let Some(pattern) = name_pattern {
         if let Some(kind) = type_filter {
             format!(
-                "Tip: Use 'fd -t {} {} .' instead of 'find ... -type {} -name {}' (faster, simpler, .gitignore-aware)",
-                kind, pattern, kind, pattern
+                "**ALWAYS** use `fd -t {} {} .` instead of `find`. Faster, simpler syntax, .gitignore-aware.",
+                kind, pattern
             )
         } else {
             format!(
-                "Tip: Use 'fd {} .' instead of 'find ... -name {}' (faster, simpler, .gitignore-aware)",
-                pattern, pattern
+                "**ALWAYS** use `fd {} .` instead of `find`. Faster, simpler syntax, .gitignore-aware.",
+                pattern
             )
         }
     } else if let Some(kind) = type_filter {
         format!(
-            "Tip: Use 'fd -t {} .' instead of 'find ... -type {}' (faster, simpler, .gitignore-aware)",
-            kind, kind
+            "**ALWAYS** use `fd -t {} .` instead of `find`. Faster, simpler syntax, .gitignore-aware.",
+            kind
         )
     } else {
-        "Tip: Use 'fd <pattern> <path>' for faster, simpler file finding with smart defaults"
+        "**ALWAYS** use `fd <pattern> <path>` instead of `find`. Faster, simpler syntax, .gitignore-aware."
             .to_string()
     };
 
@@ -355,9 +354,9 @@ fn hint_sed(cmd: &CommandInfo) -> Option<ModernHint> {
     }
 
     let hint = if has_inplace {
-        "Tip: Use 'sd <find> <replace> <file>' for simpler in-place substitution. No escaping needed for common patterns."
+        "**ALWAYS** use `sd <find> <replace> <file>` instead of `sed -i`. Simpler syntax, no escaping needed."
     } else {
-        "Tip: Consider 'sd <find> <replace>' for simpler syntax - no 's/.../.../g' needed"
+        "**ALWAYS** use `sd <find> <replace>` instead of `sed`. No 's/.../.../g' syntax needed."
     };
 
     Some(ModernHint {
@@ -387,7 +386,7 @@ fn hint_ls(cmd: &CommandInfo) -> Option<ModernHint> {
     Some(ModernHint {
         legacy_command: "ls",
         modern_command: "eza",
-        hint: "Tip: Use 'eza -la' for better formatting, git status integration, and icons support"
+        hint: "**ALWAYS** use `eza -la` instead of `ls -la`. Git status integration and better formatting."
             .to_string(),
     })
 }
@@ -396,7 +395,7 @@ fn hint_du(_cmd: &CommandInfo) -> ModernHint {
     ModernHint {
         legacy_command: "du",
         modern_command: "dust",
-        hint: "Tip: Use 'dust' for visual disk usage with a tree view and better formatting"
+        hint: "**ALWAYS** use `dust` instead of `du`. Visual tree view with better formatting."
             .to_string(),
     }
 }
@@ -422,7 +421,8 @@ fn hint_ps(cmd: &CommandInfo) -> Option<ModernHint> {
     Some(ModernHint {
         legacy_command: "ps",
         modern_command: "procs",
-        hint: "Tip: Use 'procs' for better formatted process listing with tree view".to_string(),
+        hint: "**ALWAYS** use `procs` instead of `ps`. Better formatting with tree view."
+            .to_string(),
     })
 }
 
@@ -438,7 +438,7 @@ fn hint_curl(cmd: &CommandInfo) -> Option<ModernHint> {
         return Some(ModernHint {
             legacy_command: "curl",
             modern_command: "xh",
-            hint: "Tip: Use 'xh <url>' for cleaner HTTP output with automatic JSON formatting"
+            hint: "**ALWAYS** use `xh <url>` instead of `curl`. Automatic JSON formatting, cleaner output."
                 .to_string(),
         });
     }
@@ -450,7 +450,7 @@ fn hint_wget(_cmd: &CommandInfo) -> Option<ModernHint> {
     Some(ModernHint {
         legacy_command: "wget",
         modern_command: "xh",
-        hint: "Tip: Consider 'xh <url>' for HTTP requests or 'xh -d <url>' for downloads"
+        hint: "**ALWAYS** use `xh <url>` instead of `wget`. Cleaner HTTP output, or `xh -d <url>` for downloads."
             .to_string(),
     })
 }
@@ -463,7 +463,7 @@ fn hint_awk(cmd: &CommandInfo) -> Option<ModernHint> {
         return Some(ModernHint {
             legacy_command: "awk",
             modern_command: "choose",
-            hint: "Tip: For field extraction, use 'choose <field>' - e.g., 'choose 0 2' instead of awk '{print $1, $3}'".to_string(),
+            hint: "**ALWAYS** use `choose <field>` instead of `awk`. Example: `choose 0 2` replaces awk '{print $1, $3}'.".to_string(),
         });
     }
 
@@ -478,7 +478,9 @@ fn hint_wc(cmd: &CommandInfo) -> Option<ModernHint> {
         return Some(ModernHint {
             legacy_command: "wc -l",
             modern_command: "rg",
-            hint: "Tip: If counting matches, use 'rg -c <pattern>' for direct count".to_string(),
+            hint:
+                "**ALWAYS** use `rg -c <pattern>` instead of `wc -l` for counting matches directly."
+                    .to_string(),
         });
     }
 
@@ -489,7 +491,8 @@ fn hint_cloc(_cmd: &CommandInfo) -> ModernHint {
     ModernHint {
         legacy_command: "cloc",
         modern_command: "tokei",
-        hint: "Tip: Use 'tokei' for faster code statistics with better formatting".to_string(),
+        hint: "**ALWAYS** use `tokei` instead of `cloc`. Faster with better formatting."
+            .to_string(),
     }
 }
 
@@ -497,7 +500,7 @@ fn hint_tree(_cmd: &CommandInfo) -> Option<ModernHint> {
     Some(ModernHint {
         legacy_command: "tree",
         modern_command: "eza",
-        hint: "Tip: Use 'eza -T' for tree view with git status and better formatting".to_string(),
+        hint: "**ALWAYS** use `eza -T` instead of `tree`. Git status integration and better formatting.".to_string(),
     })
 }
 
@@ -510,7 +513,7 @@ fn hint_hex(cmd: &CommandInfo) -> ModernHint {
     ModernHint {
         legacy_command: legacy,
         modern_command: "hexyl",
-        hint: "Tip: Use 'hexyl <file>' for colored hex dump with better formatting".to_string(),
+        hint: "**ALWAYS** use `hexyl <file>` instead of the legacy hex viewer. Colored output, better formatting.".to_string(),
     }
 }
 
@@ -522,7 +525,7 @@ fn hint_diff(cmd: &CommandInfo) -> Option<ModernHint> {
         return Some(ModernHint {
             legacy_command: "diff",
             modern_command: "delta",
-            hint: "Tip: For code diffs, pipe through 'delta' for syntax highlighting: diff a b | delta".to_string(),
+            hint: "**ALWAYS** use `delta` for code diffs. Pipe through it: `diff a b | delta`. Syntax highlighting included.".to_string(),
         });
     }
 
@@ -535,7 +538,7 @@ fn hint_less(_cmd: &CommandInfo) -> ModernHint {
     ModernHint {
         legacy_command: "less",
         modern_command: "bat",
-        hint: "Tip: Use 'bat <file>' for syntax-highlighted viewing with line numbers".to_string(),
+        hint: "**ALWAYS** use `bat <file>` instead of `less`. Syntax highlighting and line numbers included.".to_string(),
     }
 }
 
@@ -550,7 +553,7 @@ fn hint_man(cmd: &CommandInfo) -> Option<ModernHint> {
         legacy_command: "man",
         modern_command: "tldr",
         hint: format!(
-            "Tip: Use 'tldr {}' for practical examples instead of full manual",
+            "**ALWAYS** use `tldr {}` instead of `man`. Practical examples, concise output.",
             command
         ),
     })
@@ -561,7 +564,7 @@ fn hint_ag_ack(cmd: &CommandInfo) -> ModernHint {
         legacy_command: if cmd.program == "ag" { "ag" } else { "ack" },
         modern_command: "rg",
         hint: format!(
-            "Tip: Consider 'rg' instead of '{}' - faster with similar interface",
+            "**ALWAYS** use `rg` instead of `{}`. Faster with similar interface.",
             cmd.program
         ),
     }
@@ -630,7 +633,7 @@ mod tests {
         assert!(hint.is_some());
         let hint = hint.unwrap();
         assert_eq!(hint.modern_command, "rg");
-        assert!(hint.hint.contains("recursive by default"));
+        assert!(hint.hint.contains("Recursive by default"));
     }
 
     #[test]

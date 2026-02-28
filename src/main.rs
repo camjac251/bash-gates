@@ -34,7 +34,7 @@ use bash_gates::patterns::suggest_patterns;
 use bash_gates::pending::{clear_pending, pending_count, read_pending};
 use bash_gates::permission_request::handle_permission_request;
 use bash_gates::post_tool_use::handle_post_tool_use;
-use bash_gates::router::check_command_with_settings;
+use bash_gates::router::check_command_with_settings_and_session;
 use bash_gates::settings_writer::{
     RuleType, Scope, add_rule, list_all_rules, list_rules, remove_rule,
 };
@@ -178,9 +178,13 @@ fn handle_pre_tool_use_hook(input: &str) {
         return;
     }
 
-    // Check command with settings.json awareness and mode detection
-    let output =
-        check_command_with_settings(&command, &hook_input.cwd, &hook_input.permission_mode);
+    // Check command with settings.json awareness, mode detection, and session hint dedup
+    let output = check_command_with_settings_and_session(
+        &command,
+        &hook_input.cwd,
+        &hook_input.permission_mode,
+        &hook_input.session_id,
+    );
 
     // If the result is "ask", track it for PostToolUse correlation
     if let Some(ref hso) = output.hook_specific_output {
