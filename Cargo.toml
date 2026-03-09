@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.85"
 description = "Robust bash command permission gates for Claude Code"
 license = "MIT"
+publish = false
 
 [lib]
 name = "bash_gates"
