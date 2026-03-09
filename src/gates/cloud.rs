@@ -399,6 +399,47 @@ mod tests {
         }
     }
 
+    // === Helm repo ===
+
+    #[test]
+    fn test_helm_repo_list_allows() {
+        let result = check_cloud(&make_cmd("helm", &["repo", "list"]));
+        assert_eq!(
+            result.decision,
+            Decision::Allow,
+            "helm repo list should allow"
+        );
+    }
+
+    #[test]
+    fn test_helm_repo_add_asks() {
+        let result = check_cloud(&make_cmd(
+            "helm",
+            &["repo", "add", "stable", "https://charts.example.com"],
+        ));
+        assert_eq!(result.decision, Decision::Ask, "helm repo add should ask");
+    }
+
+    #[test]
+    fn test_helm_repo_remove_asks() {
+        let result = check_cloud(&make_cmd("helm", &["repo", "remove", "stable"]));
+        assert_eq!(
+            result.decision,
+            Decision::Ask,
+            "helm repo remove should ask"
+        );
+    }
+
+    #[test]
+    fn test_helm_repo_update_asks() {
+        let result = check_cloud(&make_cmd("helm", &["repo", "update"]));
+        assert_eq!(
+            result.decision,
+            Decision::Ask,
+            "helm repo update should ask"
+        );
+    }
+
     // === Non-cloud ===
 
     #[test]

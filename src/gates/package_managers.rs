@@ -139,6 +139,7 @@ fn check_npm(cmd: &CommandInfo) -> GateResult {
                     "ls",
                     "outdated",
                     "audit",
+                    "config",
                     "run",
                     "test",
                     "start",
@@ -238,6 +239,7 @@ fn check_yarn(cmd: &CommandInfo) -> GateResult {
                     "info",
                     "outdated",
                     "audit",
+                    "config",
                     "run",
                     "test",
                     "start",
@@ -278,6 +280,8 @@ fn check_pip(cmd: &CommandInfo) -> GateResult {
                     "show",
                     "freeze",
                     "check",
+                    "config",
+                    "cache",
                     "--version",
                     "-V",
                     "--help",
@@ -310,7 +314,6 @@ fn check_uv(cmd: &CommandInfo) -> GateResult {
                     "pip freeze",
                     "pip check",
                     "run",
-                    "sync",
                     "--version",
                     "-V",
                     "--help",
@@ -364,8 +367,8 @@ fn check_go(cmd: &CommandInfo) -> GateResult {
             || has_known_subcommand(
                 cmd,
                 &[
-                    "build", "test", "run", "fmt", "vet", "list", "mod tidy", "version", "doc",
-                    "env", "--help", "-h",
+                    "build", "test", "run", "fmt", "vet", "list", "mod", "version", "doc", "env",
+                    "--help", "-h",
                 ],
             )
         {
@@ -415,6 +418,7 @@ fn check_conda(cmd: &CommandInfo) -> GateResult {
                     "list",
                     "info",
                     "search",
+                    "config",
                     "env list",
                     "--version",
                     "-V",
@@ -445,8 +449,10 @@ fn check_poetry(cmd: &CommandInfo) -> GateResult {
                 &[
                     "show",
                     "check",
+                    "search",
                     "run",
                     "shell",
+                    "config",
                     "env list",
                     "env info",
                     "env activate",
@@ -1283,6 +1289,262 @@ mod tests {
         fn test_npx_unknown_asks() {
             let result = check_package_managers(&cmd("npx", &["someunknowntool"]));
             assert_eq!(result.decision, Decision::Ask, "npx unknown should ask");
+        }
+
+        // === Config mutation gating ===
+
+        #[test]
+        fn test_npm_config_list_allows() {
+            let result = check_package_managers(&cmd("npm", &["config", "list"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "npm config list should allow"
+            );
+        }
+
+        #[test]
+        fn test_npm_config_set_asks() {
+            let result = check_package_managers(&cmd(
+                "npm",
+                &["config", "set", "registry", "https://example.com"],
+            ));
+            assert_eq!(result.decision, Decision::Ask, "npm config set should ask");
+        }
+
+        #[test]
+        fn test_npm_config_delete_asks() {
+            let result = check_package_managers(&cmd("npm", &["config", "delete", "proxy"]));
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "npm config delete should ask"
+            );
+        }
+
+        #[test]
+        fn test_yarn_config_list_allows() {
+            let result = check_package_managers(&cmd("yarn", &["config", "list"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "yarn config list should allow"
+            );
+        }
+
+        #[test]
+        fn test_yarn_config_set_asks() {
+            let result = check_package_managers(&cmd(
+                "yarn",
+                &["config", "set", "registry", "https://example.com"],
+            ));
+            assert_eq!(result.decision, Decision::Ask, "yarn config set should ask");
+        }
+
+        #[test]
+        fn test_pip_config_list_allows() {
+            let result = check_package_managers(&cmd("pip", &["config", "list"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "pip config list should allow"
+            );
+        }
+
+        #[test]
+        fn test_pip_config_set_asks() {
+            let result = check_package_managers(&cmd(
+                "pip",
+                &["config", "set", "global.index-url", "https://example.com"],
+            ));
+            assert_eq!(result.decision, Decision::Ask, "pip config set should ask");
+        }
+
+        #[test]
+        fn test_pip_cache_list_allows() {
+            let result = check_package_managers(&cmd("pip", &["cache", "list"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "pip cache list should allow"
+            );
+        }
+
+        #[test]
+        fn test_pip_cache_purge_asks() {
+            let result = check_package_managers(&cmd("pip", &["cache", "purge"]));
+            assert_eq!(result.decision, Decision::Ask, "pip cache purge should ask");
+        }
+
+        #[test]
+        fn test_pip_cache_remove_asks() {
+            let result = check_package_managers(&cmd("pip", &["cache", "remove", "numpy"]));
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "pip cache remove should ask"
+            );
+        }
+
+        #[test]
+        fn test_conda_config_show_allows() {
+            let result = check_package_managers(&cmd("conda", &["config", "--show"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "conda config --show should allow"
+            );
+        }
+
+        #[test]
+        fn test_conda_config_set_asks() {
+            let result = check_package_managers(&cmd(
+                "conda",
+                &["config", "--set", "auto_activate_base", "false"],
+            ));
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "conda config --set should ask"
+            );
+        }
+
+        #[test]
+        fn test_conda_config_add_asks() {
+            let result = check_package_managers(&cmd(
+                "conda",
+                &["config", "--add", "channels", "conda-forge"],
+            ));
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "conda config --add should ask"
+            );
+        }
+
+        #[test]
+        fn test_poetry_config_list_allows() {
+            let result = check_package_managers(&cmd("poetry", &["config", "--list"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "poetry config --list should allow"
+            );
+        }
+
+        #[test]
+        fn test_poetry_config_unset_asks() {
+            let result = check_package_managers(&cmd(
+                "poetry",
+                &["config", "--unset", "virtualenvs.create"],
+            ));
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "poetry config --unset should ask"
+            );
+        }
+
+        // === Audit fix gating ===
+
+        #[test]
+        fn test_npm_audit_allows() {
+            let result = check_package_managers(&cmd("npm", &["audit"]));
+            assert_eq!(result.decision, Decision::Allow, "npm audit should allow");
+        }
+
+        #[test]
+        fn test_npm_audit_fix_asks() {
+            let result = check_package_managers(&cmd("npm", &["audit", "fix"]));
+            assert_eq!(result.decision, Decision::Ask, "npm audit fix should ask");
+        }
+
+        #[test]
+        fn test_pnpm_audit_allows() {
+            let result = check_package_managers(&cmd("pnpm", &["audit"]));
+            assert_eq!(result.decision, Decision::Allow, "pnpm audit should allow");
+        }
+
+        #[test]
+        fn test_pnpm_audit_fix_asks() {
+            let result = check_package_managers(&cmd("pnpm", &["audit", "--fix"]));
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "pnpm audit --fix should ask"
+            );
+        }
+
+        // === Cargo clippy --fix ===
+
+        #[test]
+        fn test_cargo_clippy_allows() {
+            let result = check_package_managers(&cmd("cargo", &["clippy"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "cargo clippy should allow"
+            );
+        }
+
+        #[test]
+        fn test_cargo_clippy_fix_asks() {
+            let result = check_package_managers(&cmd("cargo", &["clippy", "--fix"]));
+            assert_eq!(
+                result.decision,
+                Decision::Ask,
+                "cargo clippy --fix should ask"
+            );
+        }
+
+        // === Go mod tidy/download ===
+
+        #[test]
+        fn test_go_mod_tidy_asks() {
+            let result = check_package_managers(&cmd("go", &["mod", "tidy"]));
+            assert_eq!(result.decision, Decision::Ask, "go mod tidy should ask");
+        }
+
+        #[test]
+        fn test_go_mod_download_asks() {
+            let result = check_package_managers(&cmd("go", &["mod", "download"]));
+            assert_eq!(result.decision, Decision::Ask, "go mod download should ask");
+        }
+
+        #[test]
+        fn test_go_mod_graph_allows() {
+            let result = check_package_managers(&cmd("go", &["mod", "graph"]));
+            assert_eq!(
+                result.decision,
+                Decision::Allow,
+                "go mod graph should allow"
+            );
+        }
+
+        // === UV sync/lock/venv ===
+
+        #[test]
+        fn test_uv_sync_asks() {
+            let result = check_package_managers(&cmd("uv", &["sync"]));
+            assert_eq!(result.decision, Decision::Ask, "uv sync should ask");
+        }
+
+        #[test]
+        fn test_uv_lock_asks() {
+            let result = check_package_managers(&cmd("uv", &["lock"]));
+            assert_eq!(result.decision, Decision::Ask, "uv lock should ask");
+        }
+
+        #[test]
+        fn test_uv_venv_asks() {
+            let result = check_package_managers(&cmd("uv", &["venv"]));
+            assert_eq!(result.decision, Decision::Ask, "uv venv should ask");
+        }
+
+        #[test]
+        fn test_uv_pip_list_allows() {
+            let result = check_package_managers(&cmd("uv", &["pip", "list"]));
+            assert_eq!(result.decision, Decision::Allow, "uv pip list should allow");
         }
     }
 }

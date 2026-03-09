@@ -55,6 +55,12 @@ subcommand = "help"
 
 [[programs.allow]]
 subcommand = "config"
+unless_flags = ["set", "delete", "edit"]
+
+[[programs.ask]]
+subcommand = "config"
+reason = "Modifying npm config"
+if_flags_any = ["set", "delete", "edit"]
 
 [[programs.allow]]
 subcommand = "get"
@@ -94,6 +100,12 @@ subcommand = "fund"
 
 [[programs.allow]]
 subcommand = "audit"
+unless_flags = ["fix"]
+
+[[programs.ask]]
+subcommand = "audit"
+reason = "Fixing vulnerabilities (modifies dependencies)"
+if_flags_any = ["fix"]
 
 [[programs.allow]]
 subcommand = "query"
@@ -291,6 +303,12 @@ subcommand = "outdated"
 
 [[programs.allow]]
 subcommand = "audit"
+unless_flags = ["--fix"]
+
+[[programs.ask]]
+subcommand = "audit"
+reason = "Fixing vulnerabilities (modifies dependencies)"
+if_flags_any = ["--fix"]
 
 [[programs.allow]]
 subcommand = "-v"
@@ -445,6 +463,12 @@ subcommand = "audit"
 
 [[programs.allow]]
 subcommand = "config"
+unless_flags = ["set", "delete"]
+
+[[programs.ask]]
+subcommand = "config"
+reason = "Modifying yarn config"
+if_flags_any = ["set", "delete"]
 
 [[programs.allow]]
 subcommand = "-v"
@@ -591,9 +615,21 @@ subcommand = "index"
 
 [[programs.allow]]
 subcommand = "config"
+unless_flags = ["set", "edit", "unset"]
+
+[[programs.ask]]
+subcommand = "config"
+reason = "Modifying pip config"
+if_flags_any = ["set", "edit", "unset"]
 
 [[programs.allow]]
 subcommand = "cache"
+unless_flags = ["purge", "remove"]
+
+[[programs.ask]]
+subcommand = "cache"
+reason = "Deleting pip cache"
+if_flags_any = ["purge", "remove"]
 
 [[programs.allow]]
 subcommand = "debug"
@@ -667,15 +703,18 @@ subcommand = "--help"
 subcommand = "run"
 reason = "Running command in environment"
 
-# Safe local commands
-[[programs.allow]]
+# Local environment commands (write to venv/lockfile)
+[[programs.ask]]
 subcommand = "sync"
+reason = "Syncing virtual environment"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "lock"
+reason = "Updating lockfile"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "venv"
+reason = "Creating virtual environment"
 
 # uv pip subcommands (safe)
 [[programs.allow]]
@@ -752,6 +791,13 @@ subcommand = "check"
 
 [[programs.allow]]
 subcommand = "clippy"
+unless_flags = ["--fix"]
+
+[[programs.ask]]
+subcommand = "clippy"
+reason = "Auto-fixing lint suggestions"
+if_flags_any = ["--fix"]
+accept_edits_auto_allow = true
 
 [[programs.allow]]
 subcommand = "doc"
@@ -1036,11 +1082,13 @@ subcommand = "mod verify"
 [[programs.allow]]
 subcommand = "mod why"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "mod tidy"
+reason = "Tidying go.mod/go.sum"
 
-[[programs.allow]]
+[[programs.ask]]
 subcommand = "mod download"
+reason = "Downloading modules"
 
 # Risky commands
 [[programs.ask]]
@@ -1197,6 +1245,12 @@ subcommand = "search"
 
 [[programs.allow]]
 subcommand = "config"
+unless_flags = ["--add", "--remove", "--set", "--append", "--prepend", "--remove-key"]
+
+[[programs.ask]]
+subcommand = "config"
+reason = "Modifying conda config"
+if_flags_any = ["--add", "--remove", "--set", "--append", "--prepend", "--remove-key"]
 
 [[programs.allow]]
 subcommand = "package"
@@ -1304,6 +1358,10 @@ subcommand = "check"
 
 [[programs.allow]]
 subcommand = "config"
+unless_flags = ["--unset"]
+
+[[programs.allow]]
+subcommand = "config list"
 
 [[programs.allow]]
 subcommand = "env info"

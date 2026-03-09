@@ -254,6 +254,66 @@ mod tests {
         assert_eq!(result.decision, Decision::Allow);
     }
 
+    // === Mix (Elixir) ===
+
+    #[test]
+    fn test_mix_format_asks() {
+        let result = check_devtools(&cmd("mix", &["format"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn test_mix_unknown_asks() {
+        let result = check_devtools(&cmd("mix", &["deps.get"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    // === Dart ===
+
+    #[test]
+    fn test_dart_analyze_allows() {
+        let result = check_devtools(&cmd("dart", &["analyze"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_dart_format_asks() {
+        let result = check_devtools(&cmd("dart", &["format", "."]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn test_dart_unknown_asks() {
+        let result = check_devtools(&cmd("dart", &["pub", "get"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    // === Buf ===
+
+    #[test]
+    fn test_buf_lint_allows() {
+        let result = check_devtools(&cmd("buf", &["lint"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_buf_breaking_allows() {
+        let result = check_devtools(&cmd("buf", &["breaking"]));
+        assert_eq!(result.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn test_buf_format_asks() {
+        let result = check_devtools(&cmd("buf", &["format"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn test_buf_unknown_asks() {
+        let result = check_devtools(&cmd("buf", &["generate"]));
+        assert_eq!(result.decision, Decision::Ask);
+    }
+
     // === Non-devtools ===
 
     #[test]

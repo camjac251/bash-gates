@@ -43,6 +43,7 @@ subcommand = "show"
 
 [[programs.allow]]
 subcommand = "tag"
+unless_flags = ["-d", "--delete", "-f", "--force", "-a", "--annotate", "-s", "--sign", "-u", "--local-user", "-m", "--message"]
 
 [[programs.allow]]
 subcommand = "describe"
@@ -381,6 +382,22 @@ reason = "Moving files"
 [[programs.ask]]
 subcommand = "rm"
 reason = "Removing files"
+
+# Tag mutations
+[[programs.ask]]
+subcommand = "tag"
+reason = "Creating tag"
+if_flags_any = ["-a", "--annotate", "-s", "--sign", "-u", "--local-user", "-m", "--message"]
+
+[[programs.ask]]
+subcommand = "tag"
+reason = "Deleting tag"
+if_flags_any = ["-d", "--delete"]
+
+[[programs.ask]]
+subcommand = "tag"
+reason = "Force-replacing tag"
+if_flags_any = ["-f", "--force"]
 
 # Branch mutations
 [[programs.ask]]

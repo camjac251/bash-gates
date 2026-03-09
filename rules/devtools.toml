@@ -599,7 +599,7 @@ accept_edits_auto_allow = true
 
 [[programs]]
 name = "mix"
-unknown_action = "allow"
+unknown_action = "ask"
 
 [[programs.ask]]
 subcommand = "format"
@@ -637,7 +637,16 @@ accept_edits_auto_allow = true
 
 [[programs]]
 name = "dart"
-unknown_action = "allow"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "analyze"
+
+[[programs.allow]]
+subcommand = "info"
+
+[[programs.allow]]
+subcommand = "--version"
 
 [[programs.ask]]
 subcommand = "format"
@@ -705,7 +714,19 @@ accept_edits_auto_allow = true
 
 [[programs]]
 name = "buf"
-unknown_action = "allow"
+unknown_action = "ask"
+
+[[programs.allow]]
+subcommand = "lint"
+
+[[programs.allow]]
+subcommand = "breaking"
+
+[[programs.allow]]
+subcommand = "ls-files"
+
+[[programs.allow]]
+subcommand = "--version"
 
 [[programs.ask]]
 subcommand = "format"

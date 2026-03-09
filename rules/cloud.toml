@@ -1292,7 +1292,19 @@ subcommand = "show"
 subcommand = "search"
 
 [[programs.allow]]
-subcommand = "repo"
+subcommand = "repo list"
+
+[[programs.ask]]
+subcommand = "repo add"
+reason = "Adding chart repository"
+
+[[programs.ask]]
+subcommand = "repo remove"
+reason = "Removing chart repository"
+
+[[programs.ask]]
+subcommand = "repo update"
+reason = "Updating chart repositories"
 
 [[programs.allow]]
 subcommand = "status"

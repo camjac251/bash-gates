@@ -146,6 +146,15 @@ pub fn check_git(cmd: &CommandInfo) -> GateResult {
         return check_git_add(&normalized_args);
     }
 
+    // git tag with a positional argument (not a flag) is creating a lightweight tag
+    // TOML can't express "has positional args beyond subcommand", so handle here
+    if subcommand == "tag" && normalized_args.len() > 1 {
+        let has_no_flags = !normalized_args[1..].iter().any(|a| a.starts_with('-'));
+        if has_no_flags {
+            return GateResult::ask("Creating tag");
+        }
+    }
+
     // Use declarative rules for everything else
     // Note: checkout -b/-B, checkout --, and push --force-with-lease are handled
     // declaratively via TOML rules with if_flags_any
@@ -457,6 +466,84 @@ mod tests {
     fn test_only_global_opts_no_subcommand_allows() {
         let result = check_git(&cmd(&["-C", "/path"]));
         assert_eq!(result.decision, Decision::Allow);
+    }
+
+    // === Tag Commands ===
+
+    #[test]
+    fn test_tag_list_allows() {
+        let read_cmds = [
+            &["tag"][..],
+            &["tag", "-l"],
+            &["tag", "-l", "v*"],
+            &["tag", "--list"],
+        ];
+
+        for args in read_cmds {
+            let result = check_git(&cmd(args));
+            assert_eq!(result.decision, Decision::Allow, "Failed for: {args:?}");
+        }
+    }
+
+    #[test]
+    fn test_tag_create_lightweight_asks() {
+        let result = check_git(&cmd(&["tag", "v1.0"]));
+        assert_eq!(result.decision, Decision::Ask);
+        assert!(result.reason.as_ref().unwrap().contains("Creating tag"));
+    }
+
+    #[test]
+    fn test_tag_create_annotated_asks() {
+        let create_cmds = [
+            &["tag", "-a", "v1.0", "-m", "release"][..],
+            &["tag", "--annotate", "v1.0", "-m", "release"],
+            &["tag", "-s", "v1.0", "-m", "signed release"],
+            &["tag", "--sign", "v1.0"],
+            &["tag", "-u", "KEYID", "v1.0"],
+            &["tag", "--local-user", "KEYID", "v1.0"],
+            &["tag", "-m", "message", "v1.0"],
+            &["tag", "--message", "message", "v1.0"],
+        ];
+
+        for args in create_cmds {
+            let result = check_git(&cmd(args));
+            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
+        }
+    }
+
+    #[test]
+    fn test_tag_delete_asks() {
+        let delete_cmds = [&["tag", "-d", "v1.0"][..], &["tag", "--delete", "v1.0"]];
+
+        for args in delete_cmds {
+            let result = check_git(&cmd(args));
+            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
+            assert!(result.reason.as_ref().unwrap().contains("Deleting tag"));
+        }
+    }
+
+    #[test]
+    fn test_tag_force_asks() {
+        let force_cmds = [&["tag", "-f", "v1.0"][..], &["tag", "--force", "v1.0"]];
+
+        for args in force_cmds {
+            let result = check_git(&cmd(args));
+            assert_eq!(result.decision, Decision::Ask, "Failed for: {args:?}");
+            assert!(
+                result
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .contains("Force-replacing tag")
+            );
+        }
+    }
+
+    #[test]
+    fn test_tag_with_global_opts_asks() {
+        let result = check_git(&cmd(&["-C", "/path", "tag", "-d", "v1.0"]));
+        assert_eq!(result.decision, Decision::Ask);
+        assert!(result.reason.as_ref().unwrap().contains("Deleting tag"));
     }
 
     // === Non-git Commands ===

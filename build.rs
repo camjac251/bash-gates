@@ -1669,7 +1669,13 @@ fn generate_file_editing_code(rule_files: &[(String, RuleFile)]) -> String {
             if conditions.is_empty() {
                 output.push_str("            false\n");
             } else if conditions.len() == 1 {
-                output.push_str(&format!("            {}\n", conditions[0]));
+                // Strip outer parens when single condition (avoids clippy warning)
+                let cond = &conditions[0];
+                let trimmed = cond
+                    .strip_prefix('(')
+                    .and_then(|s| s.strip_suffix(')'))
+                    .unwrap_or(cond);
+                output.push_str(&format!("            {}\n", trimmed));
             } else {
                 output.push_str("            ");
                 output.push_str(&conditions.join("\n                || "));
