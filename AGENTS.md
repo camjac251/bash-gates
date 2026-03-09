@@ -76,10 +76,10 @@ src/
 │   ├── mod.rs           # Module declarations
 │   ├── rules.rs         # Rust gate functions from rules/*.toml
 │   └── toml_policy.rs   # Gemini CLI TOML policy string
-├── tui/                 # Interactive approval TUI
+├── tui/                 # Interactive review TUI (three-panel dashboard)
 │   ├── mod.rs           # Module exports
-│   ├── app.rs           # Application state and event loop
-│   └── ui.rs            # ratatui widget rendering
+│   ├── app.rs           # State machine: panels, navigation, approve/skip/deny
+│   └── ui.rs            # ratatui rendering: sidebar, command list, detail panel
 └── gates/               # 13 specialized permission gates
     ├── mod.rs           # Gate registry (ordered: mcp first, basics last)
     ├── helpers.rs       # Common gate helper functions (flag extraction, etc.)

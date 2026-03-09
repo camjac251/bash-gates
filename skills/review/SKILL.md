@@ -1,12 +1,14 @@
 ---
 name: review
 description: Review commands you've been manually approving and optionally make them permanent. Shows counts, suggests patterns, lets you multi-select which to always allow.
-argument-hint: "[--project]"
+argument-hint: "[--all]"
 ---
 
 # Review Pending Approvals
 
 1. Run `bash-gates pending list $ARGUMENTS` to get pending approvals.
+   - Default: shows current project's pending approvals only
+   - `--all`: shows all projects
 
 2. If no pending approvals, tell the user and stop.
 

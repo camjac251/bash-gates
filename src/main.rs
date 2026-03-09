@@ -70,7 +70,8 @@ fn main() {
     }
 
     if args.len() > 1 && args[1] == "review" {
-        handle_review_subcommand();
+        let show_all = args.iter().any(|a| a == "--all" || a == "-a");
+        handle_review_subcommand(show_all);
         return;
     }
 
@@ -1074,8 +1075,8 @@ fn print_pending_help() {
 
 // === Review subcommand ===
 
-fn handle_review_subcommand() {
-    if let Err(e) = run_review() {
+fn handle_review_subcommand(show_all: bool) {
+    if let Err(e) = run_review(show_all) {
         eprintln!("Error running review TUI: {}", e);
         std::process::exit(1);
     }

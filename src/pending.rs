@@ -243,92 +243,64 @@ pub fn pending_count(filter_project: Option<&str>) -> usize {
     read_pending(filter_project).len()
 }
 
-/// A group of similar commands across projects
+/// Project information for the sidebar
 #[derive(Debug, Clone)]
-pub struct CommandGroup {
-    /// The base command pattern (e.g., "npm install")
-    pub base_command: String,
-    /// All pending entries in this group
-    pub entries: Vec<PendingApproval>,
-    /// Unique project paths that have this command
-    pub projects: Vec<String>,
+pub struct ProjectInfo {
+    /// Short name (last directory component)
+    pub name: String,
+    /// Display path (with ~ for home)
+    pub display_path: String,
+    /// Real filesystem path (for settings writer)
+    pub cwd: String,
+    /// Number of pending entries in this project
+    pub count: usize,
 }
 
-impl CommandGroup {
-    /// Get the combined patterns from all entries (deduplicated)
-    pub fn patterns(&self) -> Vec<String> {
-        let mut patterns = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-        for entry in &self.entries {
-            for pattern in &entry.patterns {
-                if seen.insert(pattern.clone()) {
-                    patterns.push(pattern.clone());
-                }
-            }
-        }
-        patterns
-    }
-
-    /// Get total count across all entries
-    pub fn total_count(&self) -> u32 {
-        self.entries.iter().map(|e| e.count).sum()
-    }
-}
-
-/// Group pending approvals by base command
-pub fn group_pending(entries: Vec<PendingApproval>) -> Vec<CommandGroup> {
-    let mut groups: std::collections::HashMap<String, CommandGroup> =
-        std::collections::HashMap::new();
+/// Derive unique projects from pending entries, sorted by count descending
+pub fn derive_projects(entries: &[PendingApproval]) -> Vec<ProjectInfo> {
+    let mut projects: HashMap<String, ProjectInfo> = HashMap::new();
 
     for entry in entries {
-        let base = extract_base_command(&entry.command);
+        let display = display_project_path(entry);
+        let name = display.rsplit('/').next().unwrap_or(&display).to_string();
 
-        let group = groups.entry(base.clone()).or_insert_with(|| CommandGroup {
-            base_command: base.clone(),
-            entries: Vec::new(),
-            projects: Vec::new(),
-        });
-
-        // Track unique projects using display_project_path for human-readable form
-        let project = display_project_path(&entry);
-        if !group.projects.contains(&project) {
-            group.projects.push(project);
-        }
-
-        group.entries.push(entry);
+        let project = projects
+            .entry(display.clone())
+            .or_insert_with(|| ProjectInfo {
+                name,
+                display_path: display.clone(),
+                cwd: if entry.cwd.is_empty() {
+                    entry.project_id.clone()
+                } else {
+                    entry.cwd.clone()
+                },
+                count: 0,
+            });
+        project.count += 1;
     }
 
-    let mut result: Vec<CommandGroup> = groups.into_values().collect();
-    // Sort by most recent first
-    result.sort_by(|a, b| {
-        let a_latest = a.entries.iter().map(|e| e.last_seen).max();
-        let b_latest = b.entries.iter().map(|e| e.last_seen).max();
-        b_latest.cmp(&a_latest)
-    });
+    let mut result: Vec<ProjectInfo> = projects.into_values().collect();
+    result.sort_by(|a, b| b.count.cmp(&a.count));
     result
 }
 
-/// Extract the base command (program + first subcommand) for grouping
-fn extract_base_command(command: &str) -> String {
-    let parts: Vec<&str> = command.split_whitespace().collect();
-    match parts.len() {
-        0 => command.to_string(),
-        1 => parts[0].to_string(),
-        _ => {
-            // For package managers, include subcommand
-            let program = parts[0];
-            let subcmd = parts[1];
-            if [
-                "npm", "pnpm", "yarn", "bun", "cargo", "pip", "uv", "go", "mise", "git", "gh",
-                "docker", "kubectl",
-            ]
-            .contains(&program)
-            {
-                format!("{} {}", program, subcmd)
-            } else {
-                program.to_string()
-            }
-        }
+/// Category weight for command sorting (lower = higher priority)
+///
+/// Package managers and build tools first (most friction from repeated approvals),
+/// then task runners, dev tools, git, and finally network/cloud/system commands.
+pub fn category_weight(command: &str) -> u8 {
+    let program = command.split_whitespace().next().unwrap_or("");
+    match program {
+        "cargo" | "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "uv" | "poetry" | "go"
+        | "rustc" | "rustup" => 0,
+        "mise" | "make" | "just" => 1,
+        "biome" | "prettier" | "eslint" | "ruff" | "black" | "rustfmt" | "gofmt" | "shfmt"
+        | "sg" | "ast-grep" | "sd" | "jq" | "yq" | "semgrep" => 2,
+        "git" => 3,
+        "gh" => 4,
+        "curl" | "wget" | "ssh" | "scp" | "rsync" => 5,
+        "aws" | "gcloud" | "az" | "kubectl" | "docker" | "terraform" | "pulumi" | "helm" => 6,
+        _ => 7,
     }
 }
 
@@ -646,40 +618,6 @@ mod tests {
         let entry = make_approval_with_cwd("cmd", "-opt-myapp", "/opt/myapp");
         let display = display_project_path(&entry);
         assert_eq!(display, "/opt/myapp");
-    }
-
-    #[test]
-    fn test_group_pending_preserves_hyphenated_paths() {
-        let entries = vec![
-            make_approval_with_cwd(
-                "npm install",
-                "-home-cam-my-project",
-                "/home/cam/my-project",
-            ),
-            make_approval_with_cwd(
-                "npm install",
-                "-home-cam-other-thing",
-                "/home/cam/other-thing",
-            ),
-        ];
-
-        let groups = group_pending(entries);
-        assert_eq!(groups.len(), 1, "same base command should group together");
-
-        let group = &groups[0];
-        assert_eq!(group.projects.len(), 2);
-
-        // Both project paths should preserve hyphens
-        for project in &group.projects {
-            assert!(
-                !project.contains("/cam/my/project"),
-                "project path must not lossy-decode: got '{project}'"
-            );
-            assert!(
-                !project.contains("/cam/other/thing"),
-                "project path must not lossy-decode: got '{project}'"
-            );
-        }
     }
 
     #[test]

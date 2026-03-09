@@ -37,19 +37,13 @@ Review commands you've been manually approving and optionally promote them to pe
 4. Writes selected patterns to `settings.json`
 5. Shows final rules summary
 
+For an interactive TUI alternative, run `bash-gates review` directly in your terminal.
+
 **Usage:**
 
 ```bash
-/bash-gates:review              # review all pending approvals
-/bash-gates:review --project    # show project-scoped pending only
-```
-
-**Example output:**
-
-```
-1. [ ] cargo build --release (12x) -> cargo build:*
-2. [ ] npm install (8x) -> npm install:*
-3. [ ] git push origin main (3x) -> git push:*
+/bash-gates:review              # current project pending approvals
+/bash-gates:review --all        # all projects
 ```
 
 **Scopes:**
