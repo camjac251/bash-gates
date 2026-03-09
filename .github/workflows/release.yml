@@ -1,76 +1,68 @@
-# ========================================
-# Release Workflow
-# ========================================
-# Builds static binaries for Linux (musl) and macOS (x64 + ARM64)
-# Build jobs act as the quality gate -- if code doesn't compile, no release is created
-
 name: Release
 
-# ========================================
-# Triggers
-# ========================================
 on:
-  workflow_dispatch:
-
   push:
     branches: [main]
-    paths:
-      - "src/**"
-      - "rules/**"
-      - "build.rs"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/release.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and upload binaries for (e.g. v0.2.0)"
+        required: true
 
-# ========================================
-# Environment Variables
-# ========================================
 env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: bash-gates
 
-# ========================================
-# Concurrency Control
-# ========================================
-concurrency:
-  group: release
-  cancel-in-progress: false
-
-# ========================================
-# Jobs
-# ========================================
 jobs:
-  # --------------------------------------------------
-  # Job 1: Build Release Binaries
-  # --------------------------------------------------
+  release-please:
+    name: Release Please
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: rust
+
   build:
     name: Build - ${{ matrix.arch }}
+    needs: release-please
+    if: >-
+      always() &&
+      ((github.event_name == 'push' && needs.release-please.outputs.release_created == 'true') ||
+      github.event_name == 'workflow_dispatch')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-
     strategy:
+      fail-fast: false
       matrix:
         include:
-          # Linux (static musl binaries via cross)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            arch: linux-amd64
+            arch: linux-x86_64
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             arch: linux-arm64
-          # macOS (native compilation via cargo)
           - target: x86_64-apple-darwin
             os: macos-latest
-            arch: darwin-amd64
+            arch: macos-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
-            arch: darwin-arm64
-
+            arch: macos-arm64
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
 
-      - name: Build binary
+      - name: Build with cross
+        if: contains(matrix.target, 'linux')
         uses: houseabsolute/actions-rust-cross@v1
         with:
           command: build
@@ -78,121 +70,44 @@ jobs:
           args: "--locked --release"
           strip: true
 
-      - name: Package binary
+      - name: Build native
+        if: "!contains(matrix.target, 'linux')"
         run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/${{ env.BINARY_NAME }} dist/${{ env.BINARY_NAME }}-${{ matrix.arch }}
+          rustup target add ${{ matrix.target }}
+          cargo build --release --target ${{ matrix.target }}
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
+      - name: Package binary
+        shell: bash
+        run: |
+          SRC="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
+          DST="${{ env.BINARY_NAME }}-${{ matrix.arch }}"
+          cp "$SRC" "$DST"
+
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.arch }}
-          path: dist/*
+          path: ${{ env.BINARY_NAME }}-${{ matrix.arch }}
 
-  # --------------------------------------------------
-  # Job 2: Create GitHub Release
-  # --------------------------------------------------
-  release:
-    name: Create Release
-    needs: build
+  upload:
+    name: Upload Binaries
+    needs: [release-please, build]
+    if: >-
+      always() &&
+      needs.build.result == 'success' &&
+      ((github.event_name == 'push' && needs.release-please.outputs.release_created == 'true') ||
+      github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     permissions:
       contents: write
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
 
-      - name: Generate release tag
-        id: tag
-        run: echo "TAG=v$(date +'%Y.%m.%d').${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -z "$LAST_TAG" ]; then
-            echo "CHANGES=Initial release" >> "$GITHUB_OUTPUT"
-          else
-            CHANGES=$(git log "$LAST_TAG"..HEAD --pretty=format:"- %s" --no-merges | head -20)
-            [ -z "$CHANGES" ] && CHANGES="- Maintenance release"
-            {
-              echo "CHANGES<<EOF"
-              echo "$CHANGES"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.TAG }}
-          name: ${{ steps.tag.outputs.TAG }}
-          body: |
-            Intelligent bash command permission gate for Claude Code using tree-sitter AST parsing.
-
-            ## What's Changed
-            ${{ steps.changelog.outputs.CHANGES }}
-
-            ## Installation
-
-            Download the binary for your platform:
-
-            ```bash
-            # Linux x64 (most common)
-            curl -Lo ~/.local/bin/bash-gates https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-linux-amd64
-            chmod +x ~/.local/bin/bash-gates
-
-            # Linux ARM64
-            curl -Lo ~/.local/bin/bash-gates https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-linux-arm64
-            chmod +x ~/.local/bin/bash-gates
-
-            # macOS Apple Silicon
-            curl -Lo ~/.local/bin/bash-gates https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-darwin-arm64
-            chmod +x ~/.local/bin/bash-gates
-
-            # macOS Intel
-            curl -Lo ~/.local/bin/bash-gates https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-darwin-amd64
-            chmod +x ~/.local/bin/bash-gates
-            ```
-
-            Then configure Claude Code hooks:
-
-            ```bash
-            bash-gates hooks add -s user
-            ```
-
-            ## Downloads
-
-            | Platform | Binary |
-            |----------|--------|
-            | Linux x64 | [bash-gates-linux-amd64](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-linux-amd64) |
-            | Linux ARM64 | [bash-gates-linux-arm64](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-linux-arm64) |
-            | macOS ARM64 | [bash-gates-darwin-arm64](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-darwin-arm64) |
-            | macOS x64 | [bash-gates-darwin-amd64](https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.TAG }}/bash-gates-darwin-amd64) |
-
-            ## Claude Code Plugin (Optional)
-
-            Install as a plugin for the `/bash-gates:review` skill:
-
-            ```
-            /plugin marketplace add ${{ github.repository }}
-            /plugin install bash-gates@camjac251-bash-gates
-            ```
-
-            See the [plugin README](https://github.com/${{ github.repository }}/tree/main/.claude-plugin#readme) for details.
-
-            **[Documentation](https://github.com/${{ github.repository }}#readme)**
-          files: artifacts/*
-          draft: false
-          prerelease: false
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name || inputs.tag }}
+        run: gh release upload "$TAG" artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
