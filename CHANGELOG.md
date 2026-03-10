@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/camjac251/tool-gates/compare/v1.2.0...v1.3.0) (2026-03-10)
+
+
+### Features
+
+* add per-tier config toggles and Configuration docs ([2e43e27](https://github.com/camjac251/tool-gates/commit/2e43e27dbb774136d3892093d0f052fe2195ca28))
+
 ## [1.2.0](https://github.com/camjac251/tool-gates/compare/v1.1.0...v1.2.0) (2026-03-10)
 
 
