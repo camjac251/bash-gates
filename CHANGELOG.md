@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/camjac251/tool-gates/compare/v1.1.0...v1.2.0) (2026-03-10)
+
+
+### Features
+
+* add MCP tool matcher for PreToolUse hooks ([37a3c07](https://github.com/camjac251/tool-gates/commit/37a3c072707b7c1617db7fd4ae4ef29d5a652cd6))
+* add security reminders for Write/Edit/MultiEdit content scanning ([661158c](https://github.com/camjac251/tool-gates/commit/661158ceb045e4330872b41f2be99d40cc5e87f2))
+
+
+### Bug Fixes
+
+* replace deprecated approve decision with proper allow/no-opinion ([5542476](https://github.com/camjac251/tool-gates/commit/5542476b30384c5374e0ffa44bab69edbfb6d26a))
+
 ## [1.1.0](https://github.com/camjac251/tool-gates/compare/v1.0.0...v1.1.0) (2026-03-10)
 
 
