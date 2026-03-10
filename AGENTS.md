@@ -61,6 +61,7 @@ src/
 ├── models.rs            # Serde models (HookInput, HookOutput, Decision)
 ├── parser.rs            # tree-sitter-bash AST parsing -> Vec<CommandInfo>
 ├── router.rs            # Raw string security checks + gate routing + task expansion
+├── security_reminders.rs # Content scanning for security anti-patterns (Write/Edit/MultiEdit)
 ├── settings.rs          # settings.json parsing and pattern matching
 ├── hints.rs             # Modern CLI hints (cat->bat, grep->rg, etc.)
 ├── tool_cache.rs        # Tool availability cache for hints
@@ -223,6 +224,27 @@ Gate rules are defined declaratively in `rules/*.toml`. Each rule has a `reason`
 ### Hints
 
 When allowed commands use legacy tools (cat, grep, find, etc.), tool-gates adds hints suggesting modern alternatives (bat, rg, fd) via `additionalContext` -- only if the modern tool is installed (checked via `tool_cache.rs`, 7-day TTL at `~/.cache/tool-gates/available-tools.json`). Hint definitions are in `hints.rs`.
+
+### Security Reminders
+
+When Write/Edit/MultiEdit operations contain security anti-patterns (hardcoded secrets, command injection, XSS, unsafe deserialization, etc.), tool-gates denies or warns with remediation advice.
+
+**Tiers:**
+- **Tier 1 (deny):** Hardcoded secrets (AWS keys, private keys, GitHub tokens). Always blocked, never deduped.
+- **Tier 2 (ask-once):** Code anti-patterns (eval, exec, innerHTML, pickle, SQL injection). User prompted first time per (file, rule) per session; can approve to proceed.
+- **Tier 3 (warn):** Informational (SSL verify=False, chmod 777, weak crypto). Allowed with additionalContext hint, deduped per session.
+
+Skips documentation files (.md, .txt, .rst, etc.) for content-based checks. Tier 1 secret checks always fire.
+
+Configuration via `~/.config/tool-gates/config.toml`:
+
+```toml
+[features]
+security_reminders = true  # default
+
+[security_reminders]
+disable_rules = ["eval_injection"]  # skip specific rules
+```
 
 ### Task Expansion
 
@@ -426,6 +448,7 @@ User configuration lives at `~/.config/tool-gates/config.toml`. All sections are
 bash_gates = true    # Enable Bash command gate engine (default: true)
 file_guards = true   # Enable symlink guards for Read/Write/Edit/MultiEdit (default: true)
 hints = true         # Enable modern CLI hints -- cat->bat, grep->rg, etc. (default: true)
+security_reminders = true  # Scan Write/Edit/MultiEdit for security anti-patterns (default: true)
 ```
 
 Set any to `false` to disable that subsystem entirely.

@@ -75,6 +75,9 @@ pub struct Config {
     /// Cache settings.
     #[serde(default)]
     pub cache: CacheConfig,
+    /// Security reminder customization.
+    #[serde(default)]
+    pub security_reminders: SecurityRemindersConfig,
 }
 
 impl Config {
@@ -97,6 +100,8 @@ pub struct Features {
     pub file_guards: bool,
     /// Modern CLI hints (cat->bat, grep->rg, etc.)
     pub hints: bool,
+    /// Security anti-pattern scanning for Write/Edit/MultiEdit content
+    pub security_reminders: bool,
 }
 
 impl Default for Features {
@@ -105,6 +110,7 @@ impl Default for Features {
             bash_gates: true,
             file_guards: true,
             hints: true,
+            security_reminders: true,
         }
     }
 }
@@ -129,6 +135,14 @@ impl Default for CacheConfig {
     fn default() -> Self {
         Self { ttl_days: 7 }
     }
+}
+
+/// Security reminders configuration.
+#[derive(Debug, Deserialize, Default, Clone)]
+#[serde(default)]
+pub struct SecurityRemindersConfig {
+    /// Rule names to disable (e.g., ["eval_injection", "pickle_deserialization"]).
+    pub disable_rules: Vec<String>,
 }
 
 /// File guard configuration for extending or replacing guarded paths.
@@ -497,6 +511,45 @@ key = "val"
         assert!(rule.matches_tool("Glob"));
         assert!(rule.matches_tool("Read"));
         assert!(rule.matches_tool("anything"));
+    }
+
+    #[test]
+    fn test_security_reminders_default_enabled() {
+        let config = Config::default();
+        assert!(config.features.security_reminders);
+    }
+
+    #[test]
+    fn test_security_reminders_toggle_off() {
+        let toml = r#"
+[features]
+security_reminders = false
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.features.security_reminders);
+        assert!(config.features.bash_gates); // others keep defaults
+    }
+
+    #[test]
+    fn test_security_reminders_config_parsing() {
+        let toml = r#"
+[security_reminders]
+disable_rules = ["eval_injection", "pickle_deserialization"]
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.security_reminders.disable_rules.len(), 2);
+        assert!(
+            config
+                .security_reminders
+                .disable_rules
+                .contains(&"eval_injection".to_string())
+        );
+    }
+
+    #[test]
+    fn test_security_reminders_config_defaults_empty() {
+        let config = Config::default();
+        assert!(config.security_reminders.disable_rules.is_empty());
     }
 
     #[test]

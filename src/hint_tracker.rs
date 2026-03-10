@@ -27,6 +27,9 @@ pub struct HintTracker {
     /// Whether the first-ask approval message has been shown this session
     #[serde(default)]
     pub first_ask_shown: bool,
+    /// Security warning keys already shown (e.g. "/tmp/f.js-eval_injection")
+    #[serde(default)]
+    pub security_warnings: HashSet<String>,
     /// Whether state has changed since load (skip disk write if clean)
     #[serde(skip)]
     dirty: bool,
@@ -65,6 +68,17 @@ impl HintTracker {
             return false;
         }
         self.first_ask_shown = true;
+        self.dirty = true;
+        true
+    }
+
+    /// Check if a security warning key is new for this session.
+    /// Returns `true` if the warning should fire (first time).
+    pub fn is_security_warning_new(&mut self, key: &str) -> bool {
+        if self.security_warnings.contains(key) {
+            return false;
+        }
+        self.security_warnings.insert(key.to_string());
         self.dirty = true;
         true
     }
@@ -137,6 +151,19 @@ pub fn is_first_ask(session_id: &str) -> bool {
     let first = tracker.is_first_ask();
     tracker.save_if_dirty();
     first
+}
+
+/// Check if a security warning is new for this session.
+///
+/// Returns `true` on first call per key per session. Persists to disk.
+pub fn is_security_warning_new(session_id: &str, key: &str) -> bool {
+    if session_id.is_empty() {
+        return true; // No session tracking -- always show
+    }
+    let mut tracker = get(session_id);
+    let is_new = tracker.is_security_warning_new(key);
+    tracker.save_if_dirty();
+    is_new
 }
 
 #[cfg(test)]
@@ -324,5 +351,74 @@ mod tests {
         // Empty session_id means no tracking -- always show
         assert!(is_first_ask(""));
         assert!(is_first_ask(""));
+    }
+
+    #[test]
+    fn test_security_warning_first_time_is_new() {
+        let mut tracker = fresh_tracker("sec-session-1");
+        assert!(tracker.is_security_warning_new("/tmp/f.js-eval_injection"));
+    }
+
+    #[test]
+    fn test_security_warning_second_time_is_not_new() {
+        let mut tracker = fresh_tracker("sec-session-2");
+        assert!(tracker.is_security_warning_new("/tmp/f.js-eval_injection"));
+        assert!(!tracker.is_security_warning_new("/tmp/f.js-eval_injection"));
+    }
+
+    #[test]
+    fn test_security_warning_different_key_is_new() {
+        let mut tracker = fresh_tracker("sec-session-3");
+        tracker.is_security_warning_new("/tmp/f.js-eval_injection");
+        assert!(tracker.is_security_warning_new("/tmp/g.py-pickle_deserialization"));
+    }
+
+    #[test]
+    fn test_security_warning_session_reset_clears() {
+        let mut tracker = fresh_tracker("sec-session-4");
+        tracker.is_security_warning_new("/tmp/f.js-eval_injection");
+        assert!(!tracker.is_security_warning_new("/tmp/f.js-eval_injection"));
+
+        // Simulate session change
+        let mut tracker2 = fresh_tracker("sec-session-5");
+        assert!(tracker2.is_security_warning_new("/tmp/f.js-eval_injection"));
+    }
+
+    #[test]
+    fn test_security_warning_sets_dirty() {
+        let mut tracker = fresh_tracker("sec-session-6");
+        assert!(!tracker.dirty);
+        tracker.is_security_warning_new("key");
+        assert!(tracker.dirty);
+    }
+
+    #[test]
+    fn test_security_warning_no_dirty_on_duplicate() {
+        let mut tracker = fresh_tracker("sec-session-7");
+        tracker.is_security_warning_new("key");
+        tracker.dirty = false;
+        tracker.is_security_warning_new("key");
+        assert!(!tracker.dirty);
+    }
+
+    #[test]
+    fn test_security_warning_serialization_roundtrip() {
+        let mut tracker = fresh_tracker("sec-session-8");
+        tracker.is_security_warning_new("key1");
+        tracker.is_security_warning_new("key2");
+
+        let json = serde_json::to_string(&tracker).unwrap();
+        let loaded: HintTracker = serde_json::from_str(&json).unwrap();
+        assert!(loaded.security_warnings.contains("key1"));
+        assert!(loaded.security_warnings.contains("key2"));
+    }
+
+    #[test]
+    fn test_security_warning_backwards_compat_missing_field() {
+        // Old JSON without security_warnings field -- should deserialize with empty set
+        let json = r#"{"session_id":"old","hints":["cat"],"first_ask_shown":false}"#;
+        let loaded: HintTracker = serde_json::from_str(json).unwrap();
+        assert!(loaded.security_warnings.is_empty());
+        assert!(loaded.hints.contains("cat"));
     }
 }

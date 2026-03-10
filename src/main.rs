@@ -27,6 +27,7 @@ use tool_gates::pending::{clear_pending, pending_count, read_pending};
 use tool_gates::permission_request::handle_permission_request;
 use tool_gates::post_tool_use::handle_post_tool_use;
 use tool_gates::router::check_command_with_settings_and_session;
+use tool_gates::security_reminders::check_security_reminders;
 use tool_gates::settings_writer::{
     RuleType, Scope, add_rule, list_all_rules, list_rules, remove_rule,
 };
@@ -196,30 +197,45 @@ fn handle_pre_tool_use_hook(input: &str) {
             }
             handle_bash_pre_tool_use(&hook_input);
         }
-        // File tools: symlink guard
+        // File tools: symlink guard + security reminders
         "Read" | "Write" | "Edit" | "MultiEdit" => {
-            if !config.features.file_guards {
-                return; // silent pass-through
+            // 1. File guards: symlink check for AI config files
+            if config.features.file_guards {
+                let file_paths = extract_file_paths_from_map(&tool_input_map);
+                for file_path in &file_paths {
+                    if let Some(output) =
+                        check_file_guard(file_path, &hook_input.tool_name, &config.file_guards)
+                    {
+                        if let Ok(json) = serde_json::to_string(&output) {
+                            println!("{json}");
+                        } else {
+                            println!(
+                                r#"{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Internal error serializing file guard deny"}}}}"#
+                            );
+                        }
+                        return;
+                    }
+                }
             }
-            // Extract file paths from raw JSON to avoid ToolInputVariant::Structured
-            // dropping unknown fields (MultiEdit uses files[].file_path, not file_path)
-            let file_paths = extract_file_paths_from_map(&tool_input_map);
-            for file_path in &file_paths {
-                if let Some(output) =
-                    check_file_guard(file_path, &hook_input.tool_name, &config.file_guards)
-                {
+
+            // 2. Security reminders: content scanning for Write/Edit/MultiEdit
+            if config.features.security_reminders && hook_input.tool_name != "Read" {
+                if let Some(output) = check_security_reminders(
+                    &hook_input.tool_name,
+                    &tool_input_map,
+                    &config.security_reminders,
+                    &hook_input.session_id,
+                ) {
                     if let Ok(json) = serde_json::to_string(&output) {
                         println!("{json}");
                     } else {
-                        // Fallback: hardcoded deny to avoid silent pass-through
                         println!(
-                            r#"{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Internal error serializing file guard deny"}}}}"#
+                            r#"{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Internal error serializing security reminder"}}}}"#
                         );
                     }
-                    return; // deny on first guarded symlink found
                 }
             }
-            // No output = allow
+            // No output = allow (pass through)
         }
         // All other tools: pass through (blocks already checked above)
         _ => {}
@@ -340,7 +356,7 @@ fn handle_permission_request_hook(input: &str) {
     // If None, we don't output anything - lets the normal permission prompt show
 }
 
-/// Handle PostToolUse hook (for tracking successful executions)
+/// Handle PostToolUse hook (for tracking successful executions + security reminders)
 fn handle_post_tool_use_hook(input: &str) {
     let post_input: PostToolUseInput = match serde_json::from_str(input) {
         Ok(pi) => pi,
@@ -350,21 +366,43 @@ fn handle_post_tool_use_hook(input: &str) {
         }
     };
 
-    // Only process Bash tools
-    if post_input.tool_name != "Bash" {
-        return;
-    }
-
-    // Handle the post-tool-use event (tracks successful executions)
-    if let Some(output) = handle_post_tool_use(&post_input) {
-        match serde_json::to_string(&output) {
-            Ok(json) => println!("{json}"),
-            Err(e) => {
-                eprintln!("Error serializing PostToolUse output: {e}");
+    match post_input.tool_name.as_str() {
+        // Bash: track successful executions for approval learning
+        "Bash" => {
+            if let Some(output) = handle_post_tool_use(&post_input) {
+                if let Ok(json) = serde_json::to_string(&output) {
+                    println!("{json}");
+                }
             }
         }
+        // File tools: post-write security scanning (Tier 2 anti-patterns)
+        "Write" | "Edit" | "MultiEdit" => {
+            let config = config::load();
+            if !config.features.security_reminders {
+                return;
+            }
+            // Re-extract tool_input as raw map
+            let tool_input_map = serde_json::from_str::<serde_json::Value>(input)
+                .ok()
+                .and_then(|v| v.get("tool_input").cloned())
+                .and_then(|v| match v {
+                    serde_json::Value::Object(m) => Some(m),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if let Some(output) = tool_gates::security_reminders::check_security_reminders_post(
+                &post_input.tool_name,
+                &tool_input_map,
+                &config.security_reminders,
+                &post_input.session_id,
+            ) {
+                if let Ok(json) = serde_json::to_string(&output) {
+                    println!("{json}");
+                }
+            }
+        }
+        _ => {}
     }
-    // If None, we don't output anything
 }
 
 fn get_binary_path() -> String {
@@ -383,6 +421,9 @@ const PRE_TOOL_USE_MATCHER: &str = "Bash|Read|Write|Edit|MultiEdit|Glob|Grep";
 /// Matches all MCP tool calls; block rules in config decide what to deny.
 const MCP_TOOL_USE_MATCHER: &str = "mcp__.*";
 
+/// PostToolUse matcher for Bash (approval tracking) + file tools (security reminders).
+const POST_TOOL_USE_MATCHER: &str = "Bash|Write|Edit|MultiEdit";
+
 fn generate_hook_entry(binary_path: &str, matcher: &str) -> serde_json::Value {
     serde_json::json!({
         "matcher": matcher,
@@ -397,7 +438,9 @@ fn generate_hooks_json(binary_path: &str) -> serde_json::Value {
             generate_hook_entry(binary_path, MCP_TOOL_USE_MATCHER),
         ],
         "PermissionRequest": [generate_hook_entry(binary_path, "Bash")],
-        "PostToolUse": [generate_hook_entry(binary_path, "Bash")]
+        "PostToolUse": [
+            generate_hook_entry(binary_path, POST_TOOL_USE_MATCHER),
+        ]
     })
 }
 
@@ -491,6 +534,7 @@ fn install_hooks(scope: &str, dry_run: bool) {
     let pre_tool_use_entry = generate_hook_entry(&binary_path, PRE_TOOL_USE_MATCHER);
     let mcp_tool_use_entry = generate_hook_entry(&binary_path, MCP_TOOL_USE_MATCHER);
     let bash_entry = generate_hook_entry(&binary_path, "Bash");
+    let post_tool_use_entry = generate_hook_entry(&binary_path, POST_TOOL_USE_MATCHER);
     let mut changes = Vec::new();
 
     // Check and add PreToolUse (built-in tools + MCP tools as separate entries)
@@ -522,7 +566,7 @@ fn install_hooks(scope: &str, dry_run: bool) {
         eprintln!("+ Adding PermissionRequest hook");
     }
 
-    // Check and add PostToolUse (Bash only)
+    // Check and add PostToolUse (Bash tracking + file security reminders)
     if hooks.get("PostToolUse").is_none() {
         hooks["PostToolUse"] = serde_json::json!([]);
     }
@@ -532,9 +576,9 @@ fn install_hooks(scope: &str, dry_run: bool) {
         hooks["PostToolUse"]
             .as_array_mut()
             .unwrap()
-            .push(bash_entry);
+            .push(post_tool_use_entry);
         changes.push("PostToolUse");
-        eprintln!("+ Adding PostToolUse hook");
+        eprintln!("+ Adding PostToolUse hook (Bash tracking + file security)");
     }
 
     if changes.is_empty() {
@@ -1324,5 +1368,38 @@ mod tests {
         assert!(parsed["hookSpecificOutput"].is_object());
         assert_eq!(parsed["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         assert!(parsed["hookSpecificOutput"]["permissionDecision"].is_string());
+    }
+
+    #[test]
+    fn test_integration_write_with_secret_denies() {
+        let json = r#"{
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "/tmp/config.py", "content": "key = \"AKIAIOSFODNN7EXAMPLE\""},
+            "session_id": "integration-sec-test"
+        }"#;
+
+        let input: HookInput = serde_json::from_str(json).unwrap();
+        assert_eq!(input.tool_name, "Write");
+        // We can't easily simulate the full routing here since it depends on config,
+        // but we can test the security_reminders module directly
+        let map: serde_json::Map<String, serde_json::Value> =
+            match serde_json::from_str::<serde_json::Value>(json).unwrap()["tool_input"].clone() {
+                serde_json::Value::Object(m) => m,
+                _ => panic!("expected object"),
+            };
+        let config = tool_gates::config::SecurityRemindersConfig::default();
+        let result = tool_gates::security_reminders::check_security_reminders(
+            "Write",
+            &map,
+            &config,
+            "integration-sec-test",
+        );
+        assert!(result.is_some());
+        let output_json = serde_json::to_string(&result.unwrap()).unwrap();
+        assert!(
+            output_json.contains("deny"),
+            "Secret in Write should deny: {output_json}"
+        );
     }
 }

@@ -38,6 +38,7 @@ pub mod pending;
 pub mod permission_request;
 pub mod post_tool_use;
 pub mod router;
+pub mod security_reminders;
 pub mod settings;
 pub mod settings_writer;
 pub mod toml_export;
