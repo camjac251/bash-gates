@@ -256,10 +256,11 @@ pub struct HookOutput {
 }
 
 impl HookOutput {
-    /// Return approval (pass-through to settings.json)
-    pub fn approve() -> Self {
+    /// No opinion -- tool-gates doesn't handle this tool/command.
+    /// Returns empty JSON so Claude Code proceeds with its normal flow.
+    pub fn no_opinion() -> Self {
         Self {
-            decision: Some("approve".to_string()),
+            decision: None,
             hook_specific_output: None,
         }
     }

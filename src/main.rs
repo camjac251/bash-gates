@@ -117,12 +117,12 @@ fn main() {
     let mut input = String::new();
     if let Err(e) = io::stdin().read_to_string(&mut input) {
         eprintln!("Error reading stdin: {e}");
-        print_approve();
+        print_no_opinion();
         return;
     }
 
     if input.trim().is_empty() {
-        print_approve();
+        print_no_opinion();
         return;
     }
 
@@ -155,7 +155,7 @@ fn handle_pre_tool_use_hook(input: &str) {
         Ok(hi) => hi,
         Err(e) => {
             eprintln!("Error: Invalid JSON input: {e}");
-            print_approve();
+            print_no_opinion();
             return;
         }
     };
@@ -191,7 +191,7 @@ fn handle_pre_tool_use_hook(input: &str) {
         // Bash tools: full gate engine
         "Bash" => {
             if !config.features.bash_gates {
-                print_approve();
+                print_no_opinion();
                 return;
             }
             handle_bash_pre_tool_use(&hook_input);
@@ -256,7 +256,7 @@ fn extract_file_paths_from_map(map: &serde_json::Map<String, serde_json::Value>)
 fn handle_bash_pre_tool_use(hook_input: &HookInput) {
     let command = hook_input.get_command();
     if command.is_empty() {
-        print_approve();
+        print_no_opinion();
         return;
     }
 
@@ -305,7 +305,7 @@ fn handle_bash_pre_tool_use(hook_input: &HookInput) {
         Ok(json) => println!("{json}"),
         Err(e) => {
             eprintln!("Error serializing output: {e}");
-            print_approve();
+            print_no_opinion();
         }
     }
 }
@@ -1176,12 +1176,13 @@ fn handle_review_subcommand(show_all: bool) {
     }
 }
 
-fn print_approve() {
-    let output = HookOutput::approve();
+/// Print empty JSON to signal no opinion (pass through to Claude Code's normal flow).
+fn print_no_opinion() {
+    let output = HookOutput::no_opinion();
     if let Ok(json) = serde_json::to_string(&output) {
         println!("{json}");
     } else {
-        println!(r#"{{"decision":"approve"}}"#);
+        println!("{{}}");
     }
 }
 

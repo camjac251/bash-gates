@@ -43,7 +43,7 @@ pub fn check_command(command_string: &str) -> HookOutput {
 /// When `session_id` is non-empty, each hint fires at most once per session.
 fn check_command_for_session(command_string: &str, session_id: &str) -> HookOutput {
     if command_string.trim().is_empty() {
-        return HookOutput::approve();
+        return HookOutput::no_opinion();
     }
 
     // Check for patterns at the raw string level
@@ -68,7 +68,7 @@ fn check_command_for_session_with_commands(
     commands: &[CommandInfo],
 ) -> HookOutput {
     if commands.is_empty() {
-        return HookOutput::approve();
+        return HookOutput::no_opinion();
     }
 
     // Collect results from all commands
@@ -260,7 +260,7 @@ pub fn check_command_with_settings_and_session(
     session_id: &str,
 ) -> HookOutput {
     if command_string.trim().is_empty() {
-        return HookOutput::approve();
+        return HookOutput::no_opinion();
     }
 
     // Check for raw string security patterns BEFORE any expansion.
@@ -628,7 +628,7 @@ fn check_mcp_cli_command(command_string: &str, cwd: &str) -> Option<HookOutput> 
 /// Used by mise task expansion to handle commands like "pnpm lint" properly.
 fn check_command_expanded(command_string: &str, cwd: &str, permission_mode: &str) -> HookOutput {
     if command_string.trim().is_empty() {
-        return HookOutput::approve();
+        return HookOutput::no_opinion();
     }
 
     // First do raw string security checks
@@ -740,7 +740,7 @@ fn check_command_expanded(command_string: &str, cwd: &str, permission_mode: &str
         return HookOutput::ask(&combined);
     }
 
-    HookOutput::approve()
+    HookOutput::allow(None)
 }
 
 /// Strip quoted strings from a command to avoid false positives on patterns inside quotes.
@@ -3267,15 +3267,18 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_empty_string_approves() {
+        fn test_empty_string_no_opinion() {
             let result = check_command("");
-            assert_eq!(result.decision.as_deref(), Some("approve"));
+            assert_eq!(
+                result.decision, None,
+                "Empty input should return no opinion"
+            );
         }
 
         #[test]
-        fn test_whitespace_only_approves() {
+        fn test_whitespace_only_no_opinion() {
             let result = check_command("   ");
-            assert_eq!(result.decision.as_deref(), Some("approve"));
+            assert_eq!(result.decision, None, "Whitespace should return no opinion");
         }
 
         #[test]

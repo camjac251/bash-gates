@@ -10,7 +10,7 @@
     {
       "name": "tool-gates",
       "description": "Intelligent permission gate for all tool types. AST-parses Bash commands, guards file reads/writes, and blocks dangerous tool invocations. Tracks manually approved commands for permanent rules.",
-      "version": "0.2.0",
+      "version": "1.1.0",
       "source": "./",
       "author": {
         "name": "camjac251"
