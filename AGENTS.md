@@ -24,7 +24,7 @@ tool-gates supports three Claude Code hooks:
 
 | Hook | Purpose | When it runs |
 |------|---------|--------------|
-| **PreToolUse** | Route all tool types (Bash, file ops, Glob/Grep, MCP), block dangerous operations, allow safe ones, provide hints, track "ask" decisions | Before any permission check |
+| **PreToolUse** | Route all tool types (Bash, file ops, Glob/Grep, MCP, Skill), block dangerous operations, allow safe ones, provide hints, auto-approve skills, track "ask" decisions | Before any permission check |
 | **PermissionRequest** | Approve safe commands for subagents | After internal checks decide to "ask" |
 | **PostToolUse** | Detect successful execution, add to pending approval queue | After command completes |
 
@@ -64,6 +64,7 @@ src/
 ├── security_reminders.rs # Content scanning for security anti-patterns (Write/Edit/MultiEdit)
 ├── settings.rs          # settings.json parsing and pattern matching
 ├── hints.rs             # Modern CLI hints (cat->bat, grep->rg, etc.)
+├── hint_tracker.rs      # Session-scoped dedup for hints + security warnings (disk-backed)
 ├── tool_cache.rs        # Tool availability cache for hints
 ├── mise.rs              # Mise task file parsing and command extraction
 ├── package_json.rs      # package.json script parsing and command extraction
@@ -123,6 +124,7 @@ Most gate behavior is defined in TOML; custom handlers in Rust cover cases TOML 
    - **Bash** -> Bash gate engine (steps 5-13 below)
    - **Read/Write/Edit/MultiEdit** -> File guards (symlink detection for AI config files)
    - **Glob/Grep/MCP tools** -> Handled by block rules in step 3; pass through if not blocked
+   - **Skill** -> Auto-approve based on `[[auto_approve_skills]]` config rules
    - **Other tools** -> Pass through (no opinion)
 
 #### Bash Gate Engine
@@ -418,7 +420,7 @@ cargo test -- --ignored                 # Slow tests only
 
 | File | Purpose |
 |------|---------|
-| `~/.config/tool-gates/config.toml` | User configuration (feature toggles, block rules, file guard settings) |
+| `~/.config/tool-gates/config.toml` | User configuration (feature toggles, block rules, skill approval, file guard settings) |
 
 Cache files under `~/.cache/tool-gates/`:
 
@@ -427,6 +429,7 @@ Cache files under `~/.cache/tool-gates/`:
 | `tracking.json` | PreToolUse->PostToolUse correlation (15min TTL, auto-cleaned) |
 | `pending.jsonl` | Approval queue -- commands awaiting `tool-gates review` |
 | `available-tools.json` | Tool cache for hints (7-day TTL) |
+| `hint-tracker.json` | Session-scoped dedup for hints + security warnings |
 
 ## Gotchas
 
@@ -436,6 +439,26 @@ Cache files under `~/.cache/tool-gates/`:
 - **Generated function naming**: gate named `foo` generates `check_foo_gate()` in `src/generated/rules.rs`
 - **TOML + Rust wiring**: Adding a new program to `rules/*.toml` is not enough if the gate has a custom handler in `src/gates/<gate>.rs`. The Rust match statement must also route the program to the generated declarative function, or it falls through to `GateResult::skip()`. Always check both files.
 - **MCP permissions** use a different pattern format in settings.json: `mcp__<server>__<tool>` (double underscores, not `Bash(...)` format)
+- **Skill auto-approval** reads `CLAUDE_PROJECT_DIR` env var at runtime to check directory conditions. This env var is set by Claude Code for all hooks.
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `tool-gates` | Read hook input from stdin (default) |
+| `tool-gates hooks add -s <scope>` | Install hooks into settings file |
+| `tool-gates hooks status` | Show hook installation status |
+| `tool-gates hooks json` | Output hooks JSON only |
+| `tool-gates approve <pattern> -s <scope>` | Add permission rule to settings |
+| `tool-gates rules list` | List all permission rules |
+| `tool-gates rules remove <pattern> -s <scope>` | Remove a permission rule |
+| `tool-gates pending list` | List pending approvals |
+| `tool-gates pending clear` | Clear pending approval queue |
+| `tool-gates review` | Interactive TUI for pending approvals |
+| `tool-gates doctor` | Check config, hooks, and cache health |
+| `tool-gates --export-toml` | Export Gemini CLI policy rules |
+| `tool-gates --refresh-tools` | Refresh modern CLI tool detection |
+| `tool-gates --tools-status` | Show detected modern tools |
 
 ## Configuration
 
@@ -498,3 +521,17 @@ ttl_days = 14  # Tool detection cache TTL in days (default: 7)
 ```
 
 Controls how often tool-gates re-checks which modern CLI tools are installed. Lower values detect newly installed tools faster; higher values reduce disk I/O.
+
+### Skill Auto-Approval
+
+```toml
+[[auto_approve_skills]]
+skill = "my-plugin*"                        # Glob pattern for skill name
+if_project_has = [".my-plugin"]             # Only approve if project dir contains this
+
+[[auto_approve_skills]]
+skill = "deploy-tool"                       # Exact match
+if_project_under = ["~/projects/staging"]   # Only approve if project is under this path
+```
+
+Auto-approve Skill tool calls based on configurable rules with directory conditions. Replaces external Python/bash hooks for skill approval. Supports `~` expansion in paths. If no rules are configured, Skill calls pass through to Claude Code's normal permission flow.

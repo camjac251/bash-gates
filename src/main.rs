@@ -64,6 +64,11 @@ fn main() {
         return;
     }
 
+    if args.len() > 1 && args[1] == "doctor" {
+        handle_doctor_subcommand();
+        return;
+    }
+
     if args.len() > 1 && args[1] == "review" {
         let show_all = args.iter().any(|a| a == "--all" || a == "-a");
         handle_review_subcommand(show_all);
@@ -236,6 +241,31 @@ fn handle_pre_tool_use_hook(input: &str) {
                 }
             }
             // No output = allow (pass through)
+        }
+        // Skill tool: auto-approve based on config rules
+        "Skill" => {
+            if !config.auto_approve_skills.is_empty() {
+                let skill_name = tool_input_map
+                    .get("skill")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let project_dir = std::env::var("CLAUDE_PROJECT_DIR").unwrap_or_default();
+
+                for rule in &config.auto_approve_skills {
+                    if rule.matches_skill(skill_name) && rule.conditions_met(&project_dir) {
+                        let reason = rule
+                            .message
+                            .as_deref()
+                            .and_then(|m| if m.is_empty() { None } else { Some(m) });
+                        let output = HookOutput::allow(reason);
+                        if let Ok(json) = serde_json::to_string(&output) {
+                            println!("{json}");
+                        }
+                        return;
+                    }
+                }
+            }
+            // No match = pass through (no opinion)
         }
         // All other tools: pass through (blocks already checked above)
         _ => {}
@@ -415,7 +445,7 @@ fn get_binary_path() -> String {
 
 /// PreToolUse matcher for built-in tools (exact match mode).
 /// Bash (gate engine), Read/Write/Edit/MultiEdit (file guards), Glob/Grep (block rules).
-const PRE_TOOL_USE_MATCHER: &str = "Bash|Read|Write|Edit|MultiEdit|Glob|Grep";
+const PRE_TOOL_USE_MATCHER: &str = "Bash|Read|Write|Edit|MultiEdit|Glob|Grep|Skill";
 
 /// PreToolUse matcher for MCP tools (regex mode).
 /// Matches all MCP tool calls; block rules in config decide what to deny.
@@ -750,6 +780,7 @@ fn print_main_help() {
     eprintln!("  tool-gates rules <command>   List/remove permission rules");
     eprintln!("  tool-gates pending <command> Manage pending approval queue");
     eprintln!("  tool-gates review            Interactive TUI for pending approvals");
+    eprintln!("  tool-gates doctor            Check config, hooks, and cache health");
     eprintln!("  tool-gates --export-toml     Export Gemini CLI policy rules");
     eprintln!("  tool-gates --refresh-tools   Refresh modern CLI tool detection");
     eprintln!("  tool-gates --tools-status    Show detected modern tools");
@@ -1217,6 +1248,270 @@ fn handle_review_subcommand(show_all: bool) {
     if let Err(e) = run_review(show_all) {
         eprintln!("Error running review TUI: {}", e);
         std::process::exit(1);
+    }
+}
+
+// === Doctor subcommand ===
+
+fn handle_doctor_subcommand() {
+    let mut issues: Vec<String> = Vec::new();
+    let mut ok_count = 0;
+
+    eprintln!("tool-gates doctor\n");
+
+    // 1. Version
+    eprintln!("  Version: {}", env!("GIT_VERSION"));
+
+    // 2. Config file
+    let config_path = dirs::home_dir()
+        .map(|h| h.join(".config/tool-gates/config.toml"))
+        .unwrap_or_default();
+    if config_path.exists() {
+        match std::fs::read_to_string(&config_path) {
+            Ok(content) => match toml::from_str::<config::Config>(&content) {
+                Ok(cfg) => {
+                    eprintln!("  ✓ Config: {} (valid)", config_path.display());
+                    // Show feature status
+                    let features = &cfg.features;
+                    let enabled: Vec<&str> = [
+                        ("bash_gates", features.bash_gates),
+                        ("file_guards", features.file_guards),
+                        ("hints", features.hints),
+                        ("security_reminders", features.security_reminders),
+                    ]
+                    .iter()
+                    .filter(|(_, v)| *v)
+                    .map(|(k, _)| *k)
+                    .collect();
+                    let disabled: Vec<&str> = [
+                        ("bash_gates", features.bash_gates),
+                        ("file_guards", features.file_guards),
+                        ("hints", features.hints),
+                        ("security_reminders", features.security_reminders),
+                    ]
+                    .iter()
+                    .filter(|(_, v)| !*v)
+                    .map(|(k, _)| *k)
+                    .collect();
+                    if !disabled.is_empty() {
+                        eprintln!("    Features disabled: {}", disabled.join(", "));
+                    } else {
+                        eprintln!("    All features enabled");
+                    }
+                    let _ = enabled; // suppress unused warning
+                    if !cfg.auto_approve_skills.is_empty() {
+                        eprintln!(
+                            "    Skill auto-approve rules: {}",
+                            cfg.auto_approve_skills.len()
+                        );
+                    }
+                    if !cfg.security_reminders.disable_rules.is_empty() {
+                        eprintln!(
+                            "    Disabled security rules: {}",
+                            cfg.security_reminders.disable_rules.join(", ")
+                        );
+                    }
+                    ok_count += 1;
+                }
+                Err(e) => {
+                    let msg = format!("Config parse error: {e}");
+                    eprintln!("  ✗ Config: {} ({})", config_path.display(), msg);
+                    issues.push(msg);
+                }
+            },
+            Err(e) => {
+                let msg = format!("Config read error: {e}");
+                eprintln!("  ✗ Config: {}", msg);
+                issues.push(msg);
+            }
+        }
+    } else {
+        eprintln!(
+            "  - Config: {} (not found, using defaults)",
+            config_path.display()
+        );
+        ok_count += 1;
+    }
+
+    // 3. Hook installation status across all scopes
+    eprintln!();
+    let scopes = [
+        ("user", get_settings_path("user")),
+        ("project", get_settings_path("project")),
+        ("local", get_settings_path("local")),
+    ];
+
+    let mut any_installed = false;
+    for (scope, path) in &scopes {
+        if !path.exists() {
+            continue;
+        }
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let settings: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(_) => {
+                let msg = format!("Settings parse error: {}", path.display());
+                eprintln!("  ✗ Hooks ({}): parse error", scope);
+                issues.push(msg);
+                continue;
+            }
+        };
+        let hooks = match settings.get("hooks") {
+            Some(h) => h,
+            None => continue,
+        };
+
+        let has_pre = hooks
+            .get("PreToolUse")
+            .map(has_tool_gates_hook)
+            .unwrap_or(false);
+        let has_perm = hooks
+            .get("PermissionRequest")
+            .map(has_tool_gates_hook)
+            .unwrap_or(false);
+        let has_post = hooks
+            .get("PostToolUse")
+            .map(has_tool_gates_hook)
+            .unwrap_or(false);
+
+        let count = [has_pre, has_perm, has_post].iter().filter(|&&x| x).count();
+        if count == 0 {
+            continue;
+        }
+
+        any_installed = true;
+        if count == 3 {
+            eprintln!("  ✓ Hooks ({}): all 3 installed", scope);
+            ok_count += 1;
+        } else {
+            let mut missing = Vec::new();
+            if !has_pre {
+                missing.push("PreToolUse");
+            }
+            if !has_perm {
+                missing.push("PermissionRequest");
+            }
+            if !has_post {
+                missing.push("PostToolUse");
+            }
+            let msg = format!("Missing hooks in {}: {}", scope, missing.join(", "));
+            eprintln!(
+                "  ⚠ Hooks ({}): {}/3 (missing {})",
+                scope,
+                count,
+                missing.join(", ")
+            );
+            issues.push(msg);
+        }
+
+        // Check for stale external hooks (old Python scripts)
+        if let Some(hook_entries) = hooks.as_object() {
+            for (_event, matchers) in hook_entries {
+                if let Some(arr) = matchers.as_array() {
+                    for entry in arr {
+                        if let Some(inner_hooks) = entry.get("hooks").and_then(|h| h.as_array()) {
+                            for hook in inner_hooks {
+                                if let Some(cmd) = hook.get("command").and_then(|c| c.as_str()) {
+                                    if cmd.contains(".py") || cmd.contains("uvx") {
+                                        let msg = format!(
+                                            "Legacy Python hook in {}: {}",
+                                            scope,
+                                            cmd.chars().take(80).collect::<String>()
+                                        );
+                                        eprintln!("  ⚠ {}", msg);
+                                        issues.push(msg);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !any_installed {
+        let msg = "No tool-gates hooks installed in any settings file".to_string();
+        eprintln!("  ✗ Hooks: not installed");
+        eprintln!("    Run: tool-gates hooks add -s user");
+        issues.push(msg);
+    }
+
+    // 4. Cache files
+    eprintln!();
+    let cache_dir = tool_gates::cache::cache_dir();
+    let cache_files = [
+        ("available-tools.json", "Tool detection cache"),
+        ("hint-tracker.json", "Hint dedup tracker"),
+        ("pending.jsonl", "Pending approvals"),
+        ("tracking.json", "Ask tracking (PreToolUse->PostToolUse)"),
+    ];
+
+    for (file, desc) in &cache_files {
+        let path = cache_dir.join(file);
+        if path.exists() {
+            if let Ok(meta) = std::fs::metadata(&path) {
+                let size = meta.len();
+                let age = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .map(|d| {
+                        if d.as_secs() > 86400 {
+                            format!("{}d old", d.as_secs() / 86400)
+                        } else if d.as_secs() > 3600 {
+                            format!("{}h old", d.as_secs() / 3600)
+                        } else {
+                            "recent".to_string()
+                        }
+                    })
+                    .unwrap_or_else(|| "unknown age".to_string());
+                eprintln!("  ✓ {}: {} ({}, {})", desc, file, humanize_bytes(size), age);
+                ok_count += 1;
+            }
+        } else {
+            eprintln!("  - {}: not yet created", desc);
+        }
+    }
+
+    // 5. Old bash-gates remnants
+    let old_cache = dirs::home_dir()
+        .map(|h| h.join(".cache/bash-gates"))
+        .unwrap_or_default();
+    if old_cache.exists() {
+        let msg =
+            "Old ~/.cache/bash-gates/ directory still exists. Run: rm -rf ~/.cache/bash-gates/"
+                .to_string();
+        eprintln!("\n  ⚠ {}", msg);
+        issues.push(msg);
+    }
+
+    // Summary
+    eprintln!();
+    if issues.is_empty() {
+        eprintln!("All {} checks passed.", ok_count);
+    } else {
+        eprintln!("{} checks passed, {} issue(s):", ok_count, issues.len());
+        for issue in &issues {
+            eprintln!("  - {}", issue);
+        }
+    }
+
+    if !issues.is_empty() {
+        std::process::exit(1);
+    }
+}
+
+fn humanize_bytes(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes}B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1}KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
     }
 }
 

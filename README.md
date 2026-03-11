@@ -36,7 +36,9 @@ A Claude Code [hook](https://code.claude.com/docs/en/hooks) that gates Bash comm
 | **File Guards**          | Blocks symlinked AI config files (CLAUDE.md, .cursorrules, etc.) to prevent confused reads/edits       |
 | **Security Reminders**   | Scans Write/Edit/MultiEdit content for 26 anti-patterns (secrets, XSS, injection, etc.) across 3 tiers |
 | **Tool Blocking**        | Configurable rules to block tools (Glob, Grep, firecrawl on GitHub) with domain filtering              |
+| **Skill Auto-Approval**  | Auto-approve Skill tool calls based on project directory conditions -- no external hook scripts needed  |
 | **Configuration**        | `~/.config/tool-gates/config.toml` for feature toggles, custom block rules, and file guard extensions  |
+| **Health Check**         | `tool-gates doctor` verifies config, hooks, cache files, and flags legacy remnants                     |
 | **Fast**                 | Static native binary, no interpreter overhead                                                          |
 
 ---
@@ -360,7 +362,7 @@ tool-gates hooks json
 
 **All three hooks are installed:**
 
-- `PreToolUse` - Gates Bash commands, blocks secrets in Write/Edit, file guards, CLI hints, MCP tool blocking
+- `PreToolUse` - Gates Bash commands, blocks secrets in Write/Edit, file guards, CLI hints, MCP tool blocking, Skill auto-approval
 - `PermissionRequest` - Gates commands for subagents (where PreToolUse's allow is ignored)
 - `PostToolUse` - Tracks Bash execution for approval learning; scans Write/Edit for security anti-patterns
 
@@ -374,7 +376,7 @@ Add to `~/.claude/settings.json`:
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Read|Write|Edit|MultiEdit|Glob|Grep",
+        "matcher": "Bash|Read|Write|Edit|MultiEdit|Glob|Grep|Skill",
         "hooks": [{ "type": "command", "command": "~/.local/bin/tool-gates", "timeout": 10 }]
       },
       {
@@ -710,12 +712,40 @@ extra_extensions = [".toml"]       # additional extensions in guarded dirs
 disable = ["man", "du"]  # suppress hints for specific legacy commands
 ```
 
+### Skill Auto-Approval
+
+```toml
+[[auto_approve_skills]]
+skill = "my-plugin*"                        # Glob pattern for skill name
+if_project_has = [".my-plugin"]             # Only approve if project dir contains this
+
+[[auto_approve_skills]]
+skill = "deploy-tool"                       # Exact match
+if_project_under = ["~/projects/staging"]   # Only approve if project is under this path
+```
+
+Auto-approve Skill tool calls based on configurable rules. Supports `~` expansion in paths. Replaces external Python/bash hooks. If no rules are configured, Skill calls pass through to Claude Code's normal flow.
+
+| Condition | Description |
+|-----------|-------------|
+| `if_project_has` | Project directory must contain one of these files/directories |
+| `if_project_under` | Project directory must be at or under one of these paths |
+| *(no conditions)* | Skill is auto-approved unconditionally |
+
 ### Cache
 
 ```toml
 [cache]
 ttl_days = 14  # tool detection cache TTL in days (default: 7)
 ```
+
+### Health Check
+
+```bash
+tool-gates doctor
+```
+
+Verifies config file validity, hook installation status across all settings scopes, cache file health, and flags legacy remnants (old Python hooks, bash-gates directories). Non-zero exit code when issues are found.
 
 ---
 

@@ -78,6 +78,9 @@ pub struct Config {
     /// Security reminder customization.
     #[serde(default)]
     pub security_reminders: SecurityRemindersConfig,
+    /// Auto-approve rules for Skill tool calls.
+    #[serde(default)]
+    pub auto_approve_skills: Vec<SkillApprovalRule>,
 }
 
 impl Config {
@@ -135,6 +138,92 @@ impl Default for CacheConfig {
     fn default() -> Self {
         Self { ttl_days: 7 }
     }
+}
+
+/// Auto-approve rule for Skill tool calls.
+#[derive(Debug, Deserialize, Clone)]
+pub struct SkillApprovalRule {
+    /// Skill name pattern. Exact or glob with `*` (e.g., `"beads*"`).
+    pub skill: String,
+    /// Custom approval reason. Defaults to "Auto-approved by tool-gates config".
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Only approve if the project directory is under one of these paths.
+    /// Supports `~` expansion.
+    #[serde(default)]
+    pub if_project_under: Vec<String>,
+    /// Only approve if the project directory contains one of these dirs/files.
+    #[serde(default)]
+    pub if_project_has: Vec<String>,
+}
+
+impl SkillApprovalRule {
+    /// Check if this rule matches a skill name (exact or glob).
+    pub fn matches_skill(&self, skill_name: &str) -> bool {
+        let pattern = &self.skill;
+        if !pattern.contains('*') {
+            return pattern == skill_name;
+        }
+        // Reuse same glob logic as BlockRule
+        match (pattern.strip_prefix('*'), pattern.strip_suffix('*')) {
+            (Some(rest), Some(_)) => {
+                let inner = rest.strip_suffix('*').unwrap_or(rest);
+                skill_name.contains(inner)
+            }
+            (Some(suffix), None) => skill_name.ends_with(suffix),
+            (None, Some(prefix)) => skill_name.starts_with(prefix),
+            _ => pattern == skill_name,
+        }
+    }
+
+    /// Check if the directory conditions are met.
+    pub fn conditions_met(&self, project_dir: &str) -> bool {
+        // If no conditions, always match
+        if self.if_project_under.is_empty() && self.if_project_has.is_empty() {
+            return true;
+        }
+
+        let project_path = std::path::Path::new(project_dir);
+
+        // Check if_project_under: project must be at or under one of these paths
+        if !self.if_project_under.is_empty() {
+            let matched = self.if_project_under.iter().any(|dir| {
+                let expanded = expand_tilde(dir);
+                let base = std::path::Path::new(&expanded);
+                project_path == base || project_path.starts_with(base)
+            });
+            if !matched {
+                return false;
+            }
+        }
+
+        // Check if_project_has: project dir must contain one of these entries
+        if !self.if_project_has.is_empty() {
+            let matched = self
+                .if_project_has
+                .iter()
+                .any(|entry| project_path.join(entry).exists());
+            if !matched {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+/// Expand `~` to home directory in a path string.
+fn expand_tilde(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest).display().to_string();
+        }
+    } else if path == "~" {
+        if let Some(home) = dirs::home_dir() {
+            return home.display().to_string();
+        }
+    }
+    path.to_string()
 }
 
 /// Security reminders configuration.
@@ -587,6 +676,138 @@ warnings = false
         assert!(config.security_reminders.secrets);
         assert!(!config.security_reminders.anti_patterns);
         assert!(!config.security_reminders.warnings);
+    }
+
+    // === Skill approval tests ===
+
+    #[test]
+    fn test_skill_approval_exact_match() {
+        let rule = SkillApprovalRule {
+            skill: "my-tool".to_string(),
+            message: None,
+            if_project_under: vec![],
+            if_project_has: vec![],
+        };
+        assert!(rule.matches_skill("my-tool"));
+        assert!(!rule.matches_skill("my-tool:search"));
+    }
+
+    #[test]
+    fn test_skill_approval_glob_prefix() {
+        let rule = SkillApprovalRule {
+            skill: "my-plugin*".to_string(),
+            message: None,
+            if_project_under: vec![],
+            if_project_has: vec![],
+        };
+        assert!(rule.matches_skill("my-plugin:list"));
+        assert!(rule.matches_skill("my-plugin:create"));
+        assert!(rule.matches_skill("my-plugin"));
+        assert!(!rule.matches_skill("other-tool"));
+    }
+
+    #[test]
+    fn test_skill_approval_no_conditions_always_matches() {
+        let rule = SkillApprovalRule {
+            skill: "any-skill".to_string(),
+            message: None,
+            if_project_under: vec![],
+            if_project_has: vec![],
+        };
+        assert!(rule.conditions_met("/any/path"));
+    }
+
+    #[test]
+    fn test_skill_approval_if_project_has() {
+        let rule = SkillApprovalRule {
+            skill: "tracker*".to_string(),
+            message: None,
+            if_project_under: vec![],
+            if_project_has: vec![".tracker".to_string()],
+        };
+        // /tmp has no .tracker dir -> should not match
+        assert!(!rule.conditions_met("/tmp"));
+        // /tmp/. exists, so if_project_has = ["."] always matches
+        let rule2 = SkillApprovalRule {
+            skill: "test".to_string(),
+            message: None,
+            if_project_under: vec![],
+            if_project_has: vec![".".to_string()],
+        };
+        assert!(rule2.conditions_met("/tmp"));
+    }
+
+    #[test]
+    fn test_skill_approval_if_project_under() {
+        let rule = SkillApprovalRule {
+            skill: "deploy-tool".to_string(),
+            message: None,
+            if_project_under: vec!["/home/test/projects/allowed".to_string()],
+            if_project_has: vec![],
+        };
+        assert!(rule.conditions_met("/home/test/projects/allowed"));
+        assert!(rule.conditions_met("/home/test/projects/allowed/subdir"));
+        assert!(!rule.conditions_met("/home/test/projects/other"));
+    }
+
+    #[test]
+    fn test_skill_approval_config_parsing() {
+        let toml = r#"
+[[auto_approve_skills]]
+skill = "tracker*"
+if_project_has = [".tracker"]
+
+[[auto_approve_skills]]
+skill = "deploy-tool"
+if_project_under = ["~/projects/staging"]
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.auto_approve_skills.len(), 2);
+        assert_eq!(config.auto_approve_skills[0].skill, "tracker*");
+        assert_eq!(
+            config.auto_approve_skills[0].if_project_has,
+            vec![".tracker"]
+        );
+        assert_eq!(config.auto_approve_skills[1].skill, "deploy-tool");
+        assert_eq!(
+            config.auto_approve_skills[1].if_project_under,
+            vec!["~/projects/staging"]
+        );
+    }
+
+    #[test]
+    fn test_skill_approval_message_parsing() {
+        let toml = r#"
+[[auto_approve_skills]]
+skill = "my-plugin*"
+message = "Plugin project detected"
+if_project_has = [".my-plugin"]
+
+[[auto_approve_skills]]
+skill = "other-tool"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(
+            config.auto_approve_skills[0].message.as_deref(),
+            Some("Plugin project detected")
+        );
+        assert_eq!(config.auto_approve_skills[1].message, None);
+    }
+
+    #[test]
+    fn test_skill_approval_default_empty() {
+        let config = Config::default();
+        assert!(config.auto_approve_skills.is_empty());
+    }
+
+    #[test]
+    fn test_expand_tilde() {
+        let expanded = expand_tilde("~/projects/work");
+        assert!(!expanded.starts_with('~'));
+        assert!(expanded.contains("projects/work"));
+
+        // Non-tilde path unchanged
+        assert_eq!(expand_tilde("/absolute/path"), "/absolute/path");
     }
 
     #[test]
