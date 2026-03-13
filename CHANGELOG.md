@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/camjac251/tool-gates/compare/v1.4.0...v1.5.0) (2026-03-13)
+
+
+### Features
+
+* **security:** smarter secret handling for .env and doc files ([caad89b](https://github.com/camjac251/tool-gates/commit/caad89b24dd700184042f7ac52a5b36cc8662322))
+
 ## [1.4.0](https://github.com/camjac251/tool-gates/compare/v1.3.0...v1.4.0) (2026-03-11)
 
 
